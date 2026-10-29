@@ -1,0 +1,21 @@
+.claude/worktrees/
+
+# ビルドの出力
+/rajikura
+/rajikura.exe
+/dist/
+
+# Windows の rajikura.exe に埋め込むトレイの exe（go:embed が通るように .gitkeep だけ残す。cmd/rajikura/tray_windows.go）
+/cmd/rajikura/traybin/*
+!/cmd/rajikura/traybin/.gitkeep
+
+# rajikura licenses が出す Go の分のライセンスの一覧（リリースのビルドで scripts/gen-licenses.sh が作る。go:embed が通るように .gitkeep だけ残す。cmd/rajikura/licenses.go）
+/cmd/rajikura/licenses/*
+!/cmd/rajikura/licenses/.gitkeep
+
+# Web UI のビルドの結果（go:embed が通るように .gitkeep だけ残す）
+/web/dist/*
+!/web/dist/.gitkeep
+
+# フロントエンドの依存
+/web/node_modules/

@@ -1,0 +1,184 @@
+# コンテナイメージと、手元の PC で使う CLI のバイナリ（Windows・Linux の x64）を作り、v* のタグの push でイメージを ghcr.io/t-seki/rajikura:<タグ> に push し、GitHub Release を作る。
+# PR（Dockerfile・docker-bake.hcl・.dockerignore・go.mod・go.sum・web/・mise.toml・トレイ（cmd/rajikura-tray/）とその埋め込み（cmd/rajikura/tray_windows.go）・ライセンスの一覧を作るスクリプト（scripts/gen-licenses.sh）・この workflow を触るもの）では push も Release もせず、ビルドと中身の確認だけを行う。
+# latest は付けない（k8s の manifest は版を固定して指すため）。arm64 と macOS は作らない（k3s のノードは x64）。
+# runner は GitHub-hosted の標準の runner（ubuntu-latest。x64）。Docker は runner に入っている。
+#
+# ビルドは Dockerfile の 1 回にまとめている（build の job の docker buildx bake。定義は docker-bake.hcl）。
+# 理由: イメージの中のバイナリと配布物のバイナリを別々にビルドすると、Go のツールチェーンの版と Web UI のビルドが別々になり、同じものだという保証が無い。
+# 1 回の bake の中では Dockerfile の web と build の段が 1 回しか作られず、Go のツールチェーンの版も Dockerfile の 1 か所で決まる。
+# それでも、イメージの中の /usr/local/bin/rajikura と配布物の Linux のバイナリの sha256 が同じことを build の job で確かめ、違えば落とす。
+#
+# job は 2 つ。権限を分けるため（packages: write と contents: write を同じ job に持たせない）。
+# - build（contents: read・packages: write）: bake でイメージと配布物を作って確かめ、配布物を release の job へ upload-artifact で渡す（PR でも渡す）。イメージの push はタグのときだけ。
+# - release（contents: write）: ビルドはしない。配布物を受け取って SHA256SUMS を作り、タグでは --generate-notes 付きで GitHub Release を作って 3 つを添付する。
+#   配布物の名前は rajikura_<版>_windows_amd64.exe・rajikura_<版>_linux_amd64・SHA256SUMS。版は -ldflags で埋める（タグでは vX.Y.Z、PR では dev-<sha>。Windows のバイナリの確かめが、版の文字列の埋め込みを grep で見られるようにするため、PR でも固有の版にする）。
+# runner は job ごとの使い捨てなので、確かめ終えたイメージを docker から消す手順は置かない。
+# Windows のバイナリにはトレイ（cmd/rajikura-tray）を埋め込む（Dockerfile の build-windows の段）。Windows のバイナリにだけトレイが入り、Linux のバイナリとイメージには入らないことも build の job で確かめる。
+# トレイが入ったかは、トレイの exe にだけ残る文字列（トレイの package のパス github.com/t-seki/rajikura/cmd/rajikura-tray）で見る。
+# トレイが使う fyne.io/systray の名前は、Windows のバイナリのライセンスの一覧にも入るので、トレイの確かめには使えない。
+# バイナリには含むソフトウェアのライセンスの一覧を埋め込み、rajikura licenses で出す（一覧はビルドのたびに Dockerfile の中で作る。Dockerfile の冒頭）。
+# Linux のバイナリは runner で rajikura licenses を動かして中身を見て、Windows のバイナリは埋め込まれた文字列で見る。
+# イメージの OCI のラベル（org.opencontainers.image.source・org.opencontainers.image.licenses）も docker inspect で見る。
+# PR では Release を作らず、ビルドと中身の確認（版の文字列、Web UI が仮の画面でないこと、トレイの埋め込み、ライセンスの一覧、OCI のラベル、sha256 の一致）だけを行う。
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    paths:
+      - Dockerfile
+      - docker-bake.hcl
+      - .dockerignore
+      - go.mod
+      - go.sum
+      - mise.toml
+      - web/**
+      - cmd/rajikura-tray/**
+      - cmd/rajikura/tray_windows.go
+      - scripts/gen-licenses.sh
+      - .github/workflows/release.yml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/t-seki/rajikura
+      VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.sha) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - name: イメージと配布物を 1 回でビルドする（イメージは docker に読み込み、配布物は dist/ に出す）
+        run: docker buildx bake
+      - name: イメージの中で動くことを確かめる
+        run: |
+          docker run --rm "$IMAGE:$VERSION" version | grep -F "rajikura $VERSION"
+          # ffmpeg・ffprobe は入れない（m4a への格納の既定は builtin。ADR 0013）
+          # （set -e は `! cmd` の失敗を見逃すので、if で書く）
+          for bin in ffmpeg ffprobe; do
+            if docker run --rm --entrypoint "$bin" "$IMAGE:$VERSION" -version >/dev/null 2>&1; then
+              echo "イメージに $bin が入っている" >&2
+              exit 1
+            fi
+          done
+          test "$(docker run --rm --entrypoint id "$IMAGE:$VERSION" -u)" = 1000
+      - name: イメージに SPA が入っていることを確かめる（web/dist が埋め込まれず、仮の画面になっていない）
+        run: |
+          # SPA の index.html（Vite が出す）には <div id="root"> があり、web/placeholder/index.html には無い
+          docker run --rm --entrypoint grep "$IMAGE:$VERSION" -q -a -F '<div id="root">' /usr/local/bin/rajikura
+      - name: 配布物の中身を確かめる（版の文字列、Web UI が仮の画面でないこと）
+        run: |
+          ls -l dist
+          test "$(ls dist | wc -l)" = 2
+          # Linux のバイナリは runner で動かす
+          "dist/rajikura_${VERSION}_linux_amd64" version | grep -Fx "rajikura ${VERSION}"
+          # Windows のバイナリは動かせないので、埋め込まれた文字列を見る
+          for f in dist/rajikura_*; do
+            grep -q -a -F "${VERSION}" "$f"
+            grep -q -a -F '<div id="root">' "$f"
+          done
+      - name: Windows のバイナリにだけトレイが埋め込まれていることを確かめる（Linux のバイナリとイメージには入らない）
+        run: |
+          # トレイ（cmd/rajikura-tray）の package のパスが、埋め込んだトレイの exe の中に残る。
+          # rajikura.exe 自身とライセンスの一覧には、このパスは無い（fyne.io/systray の名前は一覧に入るので使わない）。入っていればトレイが埋め込まれている。
+          tray='github.com/t-seki/rajikura/cmd/rajikura-tray'
+          grep -q -a -F "$tray" "dist/rajikura_${VERSION}_windows_amd64.exe"
+          if grep -q -a -F "$tray" "dist/rajikura_${VERSION}_linux_amd64"; then
+            echo "Linux のバイナリにトレイが入っている" >&2
+            exit 1
+          fi
+          if docker run --rm --entrypoint grep "$IMAGE:$VERSION" -q -a -F "$tray" /usr/local/bin/rajikura; then
+            echo "イメージのバイナリにトレイが入っている" >&2
+            exit 1
+          fi
+      - name: ライセンスの一覧が埋め込まれていることを確かめる（Linux のバイナリには Go と Web UI の依存が入り、トレイの依存は入らない。Windows のバイナリにはトレイと Web UI の依存が入る）
+        run: |
+          # Linux のバイナリは runner で rajikura licenses を動かす（イメージの中のバイナリがこれと同じことは、後の step で sha256 で確かめる）
+          "dist/rajikura_${VERSION}_linux_amd64" licenses > "$RUNNER_TEMP/licenses-linux.txt"
+          # Apache-2.0 の NOTICE（prometheus/client_golang）、Linux だけの依存、Web UI の依存（Vite の build.license の見出し）
+          grep -q -F 'Prometheus instrumentation library for Go applications' "$RUNNER_TEMP/licenses-linux.txt"
+          grep -q -F '==> github.com/prometheus/procfs ' "$RUNNER_TEMP/licenses-linux.txt"
+          grep -q -F '## react - ' "$RUNNER_TEMP/licenses-linux.txt"
+          # トレイの依存は Linux のバイナリの一覧に入らない（set -e は `! cmd` の失敗を見逃すので、if で書く）
+          if grep -q -F 'fyne.io/systray' "$RUNNER_TEMP/licenses-linux.txt"; then
+            echo "Linux のバイナリの一覧にトレイの依存（fyne.io/systray）が入っている" >&2
+            exit 1
+          fi
+          # Windows のバイナリは動かせないので、埋め込まれた一覧の見出しを文字列で見る
+          grep -q -a -F '==> fyne.io/systray ' "dist/rajikura_${VERSION}_windows_amd64.exe"
+          grep -q -a -F '## react - ' "dist/rajikura_${VERSION}_windows_amd64.exe"
+      - name: イメージに OCI のラベルがあることを確かめる
+        run: |
+          test "$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.source" }}' "$IMAGE:$VERSION")" = https://github.com/t-seki/rajikura
+          test "$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.licenses" }}' "$IMAGE:$VERSION")" = MIT
+      - name: イメージの中のバイナリと配布物の Linux のバイナリが同じことを確かめる（sha256）
+        run: |
+          image_sum=$(docker run --rm --entrypoint sha256sum "$IMAGE:$VERSION" /usr/local/bin/rajikura | cut -d' ' -f1)
+          dist_sum=$(sha256sum "dist/rajikura_${VERSION}_linux_amd64" | cut -d' ' -f1)
+          echo "image: $image_sum"
+          echo "dist:  $dist_sum"
+          test -n "$image_sum"
+          test "$image_sum" = "$dist_sum"
+      - name: 配布物を release の job に渡す
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          retention-days: 1
+          if-no-files-found: error
+      - name: ghcr.io にログイン
+        if: github.ref_type == 'tag'
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: push
+        if: github.ref_type == 'tag'
+        run: docker push "$IMAGE:$VERSION"
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.sha) }}
+      GH_TOKEN: ${{ github.token }}
+      # この job は checkout しないので、gh が対象の repo を決められるよう明示する
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - name: SHA256SUMS を作る
+        run: |
+          ls -l dist
+          (cd dist && sha256sum rajikura_* > SHA256SUMS && cat SHA256SUMS)
+      - name: gh が runner にあることを確かめる（Release を作るステップはタグでしか走らないので、PR でもここで見る）
+        run: |
+          gh --version
+          # GH_REPO で repo が決まり、トークンで読めることも、PR でここで見る（読み取りだけ）
+          gh release list --limit 1
+      - name: GitHub Release を作り、配布物を添付する（同じタグの再実行では、Release があれば添付し直す）
+        if: github.ref_type == 'tag'
+        run: |
+          files=("dist/rajikura_${VERSION}_windows_amd64.exe" "dist/rajikura_${VERSION}_linux_amd64" dist/SHA256SUMS)
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release upload "$VERSION" --clobber "${files[@]}"
+          else
+            gh release create "$VERSION" --verify-tag --generate-notes --title "$VERSION" "${files[@]}"
+          fi

@@ -1,0 +1,43 @@
+name: 不具合の報告
+description: rajikura の不具合を報告する
+body:
+  - type: markdown
+    attributes:
+      value: |
+        - Webhook の URL、パスワード、API トークン、セットアップコードは貼らないでください。ログは、秘密を伏せてから貼ってください。
+        - 要望と質問は Discussions で受けています。
+        - 受けない要望: エリアの偽装、らじる★らじるの暗号を解くこと、同時ログインの制限を避けること。
+        - 対応の時期は約束しません。radiko の仕様が変わると録れなくなることがあり、直す時期も約束しません。
+  - type: input
+    id: version
+    attributes:
+      label: rajikura の版
+      description: '`rajikura version` の出力、または Web UI のナビの下に出る版'
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: OS と入れ方
+      description: Windows のサービス、コンテナなど
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 何をしたか
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待した結果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 何が起きたか
+      description: ログを貼るときは、秘密を伏せてください。ログの場所は https://github.com/t-seki/rajikura/blob/main/docs/getting-started.md#困ったとき にあります。
+    validations:
+      required: true

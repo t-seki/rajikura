@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<region>
+  <stations ascii_name="TOKYO JAPAN" region_id="JP13" region_name="関東">
+    <station>
+      <id>TBS</id>
+      <name>TBSラジオ</name>
+      <ascii_name>TBS RADIO</ascii_name>
+      <tf_max_delay>90</tf_max_delay>
+    </station>
+    <station>
+      <id>QRR</id>
+      <name>文化放送</name>
+      <tf_max_delay>60</tf_max_delay>
+    </station>
+  </stations>
+</region>

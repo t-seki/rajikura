@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<radiko>
+	<ttl>1800</ttl>
+	<srvtime>1791823147</srvtime>
+	<stations>
+		<station id="TBS">
+		<name>TBSラジオ</name>
+
+
+			<progs>
+				<date>20261013</date>
+<prog id="14034080" master_id="" ft="20261013050000" to="20261013063000" ftl="0500" tol="0630" dur="5400">
+						<title>番組A</title>
+						<url>https://example.invalid/a/</url>
+						<url_link>https://example.invalid/a/?x11=_(radiko-uid)</url_link>
+						<failed_record>0</failed_record>
+						<ts_in_ng>0</ts_in_ng>
+						<tsplus_in_ng>0</tsplus_in_ng>
+						<ts_out_ng>0</ts_out_ng>
+						<tsplus_out_ng>0</tsplus_out_ng>
+						<desc></desc>
+						<info>要約&lt;br&gt;本文</info>
+						<pfm>出演者A　ゲスト：出演者X（芸人）</pfm>
+						<img>https://example.invalid/img-a.jpg</img>
+						<tag><item><name>タグ1</name></item><item><name>健康</name></item><item><name>タグ2</name></item></tag>
+						<genre></genre>
+						<metas>
+<meta name="twitter" value="#radiko" />
+						</metas>
+					</prog>
+<prog id="14034081" master_id="" ft="20261013063000" to="20261013083000" ftl="0630" tol="0830" dur="7200">
+						<title>番組B</title>
+						<url>https://example.invalid/b/</url>
+						<url_link>https://example.invalid/b/?x11=_(radiko-uid)</url_link>
+						<failed_record>0</failed_record>
+						<ts_in_ng>0</ts_in_ng>
+						<tsplus_in_ng>0</tsplus_in_ng>
+						<ts_out_ng>0</ts_out_ng>
+						<tsplus_out_ng>0</tsplus_out_ng>
+						<desc></desc>
+						<info>要約&lt;br&gt;本文</info>
+						<pfm>出演者B / 出演者C</pfm>
+						<img>https://example.invalid/img-b.jpg</img>
+						<tag><item><name>タグ3</name></item><item><name>タグ4</name></item><item><name>タグ5</name></item><item><name>タグ2</name></item></tag>
+						<genre><personality id="C001"><name>アナウンサー</name></personality><program id="P001"><name>ニュース/天気/交通</name></program></genre>
+						<metas>
+<meta name="twitter" value="#radiko" />
+						</metas>
+					</prog>
+<prog id="14034082" master_id="" ft="20261013083000" to="20261013100000" ftl="0830" tol="1000" dur="5400">
+						<title>番組C (1)</title>
+						<url>https://example.invalid/c/</url>
+						<url_link>https://example.invalid/c/?x11=_(radiko-uid)</url_link>
+						<failed_record>0</failed_record>
+						<ts_in_ng>0</ts_in_ng>
+						<tsplus_in_ng>0</tsplus_in_ng>
+						<ts_out_ng>0</ts_out_ng>
+						<tsplus_out_ng>0</tsplus_out_ng>
+						<desc></desc>
+						<info>要約&lt;br&gt;本文</info>
+						<pfm>出演者D（コンビ） / 出演者E（コンビ）　ゲスト：出演者Y（俳優）</pfm>
+						<img>https://example.invalid/img-c.jpg</img>
+						<tag><item><name>タグ6</name></item></tag>
+						<genre><personality id="C009"><name>芸人</name></personality><program id="P007"><name>トーク</name></program></genre>
+						<metas>
+<meta name="twitter" value="#radiko" />
+						</metas>
+					</prog>
+		</progs>
+		</station>
+		<station id="QRR">
+		<name>文化放送</name>
+
+
+			<progs>
+				<date>20261013</date>
+<prog id="14039239" master_id="" ft="20261013050000" to="20261013060000" ftl="0500" tol="0600" dur="3600">
+						<title>番組D 5時～6時</title>
+						<url>https://example.invalid/d/</url>
+						<url_link></url_link>
+						<failed_record>0</failed_record>
+						<ts_in_ng>0</ts_in_ng>
+						<tsplus_in_ng>0</tsplus_in_ng>
+						<ts_out_ng>0</ts_out_ng>
+						<tsplus_out_ng>0</tsplus_out_ng>
+						<desc>案内文&lt;br&gt;&lt;a href=&quot;https://example.invalid/form&quot; target=&quot;_blank&quot;&gt;https://example.invalid/form&lt;/a&gt;&lt;br&gt;&lt;br&gt;</desc>
+						<info>要約&lt;br&gt;本文</info>
+						<pfm>出演者F</pfm>
+						<img>https://example.invalid/img-d.jpg</img>
+						<tag><item><name>タグ7</name></item><item><name>タグ8</name></item><item><name>タグ9</name></item><item><name>タグ10</name></item></tag>
+						<genre><personality id="C012"><name>文化人</name></personality><program id="P001"><name>ニュース/天気/交通</name></program></genre>
+						<metas>
+<meta name="twitter" value="#radiko" />
+						</metas>
+					</prog>
+<prog id="14039240" master_id="" ft="20261013060000" to="20261013070000" ftl="0600" tol="0700" dur="3600">
+						<title>番組D 6時～7時</title>
+						<url>https://example.invalid/d/</url>
+						<url_link></url_link>
+						<failed_record>0</failed_record>
+						<ts_in_ng>0</ts_in_ng>
+						<tsplus_in_ng>0</tsplus_in_ng>
+						<ts_out_ng>0</ts_out_ng>
+						<tsplus_out_ng>0</tsplus_out_ng>
+						<desc>案内文&lt;br&gt;&lt;a href=&quot;https://example.invalid/form&quot; target=&quot;_blank&quot;&gt;https://example.invalid/form&lt;/a&gt;&lt;br&gt;&lt;br&gt;</desc>
+						<info>要約&lt;br&gt;本文</info>
+						<pfm>出演者F</pfm>
+						<img>https://example.invalid/img-d.jpg</img>
+						<tag><item><name>タグ7</name></item><item><name>タグ8</name></item><item><name>タグ9</name></item><item><name>タグ10</name></item></tag>
+						<genre><personality id="C012"><name>文化人</name></personality><program id="P001"><name>ニュース/天気/交通</name></program></genre>
+						<metas>
+<meta name="twitter" value="#radiko" />
+						</metas>
+					</prog>
+<prog id="14039241" master_id="" ft="20261013070000" to="20261013080000" ftl="0700" tol="0800" dur="3600">
+						<title>番組D 7時～8時</title>
+						<url>https://example.invalid/d/</url>
+						<url_link></url_link>
+						<failed_record>0</failed_record>
+						<ts_in_ng>0</ts_in_ng>
+						<tsplus_in_ng>0</tsplus_in_ng>
+						<ts_out_ng>0</ts_out_ng>
+						<tsplus_out_ng>0</tsplus_out_ng>
+						<desc>案内文&lt;br&gt;&lt;a href=&quot;https://example.invalid/form&quot; target=&quot;_blank&quot;&gt;https://example.invalid/form&lt;/a&gt;&lt;br&gt;&lt;br&gt;</desc>
+						<info>要約&lt;br&gt;本文</info>
+						<pfm>出演者F</pfm>
+						<img>https://example.invalid/img-d.jpg</img>
+						<tag><item><name>タグ7</name></item><item><name>タグ8</name></item><item><name>タグ9</name></item><item><name>タグ10</name></item></tag>
+						<genre><personality id="C012"><name>文化人</name></personality><program id="P001"><name>ニュース/天気/交通</name></program></genre>
+						<metas>
+<meta name="twitter" value="#radiko" />
+						</metas>
+					</prog>
+		</progs>
+		</station>
+	</stations>
+</radiko>

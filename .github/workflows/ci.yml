@@ -1,0 +1,183 @@
+# Go の検査（go vet・go test・gofmt、Windows は加えて staticcheck の U1000）を Linux と Windows で回す。
+# CI の job を全部 GitHub-hosted の標準の runner（Linux は ubuntu-latest、Windows は windows-latest。x64）で動かす。public の repo では無料。
+# runner は job ごとの使い捨てだが、git config --global のように設定を残す書き方はしない（Windows の checkout の設定は環境変数で渡す）。
+# Windows は core.autocrlf=true で checkout し（環境変数 GIT_CONFIG_COUNT で渡す）、LF のままであること（.gitattributes）も確かめる。
+# ffmpeg / ffprobe を使うテストは、見つからなければ t.Skip する決まり。
+# Linux の ffmpeg は、この workflow が apt で入れる（GitHub-hosted の ubuntu-latest に最初から入っているかは確かめていない）。入れた後に有ることを確かめ、skip されたテストがあれば失敗にする（CI で何も確かめない状態を防ぐ）。
+# Windows は ffmpeg を入れない。runner に有ればテストが走り、無ければ skip を許す（失敗にしない）。skip されたテストは一覧にして出すだけ。
+# トリガは PR（pull_request）と main への push に絞る。全ブランチの push も拾うと、PR のブランチに push するたびに同じ変更で 2 回走るため。同じ ref の古い実行は concurrency で捨てる。
+# web の job で、フロントエンド（web/）の型チェック・テスト・ビルドを Linux で回す。
+# 別の job で、docs と README.md と GLOSSARY.md の定義文が GLOSSARY.md の _Avoid_ に当たらないことと、その検査の例文テスト（scripts/check-glossary_test.sh）を Linux で流す。同じ job で、docs と README.md がバッククォートで名指しするコードのパス（internal/・cmd/）と `型.メソッド` が実在することと、その例文テスト（scripts/check-code-refs_test.sh）も流す。同じ job で、Go のソースのコメントが名指しする .go のファイルが実在することと、その例文テスト（scripts/check-go-comment-refs_test.sh）も流す。同じ job で、docs/development.md の「足したら直す列挙」の印（直す場所に置く項の名前）が列挙の項と合うことと、その例文テスト（scripts/check-fix-markers_test.sh）も流す。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # docs と README.md の検査を Linux で流す。
+  # - 用語: docs・README.md・GLOSSARY.md の定義文が GLOSSARY.md の _Avoid_ の語を使っていないか（scripts/check-glossary.sh。許す言い回しは scripts/glossary-allow.txt、
+  #   行末の <!-- glossary-ok: 語 --> は書いた語だけを外す）と、その例文テスト（scripts/check-glossary_test.sh）。
+  # - 名指し: バッククォートで名指しするコードのパスと 型.メソッド が実在するか（scripts/check-code-refs.sh。
+  #   行末の <!-- code-ref-ok: 名指し --> は書いた名指しだけを外す）と、その例文テスト（scripts/check-code-refs_test.sh）。
+  # - Go のコメントの名指し: Go のソースのコメントが名指しする .go のファイルが実在するか（scripts/check-go-comment-refs.sh。
+  #   コメント末尾の code-ref-ok: 名指し は書いた名指しだけを外す）と、その例文テスト（scripts/check-go-comment-refs_test.sh）。
+  # - 足したら直す列挙の印: git が追うファイルの印の名前が docs/development.md の「足したら直す列挙」の項の名前と合い、どの項の印も
+  #   1 つ以上あるか（scripts/check-fix-markers.sh。docs/adr/ と列挙の節の中は数えない）と、その例文テスト（scripts/check-fix-markers_test.sh）。
+  glossary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: 用語集の _Avoid_ の語が docs に無いこと
+        run: scripts/check-glossary.sh
+      - name: 検査の例文テスト
+        run: scripts/check-glossary_test.sh
+      - name: docs が名指しするコードのパスと名前が実在すること
+        run: scripts/check-code-refs.sh
+      - name: 名指しの検査の例文テスト
+        run: scripts/check-code-refs_test.sh
+      - name: Go のコメントが名指しする .go のファイルが実在すること
+        run: scripts/check-go-comment-refs.sh
+      - name: Go のコメントの名指しの検査の例文テスト
+        run: scripts/check-go-comment-refs_test.sh
+      - name: 足したら直す列挙の印が列挙の項と合うこと
+        run: scripts/check-fix-markers.sh
+      - name: 足したら直す列挙の印の検査の例文テスト
+        run: scripts/check-fix-markers_test.sh
+
+  go:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Linux
+            runs-on: ubuntu-latest
+            git-config-count: 0
+          - label: Windows
+            runs-on: windows-latest
+            git-config-count: 1
+    name: go (${{ matrix.label }})
+    runs-on: ${{ matrix.runs-on }}
+    # Windows の実機（Git for Windows の既定）と同じ core.autocrlf=true で checkout し、
+    # .gitattributes（eol=lf）が効いて CRLF にならないことを後の step で確かめる。
+    # 回避のために false にはしない。git config --global は使わず、環境変数で渡す（git 2.31 以上）。
+    # Linux は GIT_CONFIG_COUNT=0 なので効かない。
+    env:
+      GIT_CONFIG_COUNT: ${{ matrix.git-config-count }}
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: "true"
+    steps:
+      - name: git のバージョン（Windows は 2.31 以上が要る）
+        shell: bash
+        run: git --version
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: LF で checkout されたことを確かめる
+        shell: bash
+        run: |
+          eol=$(git ls-files --eol)
+          # 検査が空振りしていないこと（eol=lf の属性が付いている）
+          grep -q 'attr/text=auto eol=lf.*cmd/rajikura/main.go' <<<"$eol"
+          bad=$(grep -E 'w/(crlf|mixed)' <<<"$eol" || true)
+          if [ -n "$bad" ]; then
+            echo "CRLF が残っている:" >&2
+            echo "$bad" >&2
+            exit 1
+          fi
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - name: go vet
+        run: go vet ./...
+      - name: ffmpeg を入れ、有ることを確かめる
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          command -v ffmpeg ffprobe
+          ffmpeg -version | head -n 1
+          ffprobe -version | head -n 1
+      - name: go test
+        shell: bash
+        run: |
+          set -o pipefail
+          go test -v ./... | tee test.log
+          skipped=$(grep -E '^\s*--- SKIP' test.log || true)
+          if [ -n "$skipped" ]; then
+            echo "skip されたテスト:"
+            echo "$skipped"
+            # Linux では ffmpeg が有ることを確かめているので、skip は ffmpeg が使われていない印。
+            if [ "$RUNNER_OS" = Linux ]; then
+              exit 1
+            fi
+          fi
+      - name: gofmt
+        shell: bash
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "gofmt が必要なファイル:"
+            echo "$out"
+            exit 1
+          fi
+      # 使われていない識別子（U1000）だけを見る。staticcheck の -matrix で GOOS=windows と GOOS=linux の両方を 1 回で解析し、
+      # 全部の組み合わせで使われていないものだけを出す。片方の GOOS だけだと、もう片方のビルドタグのファイル（トレイは windows 専用、*_other.go は !windows）から
+      # だけ使われるものが誤検出になり、逆にそのファイルの未使用が見落とされる。Windows の job でだけ流すのは重複を避けるため（-matrix は OS を問わず両方を見る）。
+      # バージョンは固定し、手で上げる（staticcheck の新しい版を使いたいとき、または Go の版を上げて古い版が解析できなくなったとき）。
+      # Renovate が追わない理由: `go run ...@<版>` の行を Renovate が拾うかは確かめていない（未確認）。renovate.json は local>t-seki/renovate-config を extends し、
+      # その preset（public）の default.json は config:best-practices を extends して packageRules などを足すだけで、customManagers は定義していない。
+      # ただし config:best-practices 側の設定で拾うかは読んでいない。拾うと確かめたら、この説明を直す。
+      - name: staticcheck（使われていない識別子 U1000。windows と linux の両方のビルド）
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          printf 'windows: GOOS=windows\nlinux: GOOS=linux\n' | go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 -matrix -checks U1000 ./...
+
+  # フロントエンド（web/）の型チェック・テスト・ビルド。Linux の runner だけで回す。
+  # Node と pnpm の版は mise.toml で固定してあり、mise-action がそれを入れる（runner に mise・Node・pnpm が有るかは確かめていないので、毎回入れる）。
+  # go の job（Windows を含む）は Node なしで通る（web/dist/.gitkeep があるので go:embed が通る）。
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
+      - name: Dockerfile の Node の版が mise.toml と同じこと
+        run: |
+          docker_node=$(sed -n 's/^FROM node:\([0-9.]*\)-alpine.*/\1/p' Dockerfile)
+          mise_node=$(sed -n 's/^node = "\(.*\)"/\1/p' mise.toml)
+          echo "Dockerfile: $docker_node, mise.toml: $mise_node"
+          test -n "$docker_node" && test "$docker_node" = "$mise_node"
+      - name: 依存を入れる
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+      - name: 型チェック
+        working-directory: web
+        run: pnpm typecheck
+      - name: テスト
+        working-directory: web
+        run: pnpm test
+      - name: ビルド
+        working-directory: web
+        run: pnpm build
+      - name: ビルドの後も git status が汚れないこと（web/dist は .gitignore 済み）
+        run: |
+          out=$(git status --porcelain)
+          if [ -n "$out" ]; then
+            echo "ビルドの後に差分がある:"
+            echo "$out"
+            exit 1
+          fi

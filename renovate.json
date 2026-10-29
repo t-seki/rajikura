@@ -1,0 +1,14 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "local>t-seki/renovate-config"
+  ],
+  "packageRules": [
+    {
+      "description": "rajikura では自動マージしない。preset の automerge を上書きする(依存の更新もほかの PR と同じくレビューを経てマージするため)",
+      "matchPackageNames": ["*"],
+      "automerge": false,
+      "platformAutomerge": false
+    }
+  ]
+}

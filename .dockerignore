@@ -1,0 +1,10 @@
+.git
+.github
+.claude
+docs
+*.md
+web/node_modules
+web/dist
+cmd/rajikura/traybin/rajikura-tray.exe
+Dockerfile
+.dockerignore

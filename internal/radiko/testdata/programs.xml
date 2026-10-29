@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<radiko>
+  <ttl>14400</ttl>
+  <srvtime>1791400000</srvtime>
+  <stations>
+    <station id="TBS">
+      <name>TBSラジオ</name>
+      <progs>
+        <date>20261007</date>
+        <prog id="P001" ft="20261008013000" to="20261008030000" dur="5400">
+          <title>深夜の番組</title>
+          <pfm>出演者A</pfm>
+          <info>&lt;p&gt;深夜の&lt;b&gt;案内&lt;/b&gt; &amp;amp; 説明&lt;/p&gt;</info>
+          <desc>desc は使われない</desc>
+          <img>https://example.invalid/img1.jpg</img>
+          <ts_in_ng>0</ts_in_ng>
+          <tsplus_in_ng>0</tsplus_in_ng>
+        </prog>
+        <prog id="P002" ft="20261008083000" to="20261008100000" dur="5400">
+          <title>ふらっと (1)</title>
+          <pfm>出演者B</pfm>
+          <info></info>
+          <desc>info が空なので desc</desc>
+          <img>https://example.invalid/img2.jpg</img>
+          <ts_in_ng>2</ts_in_ng>
+          <tsplus_in_ng>1</tsplus_in_ng>
+        </prog>
+        <prog id="P002" ft="20261008100000" to="20261008110000" dur="3600">
+          <title>ふらっと (2)</title>
+          <pfm>出演者B</pfm>
+          <info><![CDATA[<a href="x">リンク</a> &lt;3]]></info>
+          <desc></desc>
+          <img></img>
+          <ts_in_ng>0</ts_in_ng>
+          <tsplus_in_ng>0</tsplus_in_ng>
+        </prog>
+      </progs>
+    </station>
+  </stations>
+</radiko>

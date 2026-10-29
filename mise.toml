@@ -1,0 +1,4 @@
+# フロントエンド（web/）の Node と pnpm の版。CI（.github/workflows/ci.yml）と Dockerfile の Node の段も、この版に揃える。
+[tools]
+node = "24.22.1"
+pnpm = "12.15.0"

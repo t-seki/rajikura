@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 要望と質問（Discussions）
+    url: https://github.com/t-seki/rajikura/discussions
+    about: 要望と質問は Discussions で受けています。
+  - name: 脆弱性の報告（非公開）
+    url: https://github.com/t-seki/rajikura/security/advisories/new
+    about: 脆弱性は公開の issue に書かず、こちらから非公開で報告してください。
