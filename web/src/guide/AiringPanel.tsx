@@ -21,7 +21,10 @@ import {
   airingDayRange,
   broadcastDayOf,
   broadcastRange,
+  excludedExpired,
   liveExpired,
+  reserveExpired,
+  timeFree30ExcludedLabel,
   notAvailableLabel,
   notAvailableMark,
   stateColor,
@@ -64,6 +67,11 @@ export function StateBadge({ airing }: { airing: GuideAiring }) {
       {airing.notAvailable && (
         <Badge color="orange" variant="light" leftSection={notAvailableMark}>
           {notAvailableLabel}
+        </Badge>
+      )}
+      {airing.timeFree30Excluded && (
+        <Badge color="grape" variant="light">
+          {timeFree30ExcludedLabel}
         </Badge>
       )}
     </Group>
@@ -195,7 +203,9 @@ function AiringDetail({
   const targets = selection ? selection.rows.filter((a) => selection.picked.includes(a.start)) : [airing];
   // 録音期限（放送の終了の 5 分後）を過ぎたタイムフリーの対象外の放送回。「この回を録音」は API が断るので出さない
   const expiredLive = liveExpired(airing);
-  const expiredTarget = expiredLive || targets.some((a) => liveExpired(a));
+  // 録音期限（放送日の 7 日後）を過ぎたタイムフリー30 の対象外の放送回も同じ
+  const expiredExcluded = excludedExpired(airing);
+  const expiredTarget = expiredLive || expiredExcluded || targets.some((a) => reserveExpired(a));
   const [shows, setShows] = useState<Show[] | null>(null);
   const [showsError, setShowsError] = useState<string | null>(null);
   // その放送日の番組表の全局の放送回（足す先の番組がもう当てている放送回を数える）。読めなければ空
@@ -395,6 +405,16 @@ function AiringDetail({
           {airing.notAvailable && !expiredLive && (
             <Text size="sm" c="dimmed">
               タイムフリーの対象外なので、放送中にライブで録る（放送の時刻に rajikura が動いている必要がある）。
+            </Text>
+          )}
+          {airing.timeFree30Excluded && !expiredExcluded && (
+            <Text size="sm" c="dimmed">
+              タイムフリー30 の対象外なので、放送日から 7 日を過ぎると録れない。
+            </Text>
+          )}
+          {expiredExcluded && (
+            <Text size="sm" c="dimmed">
+              タイムフリー30 の対象外で、録音期限（放送日から 7 日）を過ぎたので、この回はもう録れない。
             </Text>
           )}
           {expiredLive && (

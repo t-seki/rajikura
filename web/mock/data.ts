@@ -92,6 +92,7 @@ export function guideOf(day: string): GuideStation[] {
         state,
         ...(showName ? { showName } : {}),
         notAvailable: false,
+        timeFree30Excluded: false,
       };
     });
     return { id: st.id, name: st.name, airings };

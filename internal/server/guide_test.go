@@ -439,6 +439,35 @@ func (s membershipSettings) Current() config.Config {
 	return config.Config{Chapters: true, Membership: *s.m}
 }
 
+// timeFree30Excluded は、タイムフリー30・ダブルプランで tsplus_in_ng が 0 でない放送回にだけ立つ（1 でも 2 でも）。
+// 非会員・エリアフリーは録音期限が 7 日で変わらないので立たない。
+func TestGuideViewTimeFree30Excluded(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		membership domain.Membership
+		plusInNG   int
+		want       bool
+	}{
+		{"タイムフリー30・0", domain.MembershipTimeFree30, 0, false},
+		{"タイムフリー30・1", domain.MembershipTimeFree30, 1, true},
+		{"タイムフリー30・2", domain.MembershipTimeFree30, 2, true},
+		{"ダブルプラン・0", domain.MembershipDouble, 0, false},
+		{"ダブルプラン・1", domain.MembershipDouble, 1, true},
+		{"ダブルプラン・2", domain.MembershipDouble, 2, true},
+		{"非会員・2", domain.MembershipFree, 2, false},
+		{"エリアフリー・2", domain.MembershipAreaFree, 2, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := domain.Airing{StationID: "LFR", Start: jst(2026, 10, 4, 1, 0), End: jst(2026, 10, 4, 3, 0), Title: "番組",
+				TimeFree: domain.TimeFreeFlags{PlusInNG: tc.plusInNG}}
+			got := shows{now: jst(2026, 11, 1, 12, 0), membership: tc.membership}.view(a, "ニッポン放送")
+			if got.TimeFree30Excluded != tc.want {
+				t.Errorf("TimeFree30Excluded = %v, want %v", got.TimeFree30Excluded, tc.want)
+			}
+		})
+	}
+}
+
 // 番組表の API の過去の範囲は、今の会員種別の最大の録音期限の日数（7 日か 30 日）。会員種別を保存したらすぐ効く。
 func TestGuideDayRangeFollowsMembership(t *testing.T) {
 	e := newGuideUI(t)

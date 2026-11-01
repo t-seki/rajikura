@@ -27,7 +27,7 @@ function mockApi(routes: Record<string, Handler>) {
 }
 
 const today = broadcastDayOf(new Date());
-const base = { performer: "", description: "", descriptionParts: [], notAvailable: false, state: "none" as const };
+const base = { performer: "", description: "", descriptionParts: [], notAvailable: false, timeFree30Excluded: false, state: "none" as const };
 const airing = (stationId: string, stationName: string, title: string): GuideAiring => ({
   ...base,
   stationId,

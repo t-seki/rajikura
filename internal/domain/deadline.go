@@ -5,7 +5,10 @@ import "time"
 // ExcludedFromTimeFree30 は放送回がタイムフリー30 の対象外か（番組表の tsplus_in_ng が 0 でない。TimeFreeFlags.PlusInNG）。
 // 対象外の放送回は、タイムフリー30・ダブルプランでも録音期限が 7 日になる。
 //
-// tsplus_in_ng をこの意味に読むのは、名前からの推測（本物の radiko では確かめていない。未確認）。
+// tsplus_in_ng をこの意味に読むのは、2026-11-01 に実機（タイムフリー30 の会員）で確かめた。番組表で tsplus_in_ng が 2 だった
+// 放送回（LFR の 2026-10-03T16:00:00Z）は、放送日から 8 日目以降は radiko の公式でも聴けなかった
+// （「この番組はタイムフリー30に対応していないため、ラジコプレミアムにご登録いただいている方も含め、放送日から8日目以降は
+// 聴くことができません。」）。値は 1 でも 2 でも対象外（7 日を過ぎると聴けない）。値ごとの違いは見分けない。
 func ExcludedFromTimeFree30(a Airing) bool {
 	return a.TimeFree.PlusInNG != 0
 }

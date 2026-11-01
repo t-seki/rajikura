@@ -52,7 +52,7 @@ function airing(over: Partial<GuideAiring> & Pick<GuideAiring, "title" | "start"
     description: "",
     descriptionParts: [],
     state: "none",
-    notAvailable: false,
+    notAvailable: false, timeFree30Excluded: false,
     ...over,
   };
 }
