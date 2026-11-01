@@ -202,7 +202,8 @@ type jobDetail struct {
 	DurationSeconds float64 `json:"durationSeconds"`
 }
 
-// summarize はジョブの一覧の 1 行にする。last はそのジョブの直近の試行（無ければ nil）で、失敗の段階とエラーに使う。
+// summarize はジョブの一覧の 1 行にする。last はそのジョブの直近の試行（無ければ nil）で、失敗の段階とエラー（LastFailedStage・LastError）、済んだ時刻（finishedAt）、
+// 手動再試行の可否（domain.ManualRetryInTime）、録れた分を残す期限（domain.LiveKeepUntil）に使う。
 func summarize(j domain.Job, last *domain.Attempt, now time.Time) jobSummary {
 	settled := j.State == domain.StateSkipped && j.Settled
 	s := jobSummary{
