@@ -211,7 +211,8 @@ func (a *App) reviseForOwnArea(ctx context.Context, from, to string) bool {
 	return true
 }
 
-// ownStations は、会員種別 m で録音期限を付け直すときに使う、エリア area（空なら今の自分のエリア）の局一覧を返す。
+// ownStations は、会員種別 m で録音期限を付け直すときに使う、エリア area の局一覧を返す（空なら、AreaGuide が認証で得た
+// 自分のエリア。RadikoAreaGuide の覚えで、App と DB の覚えではない）。
 // エリアフリー・ダブルプランでなければ、エリアの外から録るかを使わないので、取らずに nil を返す。AreaGuide が無ければ nil
 // （ジョブの放送回の印をそのまま使う）。取れない・空ならエラー。
 func (a *App) ownStations(ctx context.Context, m domain.Membership, area string) (map[string]bool, error) {

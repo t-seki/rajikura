@@ -629,7 +629,8 @@ func (a *App) RunExpander(ctx context.Context) error {
 // 2 つの展開が同時に走らない。順に処理するのは次の 5 つ。
 //
 //   - 録音期限の付け直し（自分のエリアが変わったときは続く番組表の同期 1 回も。seeOwnArea と、会員種別を保存したときの
-//     requestRevise が expandWake で頼む。reviseIfRequested。own_area.go）
+//     requestRevise が expandWake で頼む。reviseIfRequested。own_area.go）。起動時は、同期の前に会員種別の付け直しを 1 回行う
+//     （startupSync）。局一覧を取れずに残った会員種別の付け直しの依頼は、次の expandWake か SyncInterval ごとの同期の前にやり直す
 //   - 展開の依頼（RequestExpand。expandRequested）
 //   - 展開の依頼で展開できなかった局・放送日の試し直し（retryExpand。間は ExpandRetryDelays で延ばしていく）
 //   - 番組表の同期（syncOnExpander）。起動時（Startup が onExpander で頼む）と SyncInterval ごと
@@ -891,8 +892,8 @@ func (a *App) checkNotificationsLogged(ctx context.Context) {
 	}
 }
 
-// Startup は起動時の処理（回復、partial の掃除、番組表の同期）をする。同期は展開役に頼み、終わるまで待つ
-// （展開役が動いている間に呼ぶ）。回復に失敗したらエラーを返す（ctx が切られたことによる失敗は除く。エラーにしない）。掃除と同期の失敗はログに出して続ける。
+// Startup は起動時の処理（回復、partial の掃除、会員種別の録音期限の付け直し、番組表の同期）をする。付け直しと同期は
+// 展開役に頼み、終わるまで待つ（展開役が動いている間に呼ぶ。付け直しは同期の前。startupSync）。回復に失敗したらエラーを返す（ctx が切られたことによる失敗は除く。エラーにしない）。掃除と同期の失敗はログに出して続ける。
 // Serve は、回復と掃除（startupRecover）と同期（startupSync）の間にライブの録音役を起こす。
 func (a *App) Startup(ctx context.Context) error {
 	if err := a.startupRecover(ctx); err != nil {
