@@ -33,11 +33,14 @@ package server
 //   - jobId: 放送回のジョブの ID。ジョブがあるときだけ付ける（番組表の詳細の「録らない」「録る」が使う。ADR 0019）
 //   - skipBy: state が skip_planned・skipped のとき、誰が録らないと決めたか（title: rajikura が番組名の食い違いで、person: 人が）
 //   - skippable: 「録らない」（POST /api/jobs/{id}/skip）を受け付けるか（ジョブが、試行がまだ 1 度も無い waiting）
-//   - notAvailable: タイムフリーの対象外（ts_in_ng が立っている。domain.Airing.TimeFreeExcluded）。この放送回はライブで録る
-//     （画面は「ライブで録る」と出す）。ほかの放送回と同じく、1 回の予約でも予約できる
-//   - timeFree30Excluded: タイムフリー30 の対象外（tsplus_in_ng が 0 でない。domain.ExcludedFromTimeFree30）で、録音期限が
-//     7 日になる放送回。会員種別がタイムフリー30・ダブルプランのときだけ立つ（非会員・エリアフリーは、もともと 7 日で変わらない）。
-//     画面は「タイムフリー30 の対象外」と出し、7 日を過ぎた放送回には予約の操作を出さない
+//   - notAvailable: タイムフリーの対象外（domain.Airing.TimeFreeExcluded。自分のエリアの局は ts_in_ng、エリアの外の局は
+//     ts_out_ng が 0 でない）。この放送回はライブで録る（画面は「ライブで録る」と出す）。ほかの放送回と同じく、1 回の予約でも予約できる
+//   - timeFree30Excluded: タイムフリー30 の対象外（domain.ExcludedFromTimeFree30。自分のエリアの局は tsplus_in_ng、エリアの外の局は
+//     tsplus_out_ng が 0 でない）で、録音期限が 7 日になる放送回。会員種別がタイムフリー30・ダブルプランのときだけ立つ（非会員・
+//     エリアフリーは、もともと 7 日で変わらない）。画面は「タイムフリー30 の対象外」と出し、7 日を過ぎた放送回には予約の操作を出さない
+//
+// エリアの外の局か（domain.Airing.OutOfArea）は、局が自分のエリアの番組表の局一覧に無いかで、番組表（app.AreaGuide）が決める。
+// 局は複数のエリアにまたがるので、ほかのエリアの番組表に出る局でも、自分のエリアの局一覧にあれば自分のエリアの局として扱う。
 
 import (
 	"context"
@@ -135,7 +138,8 @@ func (u *UI) guideAreas(w http.ResponseWriter, r *http.Request) {
 }
 
 // airingLookup は放送回を番組表で探す（1 回の予約の API が使う）。自分のエリアの番組表で探し、無ければ、エリアフリーの会員に限り、
-// その局のエリア（full.xml の area_id）の番組表で探す。放送日とエリアごとに 1 回だけ引く。
+// その局のエリア（full.xml の area_id）の番組表で探す。放送日とエリアごとに 1 回だけ引く。その局のエリアの番組表で見つけた放送回は、
+// 自分のエリアの局一覧に無い局のものなので、エリアの外から録る印（domain.Airing.OutOfArea）が立っている（app.AreaGuide.AreaAiringsOf）。
 type airingLookup struct {
 	u    *UI
 	days map[string][]app.AreaStation

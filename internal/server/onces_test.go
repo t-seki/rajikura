@@ -235,6 +235,11 @@ func TestOnceTimeFree30Excluded(t *testing.T) {
 		{StationID: "TBS", Start: jst(2026, 9, 27, 10, 0), End: jst(2026, 9, 27, 11, 0), Title: "30 日の放送回"},
 		{StationID: "TBS", Start: jst(2026, 9, 27, 11, 0), End: jst(2026, 9, 27, 12, 0), Title: "対象外の放送回",
 			TimeFree: domain.TimeFreeFlags{PlusInNG: 1}},
+		// エリアの外から録る放送回（番組表が OutOfArea を立てたもの）は tsplus_out_ng で決める（#27）。
+		{StationID: "TBS", Start: jst(2026, 9, 27, 12, 0), End: jst(2026, 9, 27, 13, 0), Title: "エリアの外から対象外の放送回",
+			TimeFree: domain.TimeFreeFlags{PlusOutNG: 1}, OutOfArea: true},
+		{StationID: "TBS", Start: jst(2026, 9, 27, 13, 0), End: jst(2026, 9, 27, 14, 0), Title: "エリアの外から 30 日の放送回",
+			TimeFree: domain.TimeFreeFlags{PlusInNG: 1}, OutOfArea: true},
 	}
 	e.guide.airings["TBS/2026-09-27"] = old
 	area.stations["2026-09-27"] = []app.AreaStation{{ID: "TBS", Name: "TBSラジオ", Airings: old}}
@@ -248,6 +253,12 @@ func TestOnceTimeFree30Excluded(t *testing.T) {
 		t.Fatalf("録音期限を過ぎた放送回として断っていない: %v", bad)
 	}
 	e.call("POST", osPath("単発の番組"), body(10), 201, nil)
+	bad = nil
+	e.call("POST", osPath("単発の番組"), body(12), 400, &bad)
+	if !strings.Contains(bad["error"], "録音期限を過ぎた放送回") {
+		t.Fatalf("エリアの外から tsplus_out_ng の放送回を、録音期限を過ぎた放送回として断っていない: %v", bad)
+	}
+	e.call("POST", osPath("単発の番組"), body(13), 201, nil)
 }
 
 func TestOnceListInShow(t *testing.T) {

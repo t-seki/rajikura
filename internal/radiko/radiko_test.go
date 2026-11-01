@@ -173,7 +173,8 @@ func TestPrograms(t *testing.T) {
 		if p0.Description != "深夜の案内 & 説明" {
 			t.Errorf("p0 description = %q", p0.Description)
 		}
-		if p1.Description != "info が空なので desc" || p1.TSInNG != "2" || p1.TSPlusInNG != "1" {
+		if p1.Description != "info が空なので desc" || p1.TSInNG != "2" || p1.TSPlusInNG != "1" ||
+			p1.TSOutNG != "1" || p1.TSPlusOutNG != "2" {
 			t.Errorf("p1 = %+v", p1)
 		}
 		if p2.Description != "リンク <3" {

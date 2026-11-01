@@ -19,7 +19,34 @@ func TestLiveAirings(t *testing.T) {
 		t.Error("対象外の放送回が 1 つでもあれば、ジョブをライブで録る")
 	}
 	if (Airing{TimeFree: TimeFreeFlags{OutNG: 1}}).TimeFreeExcluded() {
-		t.Error("ts_out_ng だけでは対象外にしない")
+		t.Error("自分のエリアの局では、ts_out_ng だけでは対象外にしない")
+	}
+}
+
+// エリアの外から録る放送回（OutOfArea）は ts_out_ng、自分のエリアの局の放送回は ts_in_ng で、タイムフリーの対象外かを決める。
+// 値は 1 でも 2 でも対象外（#27）。
+func TestTimeFreeExcludedOutOfArea(t *testing.T) {
+	for _, tc := range []struct {
+		flags     TimeFreeFlags
+		outOfArea bool
+		want      bool
+	}{
+		{TimeFreeFlags{}, false, false},
+		{TimeFreeFlags{}, true, false},
+		{TimeFreeFlags{InNG: 1}, false, true},
+		{TimeFreeFlags{InNG: 2}, false, true},
+		{TimeFreeFlags{InNG: 1}, true, false}, // in だけ立っていても、エリアの外からは out を見る
+		{TimeFreeFlags{OutNG: 1}, true, true}, // FMF 10/31 24:00 の 0 / 0 / 1 / 1
+		{TimeFreeFlags{OutNG: 2}, true, true}, // FMTOYAMA 10/31 08:30 の 0 / 0 / 2 / 2
+		{TimeFreeFlags{OutNG: 2}, false, false},
+	} {
+		a := Airing{TimeFree: tc.flags, OutOfArea: tc.outOfArea}
+		if got := a.TimeFreeExcluded(); got != tc.want {
+			t.Errorf("%+v outOfArea=%v: TimeFreeExcluded = %v, want %v", tc.flags, tc.outOfArea, got, tc.want)
+		}
+		if got := LiveAirings([]Airing{flat1, a}); got != tc.want {
+			t.Errorf("%+v outOfArea=%v: LiveAirings = %v, want %v", tc.flags, tc.outOfArea, got, tc.want)
+		}
 	}
 }
 

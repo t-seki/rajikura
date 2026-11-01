@@ -1199,6 +1199,11 @@ func (a *App) syncDay(ctx context.Context, station string, day domain.BroadcastD
 	if len(airings) == 0 {
 		return errors.New("番組表が空")
 	}
+	// エリアの外から録るかの印（in と out のどちらのフラグを見るか）を、展開するこの時点の自分のエリアで決める
+	// （展開が触るジョブの印も、これで書き直る）。
+	if airings, err = a.markOutOfArea(ctx, station, day, airings); err != nil {
+		return err
+	}
 	shows, err := a.Store.ListShows(ctx)
 	if err != nil {
 		return err

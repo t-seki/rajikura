@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -54,9 +55,16 @@ func newAreaServer(t *testing.T) *areaServer {
 			http.Error(w, "x", http.StatusInternalServerError)
 			return
 		}
+		// JP27 の番組表には、TBS（自分のエリアの JP13 にもある局）に加えて ABC（JP27 にだけある局）が出る。
+		abc := ""
+		if strings.HasSuffix(r.URL.Path, "/JP27.xml") {
+			abc = `<station id="ABC"><name>ABCラジオ</name><progs><date>20261013</date>
+<prog id="2" ft="20261013050000" to="20261013060000"><title>大阪の朝</title><ts_out_ng>2</ts_out_ng><tsplus_out_ng>1</tsplus_out_ng></prog>
+</progs></station>`
+		}
 		fmt.Fprint(w, `<radiko><stations><station id="TBS"><name>TBSラジオ</name><progs><date>20261013</date>
 <prog id="1" ft="20261013050000" to="20261013060000"><title>朝</title><pfm>出演者</pfm><ts_in_ng>1</ts_in_ng></prog>
-</progs></station></stations></radiko>`)
+</progs></station>`+abc+`</stations></radiko>`)
 	})
 	mux.HandleFunc("/v3/station/region/full.xml", func(w http.ResponseWriter, r *http.Request) {
 		f.fullXML.Add(1)
@@ -201,25 +209,42 @@ func TestRadikoAreaGuideDoSurvivesPanic(t *testing.T) {
 	}
 }
 
-// エリアを指した番組表は、認証せずにそのエリアの番組表を引く。エリアの一覧は full.xml から作り、1 時間覚える。
+// エリアを指した番組表は、そのエリアの番組表を引く。自分のエリア以外では、自分のエリア（認証で判定する）の番組表も引き、その局一覧に
+// 無い局の放送回にエリアの外から録る印（domain.Airing.OutOfArea）を立てる（#27）。エリアの一覧は full.xml から作り、1 時間覚える。
 func TestRadikoAreaGuideOtherArea(t *testing.T) {
 	f := newAreaServer(t)
 	g, now := f.guide()
 	ctx := context.Background()
 	d := domain.NewBroadcastDay(2026, time.October, 13)
 
-	if _, err := g.AreaAiringsOf(ctx, "JP27", d); err != nil {
+	ss, err := g.AreaAiringsOf(ctx, "JP27", d)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if got := f.lastProgram.Load(); got != "/v3/program/date/20261013/JP27.xml" || f.auths.Load() != 0 {
-		t.Fatalf("要求のパス = %v、認証 = %d（want JP27 のパス、認証なし）", got, f.auths.Load())
+	if f.programs.Load() != 2 || f.auths.Load() != 1 {
+		t.Fatalf("番組表の要求 = %d、認証 = %d（want JP27 と自分のエリアの 2 つ、認証 1 回）", f.programs.Load(), f.auths.Load())
 	}
-	// 空のエリア ID は自分のエリア（認証で判定する）。
-	if _, err := g.AreaAiringsOf(ctx, "", d); err != nil {
+	if len(ss) != 2 || ss[0].ID != "TBS" || ss[1].ID != "ABC" {
+		t.Fatalf("局 = %+v", ss)
+	}
+	// TBS は自分のエリア（JP13）にもあるので in、ABC は自分のエリアに無いので out のフラグで決める。
+	if a := ss[0].Airings[0]; a.OutOfArea || !a.TimeFreeExcluded() {
+		t.Errorf("TBS の放送回 = %+v", a)
+	}
+	if a := ss[1].Airings[0]; !a.OutOfArea || !a.TimeFreeExcluded() || !domain.ExcludedFromTimeFree30(a) ||
+		a.TimeFree != (domain.TimeFreeFlags{OutNG: 2, PlusOutNG: 1}) {
+		t.Errorf("ABC の放送回 = %+v", a)
+	}
+	// 空のエリア ID は自分のエリア。自分のエリアの番組表には印を立てない。
+	own, err := g.AreaAiringsOf(ctx, "", d)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if got := f.lastProgram.Load(); got != "/v3/program/date/20261013/JP13.xml" || f.auths.Load() != 1 {
 		t.Fatalf("要求のパス = %v、認証 = %d", got, f.auths.Load())
+	}
+	if len(own) != 1 || own[0].Airings[0].OutOfArea {
+		t.Fatalf("自分のエリアの局 = %+v", own)
 	}
 
 	info, err := g.Areas(ctx)

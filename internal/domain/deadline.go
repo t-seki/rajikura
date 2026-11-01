@@ -2,14 +2,20 @@ package domain
 
 import "time"
 
-// ExcludedFromTimeFree30 は放送回がタイムフリー30 の対象外か（番組表の tsplus_in_ng が 0 でない。TimeFreeFlags.PlusInNG）。
-// 対象外の放送回は、タイムフリー30・ダブルプランでも録音期限が 7 日になる。
+// ExcludedFromTimeFree30 は放送回がタイムフリー30 の対象外か（Airing.OutOfArea が立っていれば番組表の tsplus_out_ng、
+// 立っていなければ tsplus_in_ng が 0 でない。TimeFreeFlags.PlusOutNG・PlusInNG）。
+// 対象外の放送回は、タイムフリー30・ダブルプランでも録音期限が 7 日になる（7 日まではタイムフリーで録り、8 日目からは録らない）。
 //
 // tsplus_in_ng をこの意味に読むのは、2026-11-01 に実機（タイムフリー30 の会員）で確かめた。番組表で tsplus_in_ng が 2 だった
 // 放送回（LFR の 2026-10-03T16:00:00Z）は、放送日から 8 日目以降は radiko の公式でも聴けなかった
 // （「この番組はタイムフリー30に対応していないため、ラジコプレミアムにご登録いただいている方も含め、放送日から8日目以降は
-// 聴くことができません。」）。値は 1 でも 2 でも対象外（7 日を過ぎると聴けない）。値ごとの違いは見分けない。
+// 聴くことができません。」）。tsplus が 1 の放送回（FM-FUJI 10/31 13:00。tsplus_in_ng・tsplus_out_ng が 1）は、7 日以内なら
+// 最後まで聴けた（2026-11-01、#27）。値は 1 でも 2 でも対象外。値ごとの違いは見分けない。
+// tsplus_out_ng をエリアの外から聴くときのフラグと読むのも、同じ日に確かめた（TimeFreeFlags）。
 func ExcludedFromTimeFree30(a Airing) bool {
+	if a.OutOfArea {
+		return a.TimeFree.PlusOutNG != 0
+	}
 	return a.TimeFree.PlusInNG != 0
 }
 

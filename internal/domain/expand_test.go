@@ -155,6 +155,41 @@ func TestExpandIdempotent(t *testing.T) {
 	}
 }
 
+// 展開は、エリアの外から録るかの印（OutOfArea）を、その時点の番組表の放送回のとおりに書き直す（#27）。印が変われば
+// waiting のジョブを更新し（録音の方式と録音期限も決め直す）、変わらなければ更新しない。
+func TestExpandRewritesOutOfArea(t *testing.T) {
+	show := joinedShow("ふらっと", flatWeekly()...)
+	outFlags := TimeFreeFlags{OutNG: 1}
+	in1, in2 := flat1, flat2
+	in1.TimeFree, in2.TimeFree = outFlags, outFlags
+	out1, out2 := in1, in2
+	out1.OutOfArea, out2.OutOfArea = true, true
+
+	// 自分のエリアの局だったジョブが、エリアの外の局になった（ts_out_ng が立っているので、ライブで録るジョブになる）。
+	plan := expand([]Show{show}, []Job{waitingJob(1, "ふらっと", 0, in1, in2)}, []Airing{out1, news, out2})
+	if len(plan.Update) != 1 || len(plan.Create)+len(plan.Delete) != 0 {
+		t.Fatalf("plan = %+v", plan)
+	}
+	j := plan.Update[0]
+	if !j.Airings[0].OutOfArea || !j.Airings[1].OutOfArea || !j.Live() {
+		t.Errorf("印が書き直されていない・ライブで録るジョブにならない: %+v", j.Airings)
+	}
+	if want := out2.End.Add(LiveDeadlineAfter); !j.Deadline.Equal(want) {
+		t.Errorf("Deadline = %v, want %v", j.Deadline, want)
+	}
+
+	// 印が変わらなければ、ジョブを更新したとみなさない（エリアの外の局のまま展開し直す）。
+	if p := expand([]Show{show}, []Job{j}, []Airing{out1, news, out2}); !p.Empty() {
+		t.Errorf("印が同じなら差分は無い: %+v", p)
+	}
+
+	// 逆向き（エリアの外の局が、自分のエリアの局になった）も書き直す。
+	plan = expand([]Show{show}, []Job{j}, []Airing{in1, news, in2})
+	if len(plan.Update) != 1 || plan.Update[0].Airings[0].OutOfArea || plan.Update[0].Live() {
+		t.Fatalf("plan = %+v", plan)
+	}
+}
+
 func waitingJob(id int64, show string, part int, as ...Airing) Job {
 	j := Job{ID: id, ShowName: show, Day: day, Part: part, State: StateWaiting, Airings: as}
 	j.Deadline = JobDeadline(as, MembershipFree)

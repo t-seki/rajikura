@@ -52,6 +52,49 @@ func TestClaimDueSeparatesLiveJobs(t *testing.T) {
 	}
 }
 
+// エリアの外から録る放送回（out_of_area）は ts_out_ng、ほかは ts_in_ng で、ライブで録るジョブかを決める（domain.Job.Live と同じ）。
+// 4 つのフラグと印は DB に書いて読み戻せる（#27）。
+func TestClaimDueOutOfArea(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openTemp(t)
+	now := jst(2026, 10, 5, 12, 0)
+	// エリアの外の局で、in だけが立っている放送回は、タイムフリーから録る。
+	inOnly := flat2
+	inOnly.OutOfArea = true
+	inOnly.TimeFree = domain.TimeFreeFlags{InNG: 1, PlusInNG: 1}
+	tf, err := s.InsertJob(ctx, domain.Job{ShowName: "tf", Day: day, Airings: []domain.Airing{inOnly},
+		NextAttemptAt: now.Add(-2 * time.Minute), Deadline: now.Add(24 * time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// エリアの外の局で、ts_out_ng が 1 の放送回は、ライブで録る。
+	outNG := news
+	outNG.OutOfArea = true
+	outNG.TimeFree = domain.TimeFreeFlags{OutNG: 1, PlusOutNG: 1}
+	lv, err := s.InsertJob(ctx, domain.Job{ShowName: "live", Day: day, Airings: []domain.Airing{outNG},
+		NextAttemptAt: now.Add(-time.Minute), Deadline: now.Add(time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	j, ok, err := s.ClaimDue(ctx, now)
+	if err != nil || !ok || j.ID != tf {
+		t.Fatalf("ClaimDue = %d, %v, %v; want %d", j.ID, ok, err, tf)
+	}
+	if got := j.Airings[0]; !got.OutOfArea || got.TimeFree != inOnly.TimeFree || j.Live() {
+		t.Errorf("読み戻した放送回 = %+v", got)
+	}
+	if _, ok, err := s.ClaimDue(ctx, now); ok || err != nil {
+		t.Fatalf("ClaimDue がエリアの外から ts_out_ng のジョブを取った: %v, %v", ok, err)
+	}
+	j, ok, err = s.ClaimDueLive(ctx, now)
+	if err != nil || !ok || j.ID != lv || !j.Live() {
+		t.Fatalf("ClaimDueLive = %+v, %v, %v; want %d", j, ok, err, lv)
+	}
+	if got := j.Airings[0]; !got.OutOfArea || got.TimeFree != outNG.TimeFree {
+		t.Errorf("読み戻した放送回 = %+v", got)
+	}
+}
+
 // 次の試行の時刻の前は取らない。人の手動再試行で retrying になったライブで録るジョブも取る。
 func TestClaimDueLiveTimeAndRetrying(t *testing.T) {
 	ctx := context.Background()

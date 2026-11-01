@@ -34,9 +34,12 @@ type Program struct {
 	// DescriptionParts は Description を、リンクの部品とそうでない部品に分けた並び。
 	// text を全部つないだものは Description とちょうど同じ。説明が空なら空。
 	DescriptionParts []DescriptionPart
-	// TSInNG と TSPlusInNG は、タイムフリーの可否のフラグ（ts_in_ng と tsplus_in_ng）の生の値。
-	TSInNG     string
-	TSPlusInNG string
+	// TSInNG・TSOutNG・TSPlusInNG・TSPlusOutNG は、タイムフリーの可否のフラグ（ts_in_ng・ts_out_ng・tsplus_in_ng・
+	// tsplus_out_ng）の生の値。読み方は呼び出し側が決める（domain.TimeFreeFlags）。
+	TSInNG      string
+	TSOutNG     string
+	TSPlusInNG  string
+	TSPlusOutNG string
 }
 
 // DescriptionPart は説明の部品。Href が空でなければリンク（http・https・mailto だけ）。
@@ -53,16 +56,18 @@ func BroadcastDay(t time.Time) time.Time {
 }
 
 type xmlProgram struct {
-	ID         string `xml:"id,attr"`
-	FT         string `xml:"ft,attr"`
-	To         string `xml:"to,attr"`
-	Title      string `xml:"title"`
-	Pfm        string `xml:"pfm"`
-	Info       string `xml:"info"`
-	Desc       string `xml:"desc"`
-	Img        string `xml:"img"`
-	TSInNG     string `xml:"ts_in_ng"`
-	TSPlusInNG string `xml:"tsplus_in_ng"`
+	ID          string `xml:"id,attr"`
+	FT          string `xml:"ft,attr"`
+	To          string `xml:"to,attr"`
+	Title       string `xml:"title"`
+	Pfm         string `xml:"pfm"`
+	Info        string `xml:"info"`
+	Desc        string `xml:"desc"`
+	Img         string `xml:"img"`
+	TSInNG      string `xml:"ts_in_ng"`
+	TSOutNG     string `xml:"ts_out_ng"`
+	TSPlusInNG  string `xml:"tsplus_in_ng"`
+	TSPlusOutNG string `xml:"tsplus_out_ng"`
 }
 
 type xmlProgramStation struct {
@@ -256,7 +261,9 @@ func parseStationPrograms(st xmlProgramStation, stationID string) ([]Program, er
 			Description:      desc,
 			DescriptionParts: parts,
 			TSInNG:           strings.TrimSpace(p.TSInNG),
+			TSOutNG:          strings.TrimSpace(p.TSOutNG),
 			TSPlusInNG:       strings.TrimSpace(p.TSPlusInNG),
+			TSPlusOutNG:      strings.TrimSpace(p.TSPlusOutNG),
 		})
 	}
 	return out, nil

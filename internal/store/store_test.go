@@ -136,7 +136,7 @@ var (
 	day   = domain.NewBroadcastDay(2026, 10, 5)
 	flat1 = domain.Airing{ProgramID: "p1", StationID: "LFR", Start: jst(2026, 10, 5, 8, 30), End: jst(2026, 10, 5, 10, 0),
 		Title: "ふらっと (1)", Performer: "出演者", Description: "説明", ImageURL: "https://example.com/a.png",
-		TimeFree: domain.TimeFreeFlags{OutNG: 2}} // ts_in_ng が 0 でないとライブで録るジョブになる（live_test.go）
+		TimeFree: domain.TimeFreeFlags{OutNG: 2}} // 自分のエリアの局（OutOfArea が立っていない）なので、ts_out_ng だけではライブで録るジョブにならない（live_test.go）
 	news  = domain.Airing{ProgramID: "p2", StationID: "LFR", Start: jst(2026, 10, 5, 10, 0), End: jst(2026, 10, 5, 10, 10), Title: "ニュース"}
 	flat2 = domain.Airing{StationID: "LFR", Start: jst(2026, 10, 5, 10, 10), End: jst(2026, 10, 5, 11, 0), Title: "ふらっと (2)"}
 	shows = []domain.Show{{Name: "ふらっと", Split: domain.SplitJoin, CheckTitle: true, Weekly: []domain.Weekly{

@@ -39,6 +39,7 @@ type prog struct {
 	img        string
 	info       string // 放送回の説明。空なら「説明」
 	ng         bool   // タイムフリーの対象外（ts_in_ng を 2 にする。ライブで録る）
+	outNG      bool   // エリアの外からはタイムフリーの対象外（ts_out_ng を 1 にする）
 }
 
 // fakeRadiko は radiko の偽のサーバー。実際の radiko にはつながない。
@@ -223,9 +224,13 @@ func (f *fakeRadiko) programsXML(w http.ResponseWriter, r *http.Request) {
 		if p.ng {
 			ng = 2
 		}
-		fmt.Fprintf(&b, `<prog id="%s" ft="%s" to="%s"><title>%s</title><pfm>%s</pfm><info>%s</info><img>%s</img><ts_in_ng>%d</ts_in_ng></prog>`,
+		outNG := 0
+		if p.outNG {
+			outNG = 1
+		}
+		fmt.Fprintf(&b, `<prog id="%s" ft="%s" to="%s"><title>%s</title><pfm>%s</pfm><info>%s</info><img>%s</img><ts_in_ng>%d</ts_in_ng><ts_out_ng>%d</ts_out_ng></prog>`,
 			p.id, p.start.In(domain.JST).Format(radikoTime), p.end.In(domain.JST).Format(radikoTime),
-			html.EscapeString(p.title), html.EscapeString(p.pfm), html.EscapeString(p.info), html.EscapeString(p.img), ng)
+			html.EscapeString(p.title), html.EscapeString(p.pfm), html.EscapeString(p.info), html.EscapeString(p.img), ng, outNG)
 	}
 	b.WriteString(`</progs></station></stations></radiko>`)
 	io.WriteString(w, b.String())

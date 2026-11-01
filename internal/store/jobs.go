@@ -127,11 +127,12 @@ func putAirings(ctx context.Context, tx *sql.Tx, jobID int64, airings, missing [
 	for i, a := range airings {
 		_, err := tx.ExecContext(ctx, `INSERT INTO job_airings
 			(job_id, position, airing_key, program_id, station_id, start_at, end_at,
-			 title, performer, description, image_url, ts_in_ng, ts_out_ng, tsplus_in_ng, missing, chapter_wait)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 title, performer, description, image_url, ts_in_ng, ts_out_ng, tsplus_in_ng, tsplus_out_ng, out_of_area,
+			 missing, chapter_wait)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			jobID, i, a.Key(), a.ProgramID, a.StationID, formatTime(a.Start), formatTime(a.End),
 			a.Title, a.Performer, a.Description, a.ImageURL, a.TimeFree.InNG, a.TimeFree.OutNG, a.TimeFree.PlusInNG,
-			boolInt(miss[a.Key()]), int(waits[a.Key()]))
+			a.TimeFree.PlusOutNG, boolInt(a.OutOfArea), boolInt(miss[a.Key()]), int(waits[a.Key()]))
 		if err != nil {
 			return err
 		}
@@ -173,7 +174,8 @@ func scanJob(sc interface{ Scan(...any) error }) (domain.Job, error) {
 
 func loadAirings(ctx context.Context, q querier, j *domain.Job) error {
 	rows, err := q.QueryContext(ctx, `SELECT program_id, station_id, start_at, end_at,
-		title, performer, description, image_url, ts_in_ng, ts_out_ng, tsplus_in_ng, missing, chapter_wait
+		title, performer, description, image_url, ts_in_ng, ts_out_ng, tsplus_in_ng, tsplus_out_ng, out_of_area,
+		missing, chapter_wait
 		FROM job_airings WHERE job_id = ? ORDER BY position`, j.ID)
 	if err != nil {
 		return err
@@ -183,11 +185,13 @@ func loadAirings(ctx context.Context, q querier, j *domain.Job) error {
 	for rows.Next() {
 		var a domain.Airing
 		var start, end string
-		var missing, wait int
+		var outOfArea, missing, wait int
 		if err := rows.Scan(&a.ProgramID, &a.StationID, &start, &end, &a.Title, &a.Performer,
-			&a.Description, &a.ImageURL, &a.TimeFree.InNG, &a.TimeFree.OutNG, &a.TimeFree.PlusInNG, &missing, &wait); err != nil {
+			&a.Description, &a.ImageURL, &a.TimeFree.InNG, &a.TimeFree.OutNG, &a.TimeFree.PlusInNG, &a.TimeFree.PlusOutNG,
+			&outOfArea, &missing, &wait); err != nil {
 			return err
 		}
+		a.OutOfArea = outOfArea != 0
 		if a.Start, err = parseTime(start); err != nil {
 			return err
 		}
@@ -296,8 +300,11 @@ func jobsOnDay(ctx context.Context, q querier, day domain.BroadcastDay) ([]domai
 	return queryJobs(ctx, q, `WHERE broadcast_day = ? ORDER BY show_name, part, id`, day.String())
 }
 
-// liveJob は、ライブで録るジョブ（domain.Job.Live。放送回の 1 つでも ts_in_ng が 0 でない）に絞る SQL の条件。
-const liveJob = `EXISTS (SELECT 1 FROM job_airings WHERE job_airings.job_id = jobs.id AND job_airings.ts_in_ng != 0)`
+// liveJob は、ライブで録るジョブ（domain.Job.Live。放送回の 1 つでもタイムフリーの対象外）に絞る SQL の条件。
+// 放送回がタイムフリーの対象外かは domain.Airing.TimeFreeExcluded と同じに決める（エリアの外から録る印 out_of_area が
+// 立っていれば ts_out_ng、立っていなければ ts_in_ng が 0 でない）。
+const liveJob = `EXISTS (SELECT 1 FROM job_airings WHERE job_airings.job_id = jobs.id AND
+	(CASE WHEN job_airings.out_of_area != 0 THEN job_airings.ts_out_ng ELSE job_airings.ts_in_ng END) != 0)`
 
 // ClaimDue は、次の試行の時刻が now を過ぎた waiting / retrying のジョブのうち、タイムフリーから録るもの（ライブで録る
 // ジョブ（domain.Job.Live）を除く）を 1 件だけ原子的に running にし、試行回数を 1 つ増やして返す。無ければ false。
