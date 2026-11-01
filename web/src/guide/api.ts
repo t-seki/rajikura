@@ -73,8 +73,8 @@ async function getJSON<T>(path: string, what: string): Promise<T> {
 /** 番組表で選べるエリア。 */
 export type GuideArea = { id: string; name: string };
 
-/** GET /api/guide/areas の応答。switchable が true（エリアフリー・ダブルプラン）のときだけ、画面はエリアの切り替えを出す。 */
-export type GuideAreas = { own: string; switchable: boolean; areas: GuideArea[] };
+/** GET /api/guide/areas の応答。pastDays は番組表で選べる過去の日数（会員種別の録音期限。7 または 30）。switchable が true（エリアフリー・ダブルプラン）のときだけ、画面はエリアの切り替えを出す。 */
+export type GuideAreas = { own: string; switchable: boolean; pastDays: number; areas: GuideArea[] };
 
 /** area（エリア ID。空なら自分のエリア）を付けた問い合わせ。 */
 const withArea = (params: Record<string, string>, area: string) =>

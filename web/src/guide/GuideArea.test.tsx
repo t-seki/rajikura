@@ -45,6 +45,7 @@ const areasOf = (switchable: boolean): Handler => () => ({
   body: {
     own: "JP13",
     switchable,
+    pastDays: 7,
     areas: [
       { id: "JP13", name: "東京都" },
       { id: "JP27", name: "大阪府" },
