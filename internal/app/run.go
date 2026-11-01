@@ -132,6 +132,12 @@ func (a *App) runJob(ctx context.Context, cur live, job domain.Job) error {
 		log.Warn("恒久的に取れないので期限切れにする")
 		return a.expire(ctx, log, job, failureText(err))
 	}
+	// 試行の間に会員種別が保存されると、録音期限が付け直されている（Store.ReviseDeadlines）ので、DB から読み直す。
+	if now, err := a.Store.GetJob(ctx, job.ID); err != nil {
+		log.Warn("ジョブを読み直せないので、録音を始めたときの録音期限を使う", "err", err)
+	} else {
+		job.Deadline = now.Deadline
+	}
 	policy := domain.RetryPolicy{Membership: a.membership(), MaxAttemptsFree: cur.maxAttemptsFree}
 	if next, ok := policy.NextAttemptAt(job.Attempts, started, job.Deadline, a.now()); ok {
 		log.Info("再試行する", "next", next)

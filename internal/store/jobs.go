@@ -777,16 +777,17 @@ func (s *Store) LatestAttemptsFromDay(ctx context.Context, day domain.BroadcastD
 	return out, rows.Err()
 }
 
-// ReviseDeadlines は、まだ終わっていないジョブ（waiting・retrying・skipped）の録音期限を、会員種別 m で付け直す
+// ReviseDeadlines は、まだ終わっていないジョブ（waiting・retrying・skipped・running）の録音期限を、会員種別 m で付け直す
 // （会員種別を保存したとき。docs/adr/0030-radiko-login-follows-chosen-membership.md）。録音期限は DB の放送回から
 // domain.JobDeadline で求める。retrying のジョブの次の試行が新しい録音期限より後なら、録音期限に寄せる（録音期限を過ぎたら、
-// 次の試行で取れた分を保存するか expired にするかを決めるため）。done・expired・running のジョブは触らない。
+// 次の試行で取れた分を保存するか expired にするかを決めるため）。running のジョブは録音期限の列だけを付け直す（試行を始めたときの
+// 写しは変わらないので、試行の後の再試行・期限の判定が DB から読み直す。app.runJob）。done・expired のジョブは触らない。
 // 付け直したジョブの数を返す。
 func (s *Store) ReviseDeadlines(ctx context.Context, m domain.Membership) (int, error) {
 	n := 0
 	err := s.tx(ctx, func(tx *sql.Tx) error {
 		n = 0
-		jobs, err := queryJobs(ctx, tx, `WHERE state IN ('waiting', 'retrying', 'skipped')`)
+		jobs, err := queryJobs(ctx, tx, `WHERE state IN ('waiting', 'retrying', 'skipped', 'running')`)
 		if err != nil {
 			return err
 		}

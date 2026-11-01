@@ -57,6 +57,8 @@ type fakeRadiko struct {
 	stationsOmitTBS bool
 	// streamFail が true ならストリーム情報を 500 で返す（一時的な失敗）。
 	streamFail bool
+	// onStream が nil でなければ、ストリーム情報の要求を受けたときに呼ぶ（試行の途中で何かが起きるテスト用）。
+	onStream func()
 	// outOfArea が true なら auth2 でエリア外（OUT）を返す。
 	outOfArea bool
 	// noTimefree が true ならタイムフリーの候補を返さない（恒久的に取れない）。
@@ -231,8 +233,11 @@ func (f *fakeRadiko) programsXML(w http.ResponseWriter, r *http.Request) {
 
 func (f *fakeRadiko) streamXML(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
-	fail, none, noLive := f.streamFail, f.noTimefree, f.noLive
+	fail, none, noLive, hook := f.streamFail, f.noTimefree, f.noLive, f.onStream
 	f.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
 	if fail {
 		http.Error(w, "boom", http.StatusInternalServerError)
 		return

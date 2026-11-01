@@ -8,7 +8,7 @@ import (
 	"github.com/t-seki/rajikura/internal/domain"
 )
 
-// 会員種別を保存したら、まだ終わっていないジョブ（waiting・retrying・skipped）の録音期限を付け直す。done・expired は触らない。
+// 会員種別を保存したら、まだ終わっていないジョブ（waiting・retrying・skipped・running）の録音期限を付け直す。done・expired は触らない。
 // tsplus_in_ng が 0 でない放送回（タイムフリー30 の対象外）は、タイムフリー30・ダブルプランでも 7 日のまま。
 func TestReviseDeadlines(t *testing.T) {
 	ctx := context.Background()
@@ -33,6 +33,7 @@ func TestReviseDeadlines(t *testing.T) {
 	retrying := insert("retrying", domain.StateRetrying, late, thirty, a)
 	skipped := insert("skipped", domain.StateSkipped, first, free, a)
 	excluded := insert("excluded", domain.StateWaiting, first, free, plus)
+	running := insert("running", domain.StateRunning, first, free, a)
 	done := insert("done", domain.StateDone, first, free, a)
 	expired := insert("expired", domain.StateExpired, first, free, a)
 
@@ -51,12 +52,13 @@ func TestReviseDeadlines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != 2 {
-		t.Errorf("revised = %d, want 2（waiting と skipped）", got)
+	if got != 3 {
+		t.Errorf("revised = %d, want 3（waiting・skipped・running）", got)
 	}
 	check(waiting, thirty, first)
 	check(retrying, thirty, late)
 	check(skipped, thirty, first)
+	check(running, thirty, first)
 	check(excluded, free, first)
 	check(done, free, first)
 	check(expired, free, first)
@@ -67,10 +69,11 @@ func TestReviseDeadlines(t *testing.T) {
 	}
 
 	// 非会員に戻すと 7 日になり、retrying の次の試行は録音期限に寄せる。
-	if got, err := s.ReviseDeadlines(ctx, domain.MembershipFree); err != nil || got != 3 {
-		t.Fatalf("revised = %d, %v; want 3", got, err)
+	if got, err := s.ReviseDeadlines(ctx, domain.MembershipFree); err != nil || got != 4 {
+		t.Fatalf("revised = %d, %v; want 4", got, err)
 	}
 	check(waiting, free, first)
 	check(retrying, free, free)
 	check(skipped, free, first)
+	check(running, free, first)
 }
