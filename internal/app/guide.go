@@ -139,15 +139,15 @@ type AreaInfo struct {
 	StationArea map[string]string
 }
 
-// DefaultAreaTTL は RadikoAreaGuide がエリア ID を覚えておく時間。
+// DefaultAreaTTL は RadikoAreaGuide がエリア ID とエリアの一覧を覚えておく時間。
 const DefaultAreaTTL = time.Hour
 
 // RadikoAreaGuide は radiko のエリアの日別番組表（/v3/program/date/<YYYYMMDD>/<エリア ID>.xml）を、
-// AreaGuide にする。番組表は覚えず（radiko.Client の番組表のキャッシュに任せる）、エリア ID だけを TTL の間覚える。
+// AreaGuide にする。番組表は覚えず（radiko.Client の番組表のキャッシュに任せる）、エリア ID とエリアの一覧だけを TTL の間覚える。
 // ゼロ値ではなく NewRadikoAreaGuide で作る。複数の goroutine から呼んでよい。
 type RadikoAreaGuide struct {
 	Client *radiko.Client
-	// TTL はエリア ID を覚えておく時間。0 なら DefaultAreaTTL。
+	// TTL はエリア ID とエリアの一覧を覚えておく時間。0 なら DefaultAreaTTL。
 	TTL time.Duration
 	// Now は現在時刻。nil なら time.Now。
 	Now func() time.Time

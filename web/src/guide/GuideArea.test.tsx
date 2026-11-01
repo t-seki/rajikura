@@ -55,6 +55,14 @@ const areasOf = (switchable: boolean): Handler => () => ({
 const common: Record<string, Handler> = {
   [`GET /api/guide?day=${today}`]: guideOf("TBS", "TBSラジオ", "東京の番組"),
   [`GET /api/guide?${new URLSearchParams({ day: today, area: "JP27" })}`]: guideOf("ABC", "ABCラジオ", "大阪の番組"),
+  [`GET /api/guide/search?${new URLSearchParams({ q: "番組" })}`]: () => ({
+    status: 200,
+    body: { q: "番組", airings: [airing("TBS", "TBSラジオ", "東京の番組")], truncated: false },
+  }),
+  [`GET /api/guide/search?${new URLSearchParams({ q: "番組", area: "JP27" })}`]: () => ({
+    status: 200,
+    body: { q: "番組", airings: [airing("ABC", "ABCラジオ", "大阪の番組")], truncated: false },
+  }),
   "GET /api/shows": () => ({ status: 200, body: [] }),
   "GET /api/stations": () => ({ status: 200, body: [{ id: "TBS", name: "TBSラジオ" }] }),
   "GET /api/notifications/status": () => ({ status: 200, body: { unread: 0, failed: 0, anomalies: [] } }),
@@ -132,5 +140,24 @@ describe("番組表のエリアの切り替え", () => {
     expect(await within(await screen.findByTestId("guide-list")).findByRole("button", { name: /東京の番組/ })).toBeInTheDocument();
     expect(screen.queryByLabelText("エリア", { selector: "input" })).not.toBeInTheDocument();
     await waitFor(() => expect(here()).toBe("/"));
+  });
+
+  it("ほかのエリアを選んでいる間は、検索結果の「このキーワードで録音」を出さない", async () => {
+    mockApi({ ...common, "GET /api/guide/areas": areasOf(true) });
+    const user = userEvent.setup();
+    renderShell();
+    await within(await screen.findByTestId("guide-list")).findByRole("button", { name: /東京の番組/ });
+    await user.type(screen.getByRole("textbox", { name: "番組名・出演者・説明で探す" }), "番組");
+    await user.click(screen.getByRole("button", { name: "検索" }));
+    expect(await screen.findByRole("button", { name: "このキーワードで録音" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "検索をやめる" }));
+
+    await user.click(await screen.findByLabelText("エリア", { selector: "input" }));
+    await user.click(screen.getByRole("option", { name: "大阪府", hidden: true }));
+    await within(await screen.findByTestId("guide-list")).findByRole("button", { name: /大阪の番組/ });
+    await user.type(screen.getByRole("textbox", { name: "番組名・出演者・説明で探す" }), "番組");
+    await user.click(screen.getByRole("button", { name: "検索" }));
+    await waitFor(() => expect(screen.getByLabelText("検索結果")).toHaveTextContent("大阪の番組"));
+    expect(screen.queryByRole("button", { name: "このキーワードで録音" })).not.toBeInTheDocument();
   });
 });

@@ -38,6 +38,8 @@ package server
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"sort"
@@ -154,6 +156,9 @@ func (l *airingLookup) stations(ctx context.Context, area string, day domain.Bro
 	return ss, nil
 }
 
+// errOtherArea は、自分のエリアの番組表は取れたが、他のエリアの番組表かエリアの一覧を取れなかったことを表す（airingLookup.find が包んで返す）。
+var errOtherArea = errors.New("他のエリアの番組表を取れない")
+
 // find は局 stationID の放送日 day の、Key が key の放送回を探す。番組表を取れなければエラー。
 func (l *airingLookup) find(ctx context.Context, stationID string, day domain.BroadcastDay, key string) (domain.Airing, string, bool, error) {
 	own, err := l.stations(ctx, "", day)
@@ -166,7 +171,7 @@ func (l *airingLookup) find(ctx context.Context, stationID string, day domain.Br
 	if l.info == nil {
 		info, err := l.u.AreaGuide.Areas(ctx)
 		if err != nil {
-			return domain.Airing{}, "", false, err
+			return domain.Airing{}, "", false, fmt.Errorf("%w: %w", errOtherArea, err)
 		}
 		l.info = &info
 	}
@@ -176,7 +181,7 @@ func (l *airingLookup) find(ctx context.Context, stationID string, day domain.Br
 	}
 	ss, err := l.stations(ctx, area, day)
 	if err != nil {
-		return domain.Airing{}, "", false, err
+		return domain.Airing{}, "", false, fmt.Errorf("%w: %w", errOtherArea, err)
 	}
 	a, name, ok := findAiring(ss, key)
 	return a, name, ok, nil

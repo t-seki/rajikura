@@ -120,3 +120,35 @@ func TestOnceInOtherArea(t *testing.T) {
 		t.Errorf("JP27 の番組表を見ていない: %v", area.askedAreas)
 	}
 }
+
+// 他のエリアの番組表を取れないときは、その局の 1 回の予約だけ突き合わせを飛ばし、同じ放送日の自分のエリアの 1 回の予約は突き合わせる。
+func TestOnceViewsOtherAreaFailure(t *testing.T) {
+	e, area := newOnceUI(t)
+	area.others = osakaStations()
+	m := domain.MembershipAreaFree
+	e.ui.Settings = membershipSettings{m: &m}
+	e.call("POST", "/api/shows", `{"name":"単発の番組","weekly":[]}`, 201, nil)
+	e.call("POST", osPath("単発の番組"), `{"airings":[{"station":"ABC","start":"`+jst(2026, 10, 7, 13, 0).Format(time.RFC3339)+`"}]}`, 201, nil)
+	e.call("POST", osPath("単発の番組"), airingsBody(13), 201, nil)
+
+	area.mu.Lock()
+	area.failOthers = true
+	area.mu.Unlock()
+	var got showJSON
+	e.call("GET", showPath("単発の番組"), "", 200, &got)
+	if len(got.Onces) != 2 {
+		t.Fatalf("onces = %+v", got.Onces)
+	}
+	for _, o := range got.Onces {
+		switch o.StationID {
+		case "TBS":
+			if o.Missing || o.Title != "すっぴん" {
+				t.Errorf("自分のエリアの 1 回の予約 = %+v", o)
+			}
+		case "ABC":
+			if o.Missing || o.Title != "" {
+				t.Errorf("他のエリアの 1 回の予約 = %+v（分からないので missing は false、題名は空）", o)
+			}
+		}
+	}
+}

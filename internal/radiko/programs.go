@@ -362,7 +362,7 @@ type AreaList struct {
 }
 
 // prefectures は都道府県の番号（エリア ID の JP の後ろ）→ 名前。JP13 = 東京都のように、エリア ID は都道府県の番号に揃う
-// （確かめた範囲: /v3/station/list/JP27.xml の area_name が OSAKA JAPAN。ほかの番号は番号からの推測）。
+// （JP1〜JP47 の全部を、/v3/station/list/JP<番号>.xml の area_name（英語の都道府県名）と突き合わせて確かめた）。
 var prefectures = [...]string{
 	"北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県", "茨城県", "栃木県", "群馬県",
 	"埼玉県", "千葉県", "東京都", "神奈川県", "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県",

@@ -116,7 +116,10 @@ func (u *UI) onceViews(ctx context.Context, os []domain.Once) []onceJSON {
 		a, name, found, err := lk.find(ctx, o.StationID, day, o.Key())
 		if err != nil {
 			u.log().Warn("1 回の予約の放送回を番組表で確かめられない", "day", day, "err", err)
-			failed[day] = true
+			// 自分のエリアの番組表を取れないなら、その放送日の 1 回の予約は全部飛ばす。他のエリアを引けないだけなら、この 1 回の予約だけ飛ばす。
+			if !errors.Is(err, errOtherArea) {
+				failed[day] = true
+			}
 			continue
 		}
 		if !found {

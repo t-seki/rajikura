@@ -1207,9 +1207,11 @@ export function GuidePage({
             <Text size="sm">
               「{search.q}」: {search.airings.length} 件
             </Text>
-            <Button size="xs" variant="light" onClick={() => onCreateKeyword(search.q)}>
-              このキーワードで録音
-            </Button>
+            {!area && (
+              <Button size="xs" variant="light" onClick={() => onCreateKeyword(search.q)}>
+                このキーワードで録音
+              </Button>
+            )}
           </Group>
           {search.truncated && (
             <Alert color="yellow" role="status">

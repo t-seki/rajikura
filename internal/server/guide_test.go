@@ -26,7 +26,9 @@ type fakeAreaGuide struct {
 	// others は自分以外のエリア ID → 放送日 → 局。
 	others map[string]map[string][]app.AreaStation
 	fail   bool
-	asked  []string
+	// failOthers は自分以外のエリアの番組表だけ落とす。
+	failOthers bool
+	asked      []string
 	// askedAreas は AreaAiringsOf に渡されたエリア ID（空 = 自分のエリア）。
 	askedAreas []string
 }
@@ -44,6 +46,9 @@ func (g *fakeAreaGuide) AreaAiringsOf(ctx context.Context, areaID string, day do
 		return nil, errors.New("落ちた")
 	}
 	if areaID != "" && areaID != "JP13" {
+		if g.failOthers {
+			return nil, errors.New("他のエリアが落ちた")
+		}
 		return g.others[areaID][day.String()], nil
 	}
 	return g.stations[day.String()], nil
