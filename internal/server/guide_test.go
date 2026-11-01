@@ -22,19 +22,47 @@ import (
 // fakeAreaGuide は radiko のエリアの日別番組表の代わり。
 type fakeAreaGuide struct {
 	mu       sync.Mutex
-	stations map[string][]app.AreaStation // 放送日 → 局
-	fail     bool
-	asked    []string
+	stations map[string][]app.AreaStation // 放送日 → 局（自分のエリア）
+	// others は自分以外のエリア ID → 放送日 → 局。
+	others map[string]map[string][]app.AreaStation
+	fail   bool
+	// failOthers は自分以外のエリアの番組表だけ落とす。
+	failOthers bool
+	asked      []string
+	// askedAreas は AreaAiringsOf に渡されたエリア ID（空 = 自分のエリア）。
+	askedAreas []string
 }
 
 func (g *fakeAreaGuide) AreaAirings(ctx context.Context, day domain.BroadcastDay) ([]app.AreaStation, error) {
+	return g.AreaAiringsOf(ctx, "", day)
+}
+
+func (g *fakeAreaGuide) AreaAiringsOf(ctx context.Context, areaID string, day domain.BroadcastDay) ([]app.AreaStation, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.asked = append(g.asked, day.String())
+	g.askedAreas = append(g.askedAreas, areaID)
 	if g.fail {
 		return nil, errors.New("落ちた")
 	}
+	if areaID != "" && areaID != "JP13" {
+		if g.failOthers {
+			return nil, errors.New("他のエリアが落ちた")
+		}
+		return g.others[areaID][day.String()], nil
+	}
 	return g.stations[day.String()], nil
+}
+
+func (g *fakeAreaGuide) Areas(ctx context.Context) (app.AreaInfo, error) {
+	if g.fail {
+		return app.AreaInfo{}, errors.New("落ちた")
+	}
+	return app.AreaInfo{
+		Own:         "JP13",
+		Areas:       []app.Area{{ID: "JP13", Name: "東京都"}, {ID: "JP27", Name: "大阪府"}},
+		StationArea: map[string]string{"TBS": "JP13", "QRR": "JP13", "ABC": "JP27"},
+	}, nil
 }
 
 type guideEnv struct {

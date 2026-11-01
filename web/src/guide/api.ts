@@ -70,12 +70,25 @@ async function getJSON<T>(path: string, what: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-/** その放送日（YYYY-MM-DD）の、エリアの全局の放送回。 */
-export const getGuide = (day: string) =>
-  getJSON<GuideResult>(`/api/guide?${new URLSearchParams({ day })}`, "番組表を読めない");
+/** 番組表で選べるエリア。 */
+export type GuideArea = { id: string; name: string };
 
-export const searchGuide = (q: string) =>
-  getJSON<SearchResult>(`/api/guide/search?${new URLSearchParams({ q })}`, "番組表を検索できない");
+/** GET /api/guide/areas の応答。switchable が true（エリアフリー・ダブルプラン）のときだけ、画面はエリアの切り替えを出す。 */
+export type GuideAreas = { own: string; switchable: boolean; areas: GuideArea[] };
+
+/** area（エリア ID。空なら自分のエリア）を付けた問い合わせ。 */
+const withArea = (params: Record<string, string>, area: string) =>
+  new URLSearchParams(area ? { ...params, area } : params);
+
+/** その放送日（YYYY-MM-DD）の、エリア（area。空なら自分のエリア）の全局の放送回。 */
+export const getGuide = (day: string, area = "") =>
+  getJSON<GuideResult>(`/api/guide?${withArea({ day }, area)}`, "番組表を読めない");
+
+export const searchGuide = (q: string, area = "") =>
+  getJSON<SearchResult>(`/api/guide/search?${withArea({ q }, area)}`, "番組表を検索できない");
+
+/** 番組表で選べるエリアの一覧。 */
+export const getGuideAreas = () => getJSON<GuideAreas>("/api/guide/areas", "エリアの一覧を読めない");
 
 export type ConflictReason = "other_show" | "already";
 

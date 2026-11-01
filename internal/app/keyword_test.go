@@ -54,6 +54,18 @@ func (g *fakeAreaGuide) AreaAirings(ctx context.Context, day domain.BroadcastDay
 	return out, nil
 }
 
+// AreaAiringsOf は自分のエリアだけを持つ（areaID が空のとき以外は空）。
+func (g *fakeAreaGuide) AreaAiringsOf(ctx context.Context, areaID string, day domain.BroadcastDay) ([]AreaStation, error) {
+	if areaID != "" {
+		return nil, nil
+	}
+	return g.AreaAirings(ctx, day)
+}
+
+func (g *fakeAreaGuide) Areas(ctx context.Context) (AreaInfo, error) {
+	return AreaInfo{Own: "JP13", Areas: []Area{{ID: "JP13", Name: "東京都"}}, StationArea: map[string]string{"TBS": "JP13", "QRR": "JP13"}}, nil
+}
+
 func (g *fakeAreaGuide) setFail(day domain.BroadcastDay, fail bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()

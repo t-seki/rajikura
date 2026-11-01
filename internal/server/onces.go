@@ -4,7 +4,8 @@ package server
 //
 //   - POST /api/shows/{name}/onces: 番組に 1 回の予約を足す。body は {"airings": [{"station": 局, "start": 開始時刻(RFC 3339)}, ...]}。
 //     1 回で複数の放送回を受け取り、全部足すか 1 つも足さないか（store が 1 つのトランザクションで足す）。
-//     足す前に、エリアの日別番組表（AreaGuide）でその放送回があることを確かめる。
+//     足す前に、エリアの日別番組表（AreaGuide）でその放送回があることを確かめる。自分のエリアの番組表に無ければ、
+//     エリアフリーの会員に限り、その局のエリア（full.xml の area_id）の番組表で探す（guide.go の airingLookup）。
 //     成功したら 201 と、足した 1 回の予約の一覧（{"onces": [...]}。GET /api/shows/{name} の onces と同じ形）を返す
 //   - DELETE /api/shows/{name}/onces/{id}: 1 回の予約を消す。{name} の番組の 1 回の予約でなければ 404
 //   - GET /api/shows/{name}（shows.go）は onces に 1 回の予約の一覧を付ける（onceJSON）。キーワードが足した
@@ -99,7 +100,7 @@ func (u *UI) registerOnces(mux *http.ServeMux) {
 // onceViews は 1 回の予約 os を、番組表（あれば）と突き合わせた JSON の形にする。
 func (u *UI) onceViews(ctx context.Context, os []domain.Once) []onceJSON {
 	out := make([]onceJSON, len(os))
-	days := map[domain.BroadcastDay][]app.AreaStation{}
+	lk := u.newAiringLookup()
 	failed := map[domain.BroadcastDay]bool{}
 	first, last := u.guideRange()
 	words := u.keywordWords(ctx, os)
@@ -112,18 +113,15 @@ func (u *UI) onceViews(ctx context.Context, os []domain.Once) []onceJSON {
 		if u.AreaGuide == nil || day.String() < first.String() || day.String() > last.String() || failed[day] {
 			continue
 		}
-		stations, ok := days[day]
-		if !ok {
-			var err error
-			stations, err = u.AreaGuide.AreaAirings(ctx, day)
-			if err != nil {
-				u.log().Warn("1 回の予約の放送回を番組表で確かめられない", "day", day, "err", err)
+		a, name, found, err := lk.find(ctx, o.StationID, day, o.Key())
+		if err != nil {
+			u.log().Warn("1 回の予約の放送回を番組表で確かめられない", "day", day, "err", err)
+			// 自分のエリアの番組表を取れないなら、その放送日の 1 回の予約は全部飛ばす。他のエリアを引けないだけなら、この 1 回の予約だけ飛ばす。
+			if !errors.Is(err, errOtherArea) {
 				failed[day] = true
-				continue
 			}
-			days[day] = stations
+			continue
 		}
-		a, name, found := findAiring(stations, o.Key())
 		if !found {
 			out[i].Missing = true
 			continue
@@ -218,7 +216,7 @@ func (u *UI) createOnces(w http.ResponseWriter, r *http.Request) {
 
 	// 番組表で確かめる。放送日ごとに 1 回だけ引く。
 	first, last := u.guideRange()
-	days := map[domain.BroadcastDay][]app.AreaStation{}
+	lk := u.newAiringLookup()
 	var found []domain.Airing
 	for _, ref := range req.Airings {
 		o := domain.Once{StationID: ref.Station, Start: ref.Start}
@@ -227,16 +225,11 @@ func (u *UI) createOnces(w http.ResponseWriter, r *http.Request) {
 			bad("放送日 " + day.String() + " は番組表の範囲（" + first.String() + " から " + last.String() + "）の外")
 			return
 		}
-		stations, ok := days[day]
-		if !ok {
-			stations, err = u.AreaGuide.AreaAirings(r.Context(), day)
-			if err != nil {
-				u.areaError(w, day, err)
-				return
-			}
-			days[day] = stations
+		a, _, ok, err := lk.find(r.Context(), o.StationID, day, o.Key())
+		if err != nil {
+			u.areaError(w, day, err)
+			return
 		}
-		a, _, ok := findAiring(stations, o.Key())
 		if !ok {
 			bad("番組表に無い放送回: " + o.Key())
 			return
