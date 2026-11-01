@@ -169,6 +169,54 @@ func TestListJobsSummaryFields(t *testing.T) {
 	}
 }
 
+// 一覧の各ジョブの finishedAt は、状態ごとに決める（done・expired は最後の試行の終わり、expired で試行が無ければ録音期限、
+// 確定した skipped は次の試行の時刻、これからのジョブは空文字）。
+func TestListJobsFinishedAt(t *testing.T) {
+	h, st, ck, now := newJobsUI(t)
+	ctx := context.Background()
+	at := func(m int) time.Time { return now.Add(time.Duration(m) * time.Minute) }
+	withAttempts := func(id int64, ends ...int) {
+		for _, m := range ends {
+			if _, err := st.RecordAttempt(ctx, domain.Attempt{JobID: id, StartedAt: at(m - 1), EndedAt: at(m)}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	done := addJob(t, st, "録音済み", "2026-10-05", 0, domain.StateDone, now)
+	withAttempts(done, 10, 30) // 録り直した後は、録り直しの試行の終わり
+	expired := addJob(t, st, "期限切れ", "2026-10-06", 0, domain.StateExpired, now)
+	withAttempts(expired, 20)
+	expiredNone := addJob(t, st, "期限切れ試行なし", "2026-10-07", 0, domain.StateExpired, now)
+	skipped := addJob(t, st, "録らなかった", "2026-10-08", 0, domain.StateSkipped, now)
+	planned := addJobOf(t, st, domain.Job{
+		ShowName: "録らない予定", Day: mustDay(t, "2026-10-13"), State: domain.StateSkipped,
+		NextAttemptAt: now.Add(time.Hour), Deadline: now.Add(24 * time.Hour),
+	})
+	waiting := addJob(t, st, "録音予定", "2026-10-13", 0, domain.StateWaiting, now)
+	retrying := addJob(t, st, "再試行待ち", "2026-10-12", 0, domain.StateRetrying, now)
+	withAttempts(retrying, 5)
+	doneNone := addJob(t, st, "試行なしの録音済み", "2026-10-09", 0, domain.StateDone, now)
+
+	var res struct {
+		Jobs []jobSummary `json:"jobs"`
+	}
+	decode(t, do(h, "GET", "/api/jobs", "", ck).Body.Bytes(), &res)
+	got := map[int64]string{}
+	for _, j := range res.Jobs {
+		got[j.ID] = j.FinishedAt
+	}
+	f := func(t time.Time) string { return t.Format(time.RFC3339Nano) }
+	want := map[int64]string{
+		done: f(at(30)), expired: f(at(20)), expiredNone: f(now.Add(24 * time.Hour)), skipped: f(now.Add(time.Hour)),
+		planned: "", waiting: "", retrying: "", doneNone: "",
+	}
+	for id, w := range want {
+		if g, ok := got[id]; !ok || g != w {
+			t.Errorf("finishedAt（id %d） = %q, want %q", id, g, w)
+		}
+	}
+}
+
 // 一覧と詳細の各ジョブに live を常に出す。タイムフリーの対象外の放送回を 1 つでも含むジョブで true、含まないジョブで false。
 func TestJobsLive(t *testing.T) {
 	h, st, ck, now := newJobsUI(t)

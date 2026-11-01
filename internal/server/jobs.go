@@ -77,6 +77,11 @@ type jobSummary struct {
 	Attempts      int       `json:"attempts"`
 	NextAttemptAt time.Time `json:"nextAttemptAt"`
 	Deadline      time.Time `json:"deadline"`
+	// FinishedAt は、ジョブが済んだ時刻（RFC 3339。ほかの日時の欄と同じ形）。画面の既定の並びが「済んだもの」を並べるのに使う。
+	// 録音済み（done）は最後の試行の終わり、期限切れ（expired）は最後の試行の終わり（試行が無ければ録音期限）、
+	// 確定した録らなかった（skipped）は次の試行の時刻（確定の時刻を持つ列は無いので、これで代える）。
+	// 「これから」のジョブ（waiting・running・retrying・確定の前の skipped）と、試行が無い done は空文字。
+	FinishedAt string `json:"finishedAt"`
 	// Retryable は、いま手動再試行を受け付けるか（retrying・expired・確定した skipped で、録音期限を過ぎていないこと。
 	// ただし、録れた分を残している（KeepUntil の前の）ライブで録るジョブは、録音期限を過ぎていても受け付ける。
 	// store.ManualRetry と同じく domain.ManualRetryInTime で決める。録らない予定は受け付けない）。
@@ -206,6 +211,7 @@ func summarize(j domain.Job, last *domain.Attempt, now time.Time) jobSummary {
 		Skippable:  j.State == domain.StateWaiting && j.Attempts == 0,
 		Recordable: j.State == domain.StateSkipped && (!j.Settled || j.Deadline.After(now)),
 		Attempts:   j.Attempts, NextAttemptAt: j.NextAttemptAt, Deadline: j.Deadline,
+		FinishedAt: finishedAt(j, last),
 		Retryable:    (j.State == domain.StateRetrying || j.State == domain.StateExpired || settled) && domain.ManualRetryInTime(j, last, now),
 		Rerecordable: domain.CheckRerecord(j, now) == nil,
 		OutputPath:   j.OutputPath,
@@ -226,6 +232,29 @@ func summarize(j domain.Job, last *domain.Attempt, now time.Time) jobSummary {
 		}
 	}
 	return s
+}
+
+// finishedAt は、ジョブが済んだ時刻（jobSummary.FinishedAt）。済んでいない・決められないときは空文字。
+func finishedAt(j domain.Job, last *domain.Attempt) string {
+	var t time.Time
+	switch {
+	case j.State == domain.StateDone:
+		if last != nil {
+			t = last.EndedAt
+		}
+	case j.State == domain.StateExpired:
+		if last != nil {
+			t = last.EndedAt
+		} else {
+			t = j.Deadline
+		}
+	case j.State == domain.StateSkipped && j.Settled:
+		t = j.NextAttemptAt
+	}
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format(time.RFC3339Nano)
 }
 
 // lastOf は、試行の履歴（古い順）の最後の 1 件。無ければ nil。
