@@ -90,9 +90,11 @@ func serve(ctx context.Context, boot config.Boot, opts serveOptions, stdout, std
 		Live: settings.Runtime,
 	}
 	// radiko のログインの結果からサービスの異常（radiko のログインの失敗）を書き、会員種別かログイン情報を保存したら
-	// セッションを捨てて録音期限を付け直す。
+	// セッションを捨てる。会員種別を保存したときと、番組表の認証で自分のエリアが変わったと分かったときは、録音期限を付け直す
+	// （タイムフリー・ライブの試行の認証は App が自分で見る）。
 	client.OnLogin = a.LoginResult
 	settings.OnApply = a.SettingsApplied
+	areaGuide.OnArea = a.SeeOwnArea
 	if err := a.LoadMetrics(ctx); err != nil {
 		return fmt.Errorf("最後に保存した時刻を読めない: %w", err)
 	}

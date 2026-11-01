@@ -62,6 +62,8 @@ type fakeRadiko struct {
 	onStream func()
 	// outOfArea が true なら auth2 でエリア外（OUT）を返す。
 	outOfArea bool
+	// area は auth2 が返す自分のエリア ID。空なら JP13。
+	area string
 	// noTimefree が true ならタイムフリーの候補を返さない（恒久的に取れない）。
 	noTimefree bool
 	// failSeek にある時刻（radiko の表記）を seek とするプレイリストを 500 で返す。
@@ -113,13 +115,17 @@ func newFakeRadiko(t *testing.T) *fakeRadiko {
 	mux.HandleFunc("/v2/api/auth2", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		out := f.outOfArea
+		area := f.area
 		f.authSessions = append(f.authSessions, r.URL.Query().Get("radiko_session"))
 		f.mu.Unlock()
 		if out {
 			fmt.Fprint(w, "OUT\n")
 			return
 		}
-		fmt.Fprint(w, "JP13,東京都,tokyo Japan\n")
+		if area == "" {
+			area = "JP13"
+		}
+		fmt.Fprintf(w, "%s,東京都,tokyo Japan\n", area)
 	})
 	mux.HandleFunc("/v4/api/member/login", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()

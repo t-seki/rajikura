@@ -949,6 +949,7 @@ func (lf *liveFetch) airing(ctx context.Context, base string, ar domain.Airing) 
 				}
 				continue
 			}
+			a.seeOwnArea(ctx, lf.log, tok.AreaID)
 			lf.token = &tok
 		}
 		end := ar.End

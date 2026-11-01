@@ -63,6 +63,37 @@ func JobDeadline(airings []Airing, m Membership) time.Time {
 	return d
 }
 
+// ReviseJobDeadline は、録音期限の付け直し（docs/adr/0032-revise-deadlines-when-own-area-changes.md）で、まだ終わっていない
+// ジョブ j に書き直す録音期限。会員種別か自分のエリアが変わったときに、今の会員種別 m と、今の自分のエリアの局一覧 own
+// （局 ID の集合）で計算し直す。録り直しを受け付けるときの録音期限（RerecordDeadline）も、これで求める。
+//
+// 録音の方式は変えない（ジョブの放送回が持つ印 Airing.OutOfArea のまま、Job.Live で決まる）。ライブで録るジョブは、録音期限が
+// 会員種別にも自分のエリアにも依らないので、JobDeadline のまま。タイムフリーから録るジョブは、放送回ごとに、今の自分のエリアから
+// エリアの外から録るかを決め直してから AiringDeadline で求める。そのため、今の自分のエリアからタイムフリーで聴けない放送回
+// （TimeFreeExcluded）は、放送の終了の LiveDeadlineAfter（5 分）後になる。エリアの外から録るかは、会員種別がエリアフリー・
+// ダブルプランなら局が own に無いかで決め、それ以外の会員種別ではいつも立てない（Airing.OutOfArea と同じ決まり）。
+// own が nil なら局一覧が分からないので、エリアフリー・ダブルプランでは放送回が持つ印をそのまま使う。
+// 放送回が無ければゼロ値を返す。
+func ReviseJobDeadline(j Job, m Membership, own map[string]bool) time.Time {
+	if j.Live() {
+		return JobDeadline(j.Airings, m)
+	}
+	var d time.Time
+	for i, a := range j.Airings {
+		switch {
+		case !m.AreaFree():
+			a.OutOfArea = false
+		case own != nil:
+			a.OutOfArea = !own[a.StationID]
+		}
+		ad := AiringDeadline(a, m)
+		if i == 0 || ad.Before(d) {
+			d = ad
+		}
+	}
+	return d
+}
+
 // Verdict は録音期限を過ぎたジョブの扱い。
 type Verdict int
 

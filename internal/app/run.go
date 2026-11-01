@@ -132,7 +132,7 @@ func (a *App) runJob(ctx context.Context, cur live, job domain.Job) error {
 		log.Warn("恒久的に取れないので期限切れにする")
 		return a.expire(ctx, log, job, failureText(err))
 	}
-	// 試行の間に会員種別が保存されると、録音期限が付け直されている（Store.ReviseDeadlines）ので、DB から読み直す。
+	// 試行の間に会員種別が保存されたか自分のエリアが変わると、録音期限が付け直されている（Store.ReviseDeadlines）ので、DB から読み直す。
 	if now, err := a.Store.GetJob(ctx, job.ID); err != nil {
 		log.Warn("ジョブを読み直せないので、録音を始めたときの録音期限を使う", "err", err)
 	} else {
@@ -280,6 +280,7 @@ func (a *App) attempt(ctx context.Context, cur live, log *slog.Logger, job domai
 				if err != nil {
 					return saved{}, failAt(domain.StageFetch, fmt.Errorf("認証できない: %w", err))
 				}
+				a.seeOwnArea(ctx, log, t.AreaID)
 				token = &t
 			}
 			var err error

@@ -149,7 +149,8 @@
 // （キーワードで録音予定にした・上限で足すのを止めた）は、キーワードを当てた展開役が、足すのと同じトランザクションで書く（keyword.go）。
 // ジョブの出来事のうち録らない予定にした・録音予定に戻した・録らなかったは、展開役が展開の差分を当てた後に書く（syncDay）。
 // 番組の出来事（毎週の予約の当たらない日を新しく見つけた）は、展開役が同期・展開の終わりに、当たらない日に通知した印を
-// 立てるのと同じトランザクションで書く（unmatched.go）。期限間近は、
+// 立てるのと同じトランザクションで書く（unmatched.go）。自分のエリアの出来事（自分のエリアが変わった）は、展開役が録音期限を
+// 付け直した後に書く（own_area.go）。期限間近は、
 // ジョブの実行と同じ周（1 件実行するごと）で判定する。同期の失敗は展開役が数える。通知先（Notifier）には、同じ周で
 // まだ送れていない通知を古い順に送り、作ってから 1 時間を過ぎた通知を送ろうとして送れなければ、諦めて
 // rajikura_notify_failures_total{kind} を数える。通知を書けない・送れないときも、ジョブの処理は止めない。
@@ -318,7 +319,7 @@ type App struct {
 	expanderRunning atomic.Bool
 	// expandTasks は onExpander で頼まれた処理。
 	expandTasks chan expandTask
-	// expandWake は、展開の依頼を積んだことを展開役に知らせる。
+	// expandWake は、展開の依頼を積んだこと（と、自分のエリアの付け直しを頼んだこと。own_area.go）を展開役に知らせる。
 	expandWake chan struct{}
 	// recordWake は、録音のループを次の見回りを待たずに起こす（WakeRecorder）。
 	recordWake chan struct{}
@@ -357,6 +358,16 @@ type App struct {
 	progress map[int64]Progress
 	// progressSeen があれば、進捗を置く・変える・消すたびに、変えた後の値で呼ぶ（消したら ok が false）。テストが移り方を見る。
 	progressSeen func(id int64, p Progress, ok bool)
+
+	// ownAreaMu は、自分のエリアの覚え（ownAreaLoaded・ownAreaSeen・ownAreaPending）を守る（認証した goroutine と展開役が触る。
+	// own_area.go）。
+	ownAreaMu sync.Mutex
+	// ownAreaLoaded は、最後に見た自分のエリアを DB から読んだこと（起動の後に初めて認証したときに読む）。
+	ownAreaLoaded bool
+	// ownAreaSeen は、最後に見た自分のエリア（DB に覚えている値の写し）。空なら、まだ何も覚えていない。
+	ownAreaSeen string
+	// ownAreaPending は、ownAreaSeen と違うと分かって、展開役に付け直しを頼んだ自分のエリア。空なら頼んでいない。
+	ownAreaPending string
 }
 
 // Progress は録音中のジョブの進捗（用語集）。今の試行の段階と、入手の間だけ、それまでに録れた音の長さとジョブの放送回の長さの
@@ -612,8 +623,10 @@ func (a *App) RunExpander(ctx context.Context) error {
 }
 
 // runExpander は展開役（goroutine 1 本）の中身。番組表の同期と展開（syncDay）は、ここから呼ぶ処理だけが行うので、
-// 2 つの展開が同時に走らない。順に処理するのは次の 4 つ。
+// 2 つの展開が同時に走らない。順に処理するのは次の 5 つ。
 //
+//   - 自分のエリアが変わったときの録音期限の付け直しと、続く番組表の同期 1 回（seeOwnArea が expandWake で頼む。
+//     reviseForOwnArea。own_area.go）
 //   - 展開の依頼（RequestExpand。expandRequested）
 //   - 展開の依頼で展開できなかった局・放送日の試し直し（retryExpand。間は ExpandRetryDelays で延ばしていく）
 //   - 番組表の同期（syncOnExpander）。起動時（Startup が onExpander で頼む）と SyncInterval ごと
@@ -642,6 +655,7 @@ func (a *App) runExpander(ctx context.Context) {
 		case <-syncT.C:
 			a.syncOnExpander(ctx)
 		case <-a.expandWake:
+			a.reviseForOwnArea(ctx)
 			a.expandRequested(ctx)
 			a.WakeRecorder()
 		case <-retryC:
@@ -724,10 +738,12 @@ func (a *App) RequestExpand(shows ...domain.Show) {
 	}
 }
 
-// ExpandPending は、積まれている展開の依頼を展開役で今すぐ展開し、終わるまで待つ（テストのため）。
+// ExpandPending は、積まれている展開の依頼を展開役で今すぐ展開し、終わるまで待つ（テストのため）。自分のエリアの付け直しが
+// 頼まれていれば、先に付け直す（runExpander の expandWake と同じ順）。
 // 失敗した依頼は、ほかの依頼と同じく試し直しに回し、エラーは返さない。
 func (a *App) ExpandPending(ctx context.Context) error {
 	return a.onExpander(ctx, func(ctx context.Context) error {
+		a.reviseForOwnArea(ctx)
 		a.expandRequested(ctx)
 		return nil
 	})

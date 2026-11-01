@@ -202,7 +202,7 @@ func TestRetryUsesRevisedDeadlineAfterAttempt(t *testing.T) {
 	e.fake.set(func(f *fakeRadiko) {
 		f.streamFail = true
 		f.onStream = func() {
-			if _, err := e.store.ReviseDeadlines(e.ctx, domain.MembershipTimeFree30); err != nil {
+			if _, err := e.store.ReviseDeadlines(e.ctx, domain.MembershipTimeFree30, nil, e.clock.Now()); err != nil {
 				t.Error(err)
 			}
 		}

@@ -3,7 +3,7 @@
 export interface AppNotification {
   id: number;
   // 足したら直す: 通知の種類
-  /** 通知の種類（recorded・missing・expired・skipped・skip_planned・unskipped・deadline_near・sync・out_of_area・login・backup・wake・rescan・recovered・keyword_added・keyword_limit・unmatched_day・test）。 */
+  /** 通知の種類（recorded・missing・expired・skipped・skip_planned・unskipped・deadline_near・sync・out_of_area・login・backup・wake・rescan・recovered・keyword_added・keyword_limit・unmatched_day・area_changed・test）。 */
   kind: string;
   message: string;
   createdAt: string;
@@ -118,6 +118,7 @@ const kindLabels: Record<string, string> = {
   keyword_added: "キーワードで録音予定にした",
   keyword_limit: "キーワードの上限で止めた",
   unmatched_day: "当たらない日",
+  area_changed: "自分のエリアが変わった",
   test: "テスト",
 };
 

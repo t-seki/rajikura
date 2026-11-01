@@ -42,6 +42,8 @@ const (
 	KindKeywordLimit = "keyword_limit" // 上限で足すのを止めた
 	// 番組の出来事
 	KindUnmatchedDay = "unmatched_day" // 毎週の予約の当たらない日を新しく見つけた
+	// 自分のエリアの出来事
+	KindAreaChanged = "area_changed" // 自分のエリアが変わった
 	// サービスの異常（始まり）
 	KindSync      = "sync"        // 番組表の同期が 2 回続けて失敗した
 	KindOutOfArea = "out_of_area" // radiko がエリア外と判定した
@@ -58,7 +60,7 @@ const (
 // Kinds は通知の種類の全部。
 // 足したら直す: 通知の種類
 var Kinds = []string{KindRecorded, KindMissing, KindExpired, KindSkipped, KindSkipPlanned, KindUnskipped, KindDeadlineNear, KindKeywordAdded, KindKeywordLimit,
-	KindUnmatchedDay, KindSync, KindOutOfArea, KindLogin, KindBackup, KindWake, KindRescan, KindRecovered, KindTest}
+	KindUnmatchedDay, KindAreaChanged, KindSync, KindOutOfArea, KindLogin, KindBackup, KindWake, KindRescan, KindRecovered, KindTest}
 
 // Notifier は通知先。
 type Notifier interface {
