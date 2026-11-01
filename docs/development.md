@@ -159,7 +159,7 @@ pnpm screenshots
 | タイムフリーからの録音 | （方式を表す型は無い。`Job.Live` が false のジョブ。入手は radiko の `Client.FetchTimefree`） |
 | ライブ録音 | domain の `Job.Live`（判定は `domain.LiveAirings`）。拾うのは `Store.ClaimDueLive` と `Store.ClaimDueLiveSave`（録音期限を過ぎた、保存だけのやり直し）（途中で止まったものは `Store.RunningLive`）、録るのは app の `internal/app/live.go`、入手は radiko の `Client.FetchLive`。ジョブの API の JSON は `live`（画面では「ライブ録音」） |
 | タイムフリーの対象外 | domain の `Airing.TimeFreeExcluded`（値は、`Airing.OutOfArea` が立っていなければ `TimeFreeFlags.InNG`、立っていれば `TimeFreeFlags.OutNG`。radiko の番組表の `ts_in_ng`・`ts_out_ng`、`Program.TSInNG`・`Program.TSOutNG`。DB は `job_airings.ts_in_ng`・`job_airings.ts_out_ng`）。番組表の API の JSON は `notAvailable`（画面では「ライブで録る」）。フラグの読み方は #27 |
-| 自分のエリアの外の局（エリアの外から録る） | domain の `Airing.OutOfArea`（DB は `job_airings.out_of_area`）。決めるのは、展開では app の `App.markOutOfArea`、番組表の画面では `RadikoAreaGuide.AreaAiringsOf`（自分のエリアの局一覧に無い局で立てる） |
+| 自分のエリアの外の局 | domain の `Airing.OutOfArea`（DB は `job_airings.out_of_area`）。決めるのは、展開では app の `App.markOutOfArea`、番組表の画面では `RadikoAreaGuide.AreaAiringsOf`（自分のエリアの局一覧に無い局で立てる） |
 | ジョブ | `Job` |
 | 再試行待ち | domain の `StateRetrying`（DB と JSON は `retrying`）。録音か検証に失敗したジョブの状態で、画面では「録音予定（失敗・再試行待ち）」。人は手動再試行で戻せる（CLI は `retry`） |
 | 期限切れ | domain の `StateExpired`（DB と JSON は `expired`）。録音期限までに録音できなかったジョブの状態で、画面では「録音できなかった」 |
