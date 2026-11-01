@@ -35,3 +35,4 @@ rajikura の設計の決定と、その理由をまとめる。どの ADR も、
 | [0029](0029-weekly-until-over-title-based-handover.md) | 番組の切り替えは毎週の予約の終了日で前もって決め、矛盾を番組名で振り分けない | 毎週の予約の終了日 |
 | [0030](0030-radiko-login-follows-chosen-membership.md) | radiko のログインは人が選んだ会員種別に従い、拒まれたら非会員として録る | 会員種別の決め方、radiko のログインのセッションと、拒まれたときの扱い |
 | [0031](0031-rerecord-deadline-follows-current-membership.md) | 録音済みのジョブの録り直しは手動再試行とは別の操作にし、受け付けるかは今の会員種別の録音期限で決める | 録り直しの受け付けと、前のファイルの扱い、録り直しの録音期限 |
+| [0032](0032-revise-deadlines-when-own-area-changes.md) | 自分のエリアが変わったら、まだ終わっていないジョブの録音期限を、会員種別と同じ付け直しで直す | 録音期限の写しの付け直しと、自分のエリアの変化への気付き方 |
