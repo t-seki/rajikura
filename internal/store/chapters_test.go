@@ -111,7 +111,7 @@ func TestChapterWaitFlow(t *testing.T) {
 	if _, err := s.db.ExecContext(ctx, `UPDATE jobs SET chapters_refetch = 1 WHERE id = ?`, id2); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Rerecord(ctx, id2, now); err != nil {
+	if err := s.Rerecord(ctx, id2, domain.MembershipFree, now); err != nil {
 		t.Fatal(err)
 	}
 	if j := get(t, id2); j.State != domain.StateRetrying || j.Chapters != domain.ChaptersNotAdded || !j.ChapterCheckAt.IsZero() ||

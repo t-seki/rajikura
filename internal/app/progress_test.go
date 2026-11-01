@@ -284,7 +284,7 @@ func TestProgressRerecord(t *testing.T) {
 	e, j := newRerecordEnv(t)
 	now := afterBroadcast.Add(time.Hour)
 	e.clock.Set(now)
-	if err := e.store.Rerecord(e.ctx, j.ID, now); err != nil {
+	if err := e.store.Rerecord(e.ctx, j.ID, domain.MembershipFree, now); err != nil {
 		t.Fatal(err)
 	}
 	l := watchProgress(e.app, j.ID)

@@ -20,6 +20,10 @@ func TestRerecord(t *testing.T) {
 	add := func(name string, state domain.State, inNG int, deadline time.Time) string {
 		t.Helper()
 		a := domain.Airing{StationID: "TBS", Start: now.Add(-3 * time.Hour), End: now.Add(-2 * time.Hour), Title: name}
+		if deadline.Before(now) {
+			// 録音期限は放送回と会員種別（非会員）から決まるので、7 日を過ぎた放送回にする。
+			a.Start, a.End = now.Add(-9*24*time.Hour), now.Add(-9*24*time.Hour+time.Hour)
+		}
 		a.TimeFree.InNG = inNG
 		id, err := api.Store.InsertJob(ctx, domain.Job{ShowName: name, Day: domain.BroadcastDayOf(now), State: state,
 			Airings: []domain.Airing{a}, Attempts: 2, NextAttemptAt: now.Add(-time.Hour), Deadline: deadline, OutputPath: "/library/" + name + ".m4a"})
