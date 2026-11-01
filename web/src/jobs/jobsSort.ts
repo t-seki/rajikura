@@ -34,14 +34,28 @@ const keyCompare: Record<JobSortKey, (a: JobSummary, b: JobSummary) => number> =
   next: (a, b) => Date.parse(nextOrDeadline(a)) - Date.parse(nextOrDeadline(b)),
 };
 
+/** 済んだ時刻（ミリ秒）。無い（空・欠けている・読めない）ジョブは null。 */
+const finishedMs = (j: JobSummary): number | null => {
+  const t = j.finishedAt ? Date.parse(j.finishedAt) : NaN;
+  return Number.isNaN(t) ? null : t;
+};
+
+/** 「済んだもの」の並び（新しい順）。済んだ時刻の新しい順（済んだ時刻が無いものは最後）、同じなら最初の放送回の開始時刻の新しい順。 */
+const finishedNewestFirst = (a: JobSummary, b: JobSummary) => {
+  const fa = finishedMs(a) ?? -Infinity;
+  const fb = finishedMs(b) ?? -Infinity;
+  if (fa !== fb) return fa === -Infinity ? 1 : fb === -Infinity ? -1 : fb - fa;
+  return dayThenStart(b, a);
+};
+
 /**
  * 既定の並び: 「これから」（録音予定・録らない予定・録音中・再試行待ち）を最初の放送回の開始時刻の古い順に上へ、「済んだもの」（録音済み・期限切れ・録らなかった）を
- * その下に開始時刻の新しい順に（放送日の順にもなる）。開始時刻が同じなら API の並びのまま。
+ * その下に済んだ時刻（finishedAt）の新しい順に（無いものは最後）。済んだ時刻が同じなら開始時刻の新しい順（放送日の順にもなる）、それも同じなら API の並びのまま。
  */
 export function defaultOrder(jobs: JobSummary[]): JobSummary[] {
   return [
     ...jobs.filter(upcoming).sort(dayThenStart),
-    ...jobs.filter((j) => !upcoming(j)).sort((a, b) => dayThenStart(b, a)),
+    ...jobs.filter((j) => !upcoming(j)).sort(finishedNewestFirst),
   ];
 }
 
