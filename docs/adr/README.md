@@ -33,3 +33,4 @@ rajikura の設計の決定と、その理由をまとめる。どの ADR も、
 | [0027](0027-chapters-refetched-by-rerecording.md) | チャプターはタイムフリーからの録音の保存のときに取り、取れなければできるのを待って録り直して入れる | チャプターの取り方・形と、チャプターの取り直し |
 | [0028](0028-publish-as-oss-under-radiko-terms.md) | radiko の規約の第 4 条を承知で、ソースを公開した OSS として配る | 公開の立場と、守ること |
 | [0029](0029-weekly-until-over-title-based-handover.md) | 番組の切り替えは毎週の予約の終了日で前もって決め、矛盾を番組名で振り分けない | 毎週の予約の終了日 |
+| [0030](0030-radiko-login-follows-chosen-membership.md) | radiko のログインは人が選んだ会員種別に従い、拒まれたら非会員として録る | 会員種別の決め方、radiko のログインのセッションと、拒まれたときの扱い |
