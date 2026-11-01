@@ -4,6 +4,14 @@
 
 radiko の放送を録音し、Jellyfin などのライブラリへ自動で保存するサービス。放送済みの放送回はタイムフリーから録り、タイムフリーの対象外の放送回は放送中にライブで録る。毎週の予約に一致する放送回を、タイムフリーからは放送後に録れるまで再試行して録音し、長さを検証してから保存する。 <!-- 足したら直す: 録音の方式 -->
 
+画面（Web UI。画像のデータはすべて架空のダミー）:
+
+![番組表](docs/images/guide.png)
+
+![ジョブ](docs/images/jobs.png)
+
+![番組](docs/images/shows.png)
+
 スマホで聴くなら、Android アプリの [kikidame](https://github.com/t-seki/kikidame) が rajikura の保存の形を読める（[kikidame で聴く](docs/kikidame.md)）。
 
 ## 利用範囲

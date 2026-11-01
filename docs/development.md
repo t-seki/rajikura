@@ -90,6 +90,23 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o rajikura.exe ./cmd/rajikura
 - 止めるのは、exe の名前が `rajikura-tray.exe` のトレイで、置き場所は問わない（`cmd/rajikura/traybin` から起動したトレイも止める）。終わったら「動いていた前のトレイを終了した」と出す。
 - ほかのユーザーのセッションで動くトレイには頼まないので、そのトレイは前の版のまま動き続け、終了して起動し直すか、ログインし直すと新しい版になる。
 
+### README のスクリーンショットを撮り直す
+
+README の冒頭の画像（`docs/images/` の `guide.png`・`jobs.png`・`shows.png`。番組表・ジョブ・番組の PC 幅）は、人の手で撮らず、次のコマンドで作り直す。画面を変えたら、気づいたときに撮り直す（撮り直しを強制する検査は無い）。
+
+```bash
+cd web
+pnpm install
+pnpm screenshots
+```
+
+- 画面に映るのは、`web/mock/data.ts` の架空のダミーのデータだけ（局・番組名・出演者・説明・画像のすべて）。radiko の実際の番組表は映さない（[ADR 0028](adr/0028-publish-as-oss-under-radiko-terms.md)）。
+- `pnpm screenshots`（`web/scripts/screenshots.mjs`）は、ダミーのデータで `/api` に答える Vite の開発サーバー（`vite --mode mock`。`web/mock/plugin.ts`）を立て、ヘッドレスのブラウザで撮る。`rajikura serve` にも radiko にもつながらない。ブラウザの時計は `web/mock/data.ts` の `MOCK_NOW` に固定するので、何度流しても同じ画像になる（ブラウザの描画の違いは除く）。
+- ブラウザは手元の Microsoft Edge（`playwright-core` の `channel: "msedge"`）。ブラウザは別に入れない。Chrome を使うなら環境変数 `SCREENSHOT_CHANNEL=chrome` を付ける。
+- ダミーの画面を自分で見るだけなら `pnpm dev:mock`（http://localhost:5173）。読み出しだけ答え、書き込みの API は 405 で断る（通知の画面が開くたびに呼ぶ `POST /api/notifications/read` だけは、何もせず成功で答える）。
+- ダミーのデータの口は `pnpm dev:mock` のときだけ効き、`pnpm build` の成果物（`serve` に埋め込む Web UI）には入らない（`web/vite.config.ts` が `--mode mock` のときだけプラグインを足し、プラグインは開発サーバーだけに効く）。
+- 画面の型（`GuideAiring`・`JobSummary`・`Show`）を変えたら、`pnpm typecheck` が `web/mock/` の型の食い違いで落ちるので、ダミーのデータを直す。
+
 ## 開発の決まり
 
 - SQLite のドライバは `modernc.org/sqlite`（cgo 不要）。マイグレーションは、埋め込んだ SQL を順に当てる仕組みを自前で書く。

@@ -1,11 +1,13 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
+import { mockApi } from "./mock/plugin.ts";
 
 // 開発サーバー（pnpm dev）は /api を rajikura serve に中継する。つなぎ先は環境変数 RAJIKURA_API（既定 http://localhost:8080）。
 const api = process.env.RAJIKURA_API ?? "http://localhost:8080";
 
-export default defineConfig({
-  plugins: [react()],
+// --mode mock（pnpm dev:mock）のときだけ、/api をダミーのデータで答える（mock/plugin.ts）。ビルドの成果物には入らない。
+export default defineConfig(({ mode }) => ({
+  plugins: [react(), ...(mode === "mock" ? [mockApi()] : [])],
   build: {
     outDir: "dist",
     // dist/.gitkeep を残すため false。古い成果物は pnpm build の前段（scripts/clean-dist.mjs）で消す。
@@ -15,7 +17,8 @@ export default defineConfig({
     license: true,
   },
   server: {
-    proxy: { "/api": { target: api, changeOrigin: true } },
+    // mock のときは中継せず、プラグインが答える。
+    proxy: mode === "mock" ? undefined : { "/api": { target: api, changeOrigin: true } },
   },
   test: {
     environment: "jsdom",
@@ -23,4 +26,4 @@ export default defineConfig({
     // CI の遅い回に、userEvent を重ねた画面のテスト（ShowsPage の「番組を作る」など）が既定の 5000ms で落ちることがある。
     testTimeout: 15000,
   },
-});
+}));
