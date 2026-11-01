@@ -104,7 +104,9 @@ export type Once = {
 };
 
 /** 番組を 1 つ読む。1 回の予約の一覧（onces）が付く。 */
-export const getShow = (name: string) => call<Show & { onces?: Once[] }>("GET", showPath(name), "番組を読めない");
+export type ShowDetail = Show & { onces?: Once[] };
+
+export const getShow = (name: string) => call<ShowDetail>("GET", showPath(name), "番組を読めない");
 
 export const deleteOnce = (name: string, id: number) =>
   call<void>("DELETE", `${showPath(name)}/onces/${id}`, "1 回の予約を消せない");

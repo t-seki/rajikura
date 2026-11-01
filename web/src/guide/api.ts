@@ -38,6 +38,9 @@ export type GuideAiring = {
 
 export type GuideStation = { id: string; name: string; airings: GuideAiring[] };
 
+/** GET /api/guide の応答。 */
+export type GuideResult = { day: string; stations: GuideStation[] };
+
 export type SearchResult = { q: string; airings: GuideAiring[]; truncated: boolean };
 
 type ErrorBody = {
@@ -69,7 +72,7 @@ async function getJSON<T>(path: string, what: string): Promise<T> {
 
 /** その放送日（YYYY-MM-DD）の、エリアの全局の放送回。 */
 export const getGuide = (day: string) =>
-  getJSON<{ day: string; stations: GuideStation[] }>(`/api/guide?${new URLSearchParams({ day })}`, "番組表を読めない");
+  getJSON<GuideResult>(`/api/guide?${new URLSearchParams({ day })}`, "番組表を読めない");
 
 export const searchGuide = (q: string) =>
   getJSON<SearchResult>(`/api/guide/search?${new URLSearchParams({ q })}`, "番組表を検索できない");
