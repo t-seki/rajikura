@@ -30,7 +30,7 @@ import {
   type ReactNode,
 } from "react";
 import { AiringPanel, PANEL_WIDTH, StateBadge, type PanelSelection } from "./AiringPanel";
-import { getGuide, searchGuide, type GuideAiring, type GuideStation, type SearchResult } from "./api";
+import { getGuide, getGuideAreas, searchGuide, type GuideAiring, type GuideAreas, type GuideStation, type SearchResult } from "./api";
 import {
   addDays,
   broadcastClock,
@@ -666,20 +666,29 @@ function airingStart(param: string): Date | null {
   return Number.isNaN(t.getTime()) ? null : t;
 }
 
-/** 番組表が URL のクエリに載せる状態（ブラウザに覚えていないもの）。day は表示する放送日の範囲の中だけ、それ以外は null。 */
-type GuideQuery = { day: string | null; q: string; airing: string | null };
+/**
+ * 番組表が URL のクエリに載せる状態（ブラウザに覚えていないもの）。day は表示する放送日の範囲の中だけ、それ以外は null。
+ * area は自分のエリア以外を選んだときのエリア ID（自分のエリアは空）。
+ */
+type GuideQuery = { day: string | null; q: string; area: string; airing: string | null };
 
 function parseGuideQuery(search: string, days: string[]): GuideQuery {
   const p = new URLSearchParams(search);
   const day = p.get("day");
-  return { day: day && days.includes(day) ? day : null, q: (p.get("q") ?? "").trim(), airing: p.get("airing") || null };
+  return {
+    day: day && days.includes(day) ? day : null,
+    q: (p.get("q") ?? "").trim(),
+    area: (p.get("area") ?? "").trim(),
+    airing: p.get("airing") || null,
+  };
 }
 
 /** 番組表の URL のクエリ（`?` から。何も無ければ空）。 */
-function guideQuery({ day, q, airing }: GuideQuery): string {
+function guideQuery({ day, q, area, airing }: GuideQuery): string {
   const p = new URLSearchParams();
   if (day) p.set("day", day);
   if (q) p.set("q", q);
+  if (area) p.set("area", area);
   if (airing) p.set("airing", airing);
   const out = p.toString();
   return out ? `?${out}` : "";
@@ -699,7 +708,9 @@ const sortedUnique = (as: GuideAiring[]) =>
  * 予約・やめた後は番組表の上の帯で知らせ、帯が出ている間だけ「取り消す」で戻せる。
  * onOpenShow は「番組を開く」「番組の設定を開く」で、番組の画面でその番組を開く。
  * onCreateKeyword は検索の結果の「このキーワードで録音」で、検索の語を入れたキーワードの作るダイアログを開く。
- * onNavigate があれば、放送日・検索の語・詳細を開いた放送回を URL のクエリ（search。`?day=`・`?q=`・`?airing=`）と揃える（ADR 0024）:
+ * 会員種別がエリアフリー・ダブルプランのときだけ、放送日の隣にエリアの切り替えを出す（GET /api/guide/areas の switchable）。既定は自分のエリアで、
+ * 選んだエリアの番組表（と検索）を出し、自分のエリア以外は URL の `?area=` に載せる。切り替えられないエリアを URL が指していれば、自分のエリアにする。
+ * onNavigate があれば、放送日・検索の語・エリア・詳細を開いた放送回を URL のクエリ（search。`?day=`・`?q=`・`?area=`・`?airing=`）と揃える（ADR 0024）:
  * 開いたときと、「戻る」などで search が変わったときはクエリの状態にし、状態を変えたら onNavigate でクエリを書き換える
  * （詳細を開くのは push、閉じるのは close、放送日と検索の語は replace）。今日の放送日はクエリに載せない。範囲の外の放送日は
  * 今日にし、クエリを直す。指す放送回が無ければ、詳細を開かない。
@@ -732,6 +743,12 @@ export function GuidePage({
   const [hidden, setHidden] = useState<string[]>(rememberedHidden);
   // 「隠した局も表示」。覚えない
   const [showHidden, setShowHidden] = useState(false);
+  // 選んだエリアの ID（空 = 自分のエリア）。URL に切り替えられないエリアがあれば、エリアの一覧を読んで確かめるまで番組表を読まない
+  const [area, setArea] = useState(initial.area);
+  const [areaChecked, setAreaChecked] = useState(initial.area === "");
+  const [areas, setAreas] = useState<GuideAreas | null>(null);
+  const areaRef = useRef(area);
+  areaRef.current = area;
   const [query, setQuery] = useState(initial.q);
   const [search, setSearch] = useState<SearchResult | null>(null);
   const [searching, setSearching] = useState(initial.q !== "");
@@ -754,11 +771,11 @@ export function GuidePage({
   const bandSeq = useRef(0);
   const token = useRef(0);
 
-  const loadDay = useCallback(async (d: string) => {
+  const loadDay = useCallback(async (d: string, a: string) => {
     const my = ++token.current;
     setError(null);
     try {
-      const got = await getGuide(d);
+      const got = await getGuide(d, a);
       if (my === token.current) setStations(got.stations);
     } catch (e) {
       if (my === token.current) {
@@ -769,20 +786,53 @@ export function GuidePage({
   }, []);
 
   useEffect(() => {
+    if (!areaChecked) return;
     setStations(null);
-    loadDay(day);
-    // 放送日を変えたら、前の放送日の選択は捨てる
+    loadDay(day, area);
+    // 放送日かエリアを変えたら、前の番組表の選択は捨てる
     groupToken.current++;
     setSel((cur) => (cur && !cur.fromSearch ? null : cur));
     setTouchSelect(false);
-  }, [day, loadDay]);
+  }, [day, area, areaChecked, loadDay]);
+
+  // エリアの一覧を読む。切り替えられるのはエリアフリー・ダブルプランだけ。読めない・切り替えられないのに URL がエリアを指していたら、自分のエリアにする。
+  useEffect(() => {
+    let live = true;
+    getGuideAreas().then(
+      (got) => {
+        if (!live) return;
+        setAreas(got);
+        const a = areaRef.current;
+        if (a && (!got.switchable || a === got.own || !got.areas.some((x) => x.id === a))) setArea("");
+        setAreaChecked(true);
+      },
+      () => {
+        if (!live) return;
+        setAreas(null);
+        if (areaRef.current) setArea("");
+        setAreaChecked(true);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  // 選んだエリアを変えたら、流している検索も新しいエリアでやり直す（最初の描画では流さない）
+  const prevArea = useRef(area);
+  useEffect(() => {
+    if (prevArea.current === area) return;
+    prevArea.current = area;
+    if (activeQ) void runSearch(activeQ);
+    // 流し直すのはエリアが変わったときだけ（activeQ・runSearch の変化では流さない）
+  }, [area]);
 
   const runSearch = useCallback(async (q: string) => {
     setActiveQ(q);
     setSearching(true);
     setError(null);
     try {
-      setSearch(await searchGuide(q));
+      setSearch(await searchGuide(q, areaRef.current));
     } catch (e) {
       setError(message(e, "番組表を検索できない"));
     } finally {
@@ -798,16 +848,16 @@ export function GuidePage({
   const dayForParts = useCallback(async (d: string) => {
     const cur = stationsRef.current;
     if (cur && cur.day === d) return cur.stations;
-    return (await getGuide(d)).stations;
+    return (await getGuide(d, areaRef.current)).stations;
   }, []);
 
   // 開いたときの URL に検索の語があれば、検索を流す
   useEffect(() => {
-    if (initial.q) void runSearch(initial.q);
-  }, [initial, runSearch]);
+    if (initial.q && areaChecked) void runSearch(initial.q);
+  }, [initial, runSearch, areaChecked]);
 
   // 予約した・取り消した後は、番組表（と検索の結果）の状態を取り直す
-  const reload = () => Promise.all([loadDay(day), search ? runSearch(search.q) : Promise.resolve()]);
+  const reload = () => Promise.all([loadDay(day, area), search ? runSearch(search.q) : Promise.resolve()]);
 
   /** 予約済みの放送回を選ぼうとした。初めの 1 度だけ知らせる。 */
   function refuse() {
@@ -1005,6 +1055,9 @@ export function GuidePage({
     const u = parseGuideQuery(urlSearch, days);
     const d = u.day ?? today;
     if (d !== day) setDay(d);
+    // 切り替えられないエリアは自分のエリアにする（エリアの一覧を読む前は、そのまま持っておいて一覧で確かめる）
+    const ua = areas && (!areas.switchable || u.area === areas.own || !areas.areas.some((x) => x.id === u.area)) ? "" : u.area;
+    if (ua !== area) setArea(ua);
     if (u.q !== activeQ) {
       if (u.q) {
         setQuery(u.q);
@@ -1027,11 +1080,11 @@ export function GuidePage({
   useEffect(() => {
     if (!onNavigate) return;
     const airing = opened ? airingParam(opened) : pendingAiring;
-    const next = guideQuery({ day: day === today ? null : day, q: activeQ, airing });
+    const next = guideQuery({ day: day === today ? null : day, q: activeQ, area, airing });
     if (next === urlSearch) return;
     const was = new URLSearchParams(urlSearch).get("airing");
     onNavigate(next, !was && airing ? "push" : was && !airing ? "close" : "replace");
-  }, [day, today, activeQ, opened, pendingAiring]);
+  }, [day, today, activeQ, area, opened, pendingAiring]);
 
   const selected = stations?.find((s) => s.id === stationId) ?? stations?.[0];
   // 選択の放送回は、取り直した番組表のものに差し替える（状態を新しくする）
@@ -1191,6 +1244,17 @@ export function GuidePage({
             >
               次の日
             </Button>
+            {areas?.switchable && (
+              <Select
+                aria-label="エリア"
+                data={areas.areas.map((a) => ({ value: a.id, label: a.id === areas.own ? `${a.name}（自分のエリア）` : a.name }))}
+                value={area || areas.own}
+                onChange={(v) => v && setArea(v === areas.own ? "" : v)}
+                allowDeselect={false}
+                searchable
+                w={190}
+              />
+            )}
             {!wide && stations && stations.length > 0 && (
               <Select
                 aria-label="局"

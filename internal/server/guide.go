@@ -2,14 +2,19 @@ package server
 
 // 番組表の API（Web UI の番組表の画面が呼ぶ）。どれもセッションが要る。
 //
-//   - GET /api/guide?day=YYYY-MM-DD: 放送日 day の、エリアの全局の放送回。局ごとに {id, name, airings} を返す
-//   - GET /api/guide/search?q=: 表示する範囲の放送日すべての番組表から、番組名・出演者・説明を見る、空白区切りの語の AND
+//   - GET /api/guide?day=YYYY-MM-DD&area=: 放送日 day の、エリアの全局の放送回。局ごとに {id, name, airings} を返す。
+//     area はエリア ID（省いたら自分のエリア）。自分のエリア以外は、会員種別がエリアフリー・ダブルプランのときだけ指せる
+//     （そうでなければ 400）。radiko の局の一覧（full.xml）に無いエリアも 400
+//   - GET /api/guide/areas: 番組表で選べるエリアの一覧 {own, switchable, areas: [{id, name}]}。own は自分のエリア ID、
+//     switchable はエリアを切り替えられるか（会員種別がエリアフリー・ダブルプラン）。エリアの名前は full.xml に無いので、
+//     エリア ID の番号から都道府県名を引く（radiko.AreaName）。radiko から取れないときは 502
+//   - GET /api/guide/search?q=&area=: 表示する範囲の放送日すべての番組表から、番組名・出演者・説明を見る、空白区切りの語の AND
 //     （domain.KeywordMatcher。domain.NormalizeTitle で正規化してから部分一致を見る）に当たる放送回を、開始時刻の順に返す（{q, airings, truncated}）。q が正規化して空なら 400。
 //     一致が多すぎるときは先頭の searchLimit 件にして truncated を true にする
 //
 // 表示する範囲は、今日の N 日前から 7 日先までの放送日（N は今の会員種別の最大の録音期限の日数。非会員・エリアフリーは 7、
 // タイムフリー30・ダブルプランは 30。domain.MaxAvailableDays）。範囲の外の放送日は 400。
-// エリアは認証（auth2）で radiko が判定したもので、そのエリアの全局を返す。エリアが分からない・radiko から番組表を
+// area を省いたエリアは認証（auth2）で radiko が判定したもので、そのエリアの全局を返す。エリアが分からない・radiko から番組表を
 // 取れないときは 502。番組表は app.AreaGuide が放送日ごとにメモリに覚える（番組表の同期とは共有しない）。
 //
 // 放送回ごとに次を付ける。
@@ -34,7 +39,9 @@ package server
 import (
 	"context"
 	"net/http"
+	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -73,6 +80,106 @@ func (u *UI) registerGuide(mux *http.ServeMux) {
 	}
 	mux.HandleFunc("GET /api/guide", u.guard(u.authed(u.guideDay)))
 	mux.HandleFunc("GET /api/guide/search", u.guard(u.authed(u.guideSearch)))
+	mux.HandleFunc("GET /api/guide/areas", u.guard(u.authed(u.guideAreas)))
+}
+
+// guideArea は番組表の API の area を読む。空・自分のエリアなら "" （自分のエリア）を返す。ほかのエリアは、エリアフリーの会員
+// （domain.Membership.AreaFree）だけが指せて、radiko の局の一覧（full.xml）にあるエリアに限る。断ったら応答を書いて ok を false にする。
+func (u *UI) guideArea(w http.ResponseWriter, r *http.Request) (area string, ok bool) {
+	raw := strings.TrimSpace(r.URL.Query().Get("area"))
+	if raw == "" {
+		return "", true
+	}
+	info, err := u.AreaGuide.Areas(r.Context())
+	if err != nil {
+		u.log().Warn("エリアの一覧を取れない", "err", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "radiko からエリアの一覧を取れない"})
+		return "", false
+	}
+	if raw == info.Own {
+		return "", true
+	}
+	if !u.membership().AreaFree() {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "自分のエリア以外の番組表は、エリアフリーの会員だけが見られる"})
+		return "", false
+	}
+	if !slices.ContainsFunc(info.Areas, func(a app.Area) bool { return a.ID == raw }) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "area が radiko のエリアに無い: " + raw})
+		return "", false
+	}
+	return raw, true
+}
+
+type guideAreaJSON struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+func (u *UI) guideAreas(w http.ResponseWriter, r *http.Request) {
+	info, err := u.AreaGuide.Areas(r.Context())
+	if err != nil {
+		u.log().Warn("エリアの一覧を取れない", "err", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "radiko からエリアの一覧を取れない"})
+		return
+	}
+	areas := make([]guideAreaJSON, 0, len(info.Areas))
+	for _, a := range info.Areas {
+		areas = append(areas, guideAreaJSON{ID: a.ID, Name: a.Name})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"own": info.Own, "switchable": u.membership().AreaFree(), "areas": areas})
+}
+
+// airingLookup は放送回を番組表で探す（1 回の予約の API が使う）。自分のエリアの番組表で探し、無ければ、エリアフリーの会員に限り、
+// その局のエリア（full.xml の area_id）の番組表で探す。放送日とエリアごとに 1 回だけ引く。
+type airingLookup struct {
+	u    *UI
+	days map[string][]app.AreaStation
+	info *app.AreaInfo
+}
+
+func (u *UI) newAiringLookup() *airingLookup {
+	return &airingLookup{u: u, days: map[string][]app.AreaStation{}}
+}
+
+func (l *airingLookup) stations(ctx context.Context, area string, day domain.BroadcastDay) ([]app.AreaStation, error) {
+	k := area + "/" + day.String()
+	if ss, ok := l.days[k]; ok {
+		return ss, nil
+	}
+	ss, err := l.u.AreaGuide.AreaAiringsOf(ctx, area, day)
+	if err != nil {
+		return nil, err
+	}
+	l.days[k] = ss
+	return ss, nil
+}
+
+// find は局 stationID の放送日 day の、Key が key の放送回を探す。番組表を取れなければエラー。
+func (l *airingLookup) find(ctx context.Context, stationID string, day domain.BroadcastDay, key string) (domain.Airing, string, bool, error) {
+	own, err := l.stations(ctx, "", day)
+	if err != nil {
+		return domain.Airing{}, "", false, err
+	}
+	if a, name, ok := findAiring(own, key); ok || !l.u.membership().AreaFree() {
+		return a, name, ok, nil
+	}
+	if l.info == nil {
+		info, err := l.u.AreaGuide.Areas(ctx)
+		if err != nil {
+			return domain.Airing{}, "", false, err
+		}
+		l.info = &info
+	}
+	area := l.info.StationArea[stationID]
+	if area == "" || area == l.info.Own {
+		return domain.Airing{}, "", false, nil
+	}
+	ss, err := l.stations(ctx, area, day)
+	if err != nil {
+		return domain.Airing{}, "", false, err
+	}
+	a, name, ok := findAiring(ss, key)
+	return a, name, ok, nil
 }
 
 // descriptionPartJSON は説明の部品。Href はリンクの部品だけ。
@@ -205,7 +312,11 @@ func (u *UI) guideDay(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "day は " + first.String() + " から " + last.String() + " の範囲で指定する"})
 		return
 	}
-	stations, err := u.AreaGuide.AreaAirings(r.Context(), day)
+	area, ok := u.guideArea(w, r)
+	if !ok {
+		return
+	}
+	stations, err := u.AreaGuide.AreaAiringsOf(r.Context(), area, day)
 	if err != nil {
 		u.areaError(w, day, err)
 		return
@@ -233,6 +344,10 @@ func (u *UI) guideSearch(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "q が空"})
 		return
 	}
+	area, ok := u.guideArea(w, r)
+	if !ok {
+		return
+	}
 	first, last := u.guideRange()
 	var days []domain.BroadcastDay
 	for d := first; d.String() <= last.String(); d = d.AddDays(1) {
@@ -246,7 +361,7 @@ func (u *UI) guideSearch(w http.ResponseWriter, r *http.Request) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			results[i], errs[i] = u.AreaGuide.AreaAirings(r.Context(), d)
+			results[i], errs[i] = u.AreaGuide.AreaAiringsOf(r.Context(), area, d)
 		}()
 	}
 	wg.Wait()

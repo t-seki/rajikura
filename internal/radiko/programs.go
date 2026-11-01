@@ -7,6 +7,8 @@ import (
 	"html"
 	"net/url"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -339,5 +341,94 @@ func (c *Client) Stations(ctx context.Context) ([]Station, error) {
 	for _, s := range doc.Stations {
 		out = append(out, Station{ID: strings.TrimSpace(s.ID), Name: strings.TrimSpace(s.Name), TFMaxDelay: s.TFMaxDelay})
 	}
+	return out, nil
+}
+
+// Area は radiko のエリア。
+type Area struct {
+	// ID はエリア ID（JP1〜JP47）。
+	ID string
+	// Name はエリアの名前。full.xml にはエリアの名前が無いので、エリア ID（JP<都道府県の番号>）から都道府県名を引く。
+	// 引けなければエリア ID のまま。
+	Name string
+}
+
+// AreaList は full.xml から作る、エリアの一覧と局→エリアの対応。
+type AreaList struct {
+	// Areas はエリア ID の番号の順。局が 1 つも無いエリア（full.xml に出てこないエリア）は含まない。
+	Areas []Area
+	// StationArea は局 ID → その局のエリア ID（full.xml の station の area_id）。
+	StationArea map[string]string
+}
+
+// prefectures は都道府県の番号（エリア ID の JP の後ろ）→ 名前。JP13 = 東京都のように、エリア ID は都道府県の番号に揃う
+// （確かめた範囲: /v3/station/list/JP27.xml の area_name が OSAKA JAPAN。ほかの番号は番号からの推測）。
+var prefectures = [...]string{
+	"北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県", "茨城県", "栃木県", "群馬県",
+	"埼玉県", "千葉県", "東京都", "神奈川県", "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県",
+	"岐阜県", "静岡県", "愛知県", "三重県", "滋賀県", "京都府", "大阪府", "兵庫県", "奈良県", "和歌山県",
+	"鳥取県", "島根県", "岡山県", "広島県", "山口県", "徳島県", "香川県", "愛媛県", "高知県", "福岡県",
+	"佐賀県", "長崎県", "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県",
+}
+
+var areaIDRe = regexp.MustCompile(`^JP([1-9][0-9]?)$`)
+
+// areaNum はエリア ID の番号。JP<番号> の形でなければ 0。
+func areaNum(areaID string) int {
+	m := areaIDRe.FindStringSubmatch(areaID)
+	if m == nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(m[1])
+	return n
+}
+
+// AreaName はエリア ID の名前（都道府県名）を返す。引けなければエリア ID をそのまま返す。
+func AreaName(areaID string) string {
+	if n := areaNum(areaID); n >= 1 && n <= len(prefectures) {
+		return prefectures[n-1]
+	}
+	return areaID
+}
+
+type xmlAreaStation struct {
+	ID     string `xml:"id"`
+	AreaID string `xml:"area_id"`
+}
+
+type xmlAreaStations struct {
+	Stations []xmlAreaStation `xml:"stations>station"`
+}
+
+// Areas は full.xml の局の area_id から、エリアの一覧と局→エリアの対応を作る。
+func (c *Client) Areas(ctx context.Context) (AreaList, error) {
+	data, err := c.getXML(ctx, strings.TrimRight(c.ProgramHost, "/")+"/v3/station/region/full.xml")
+	if err != nil {
+		return AreaList{}, err
+	}
+	var doc xmlAreaStations
+	if err := xml.Unmarshal(data, &doc); err != nil {
+		return AreaList{}, fmt.Errorf("%w: parse stations xml: %v", ErrTemporary, err)
+	}
+	out := AreaList{StationArea: map[string]string{}}
+	seen := map[string]bool{}
+	for _, s := range doc.Stations {
+		id, area := strings.TrimSpace(s.ID), strings.TrimSpace(s.AreaID)
+		if id == "" || area == "" {
+			continue
+		}
+		out.StationArea[id] = area
+		if !seen[area] {
+			seen[area] = true
+			out.Areas = append(out.Areas, Area{ID: area, Name: AreaName(area)})
+		}
+	}
+	sort.SliceStable(out.Areas, func(i, j int) bool {
+		a, b := areaNum(out.Areas[i].ID), areaNum(out.Areas[j].ID)
+		if a == 0 || b == 0 {
+			return a != 0 && b == 0
+		}
+		return a < b
+	})
 	return out, nil
 }

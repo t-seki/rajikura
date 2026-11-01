@@ -21,6 +21,9 @@ type areaServer struct {
 	programs  atomic.Int32
 	failAuth  atomic.Bool
 	failGuide atomic.Bool
+	// lastProgram は最後の番組表の要求のパス。fullXML は full.xml の要求の数。
+	lastProgram atomic.Value
+	fullXML     atomic.Int32
 	// delay は認証と番組表の応答を遅らせる（並列の呼び出しを重ねるため）。
 	delay time.Duration
 }
@@ -45,6 +48,7 @@ func newAreaServer(t *testing.T) *areaServer {
 	})
 	mux.HandleFunc("/v3/program/date/", func(w http.ResponseWriter, r *http.Request) {
 		f.programs.Add(1)
+		f.lastProgram.Store(r.URL.Path)
 		time.Sleep(f.delay)
 		if f.failGuide.Load() {
 			http.Error(w, "x", http.StatusInternalServerError)
@@ -53,6 +57,10 @@ func newAreaServer(t *testing.T) *areaServer {
 		fmt.Fprint(w, `<radiko><stations><station id="TBS"><name>TBSラジオ</name><progs><date>20261013</date>
 <prog id="1" ft="20261013050000" to="20261013060000"><title>朝</title><pfm>出演者</pfm><ts_in_ng>1</ts_in_ng></prog>
 </progs></station></stations></radiko>`)
+	})
+	mux.HandleFunc("/v3/station/region/full.xml", func(w http.ResponseWriter, r *http.Request) {
+		f.fullXML.Add(1)
+		fmt.Fprint(w, `<region><stations><station><id>ABC</id><area_id>JP27</area_id></station><station><id>TBS</id><area_id>JP13</area_id></station></stations></region>`)
 	})
 	f.srv = httptest.NewServer(mux)
 	t.Cleanup(f.srv.Close)
@@ -190,5 +198,50 @@ func TestRadikoAreaGuideDoSurvivesPanic(t *testing.T) {
 	v, err := g.do(ctx, "k", func(context.Context) (any, error) { return "ok", nil })
 	if err != nil || v != "ok" {
 		t.Fatalf("パニックの後の取得 = %v, %v", v, err)
+	}
+}
+
+// エリアを指した番組表は、認証せずにそのエリアの番組表を引く。エリアの一覧は full.xml から作り、1 時間覚える。
+func TestRadikoAreaGuideOtherArea(t *testing.T) {
+	f := newAreaServer(t)
+	g, now := f.guide()
+	ctx := context.Background()
+	d := domain.NewBroadcastDay(2026, time.October, 13)
+
+	if _, err := g.AreaAiringsOf(ctx, "JP27", d); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.lastProgram.Load(); got != "/v3/program/date/20261013/JP27.xml" || f.auths.Load() != 0 {
+		t.Fatalf("要求のパス = %v、認証 = %d（want JP27 のパス、認証なし）", got, f.auths.Load())
+	}
+	// 空のエリア ID は自分のエリア（認証で判定する）。
+	if _, err := g.AreaAiringsOf(ctx, "", d); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.lastProgram.Load(); got != "/v3/program/date/20261013/JP13.xml" || f.auths.Load() != 1 {
+		t.Fatalf("要求のパス = %v、認証 = %d", got, f.auths.Load())
+	}
+
+	info, err := g.Areas(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Own != "JP13" || len(info.Areas) != 2 || info.Areas[0] != (Area{"JP13", "東京都"}) || info.Areas[1] != (Area{"JP27", "大阪府"}) ||
+		info.StationArea["ABC"] != "JP27" {
+		t.Fatalf("Areas = %+v", info)
+	}
+	*now = now.Add(59 * time.Minute)
+	if _, err := g.Areas(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if f.fullXML.Load() != 1 {
+		t.Fatalf("full.xml の要求 = %d（want 1）", f.fullXML.Load())
+	}
+	*now = now.Add(2 * time.Minute)
+	if _, err := g.Areas(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if f.fullXML.Load() != 2 {
+		t.Fatalf("1 時間後の full.xml の要求 = %d（want 2）", f.fullXML.Load())
 	}
 }

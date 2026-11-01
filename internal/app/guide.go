@@ -114,8 +114,29 @@ type AreaStation struct {
 // 番組表の同期（Guide）とは別の口だが、番組表の取得は同じ radiko.Client を通るので、
 // radiko.Client の番組表のキャッシュ（60 秒と条件付きの GET）を共有する。
 type AreaGuide interface {
-	// AreaAirings は放送日 day の、エリアの全局の放送回を返す。エリアが分からない・取れないときはエラー。
+	// AreaAirings は放送日 day の、自分のエリアの全局の放送回を返す。エリアが分からない・取れないときはエラー。
 	AreaAirings(ctx context.Context, day domain.BroadcastDay) ([]AreaStation, error)
+	// AreaAiringsOf は放送日 day の、エリア areaID の全局の放送回を返す。areaID が空なら AreaAirings と同じ（自分のエリア）。
+	// 自分のエリア以外を返してよいかは呼び出し側が決める（エリアフリーの会員だけ。internal/server/guide.go）。
+	AreaAiringsOf(ctx context.Context, areaID string, day domain.BroadcastDay) ([]AreaStation, error)
+	// Areas は、自分のエリアと、radiko の局の一覧（full.xml）から作ったエリアの一覧を返す。
+	Areas(ctx context.Context) (AreaInfo, error)
+}
+
+// Area は番組表で選べるエリア。
+type Area struct {
+	ID   string
+	Name string
+}
+
+// AreaInfo は、自分のエリアと、選べるエリアの一覧。
+type AreaInfo struct {
+	// Own は自分のエリア ID（認証で radiko が判定したもの）。
+	Own string
+	// Areas は選べるエリアの一覧（エリア ID の番号の順。自分のエリアを含む）。
+	Areas []Area
+	// StationArea は局 ID → その局のエリア ID。
+	StationArea map[string]string
 }
 
 // DefaultAreaTTL は RadikoAreaGuide がエリア ID を覚えておく時間。
@@ -134,6 +155,9 @@ type RadikoAreaGuide struct {
 	mu     sync.Mutex
 	area   string
 	areaAt time.Time
+	// list はエリアの一覧（full.xml から作る）。TTL の間覚える。
+	list   radiko.AreaList
+	listAt time.Time
 	// flights は取得中のもの（キー: "auth" か "<エリア ID>/<放送日>"）。同じものを重ねて取りにいかず、結果を待って使う。
 	flights map[string]*areaFlight
 }
@@ -226,9 +250,53 @@ func (g *RadikoAreaGuide) areaID(ctx context.Context) (string, error) {
 // AreaAirings は AreaGuide を実装する。番組表は覚えない。同じ放送日を重ねて取りにいくときは、結果を共有する。
 // 返したスライスは重ねた呼び出しと共有するので、呼び出し側は書き換えない。
 func (g *RadikoAreaGuide) AreaAirings(ctx context.Context, day domain.BroadcastDay) ([]AreaStation, error) {
-	area, err := g.areaID(ctx)
+	return g.AreaAiringsOf(ctx, "", day)
+}
+
+// Areas は AreaGuide を実装する。エリアの一覧は full.xml から作り、エリア ID と同じ TTL の間覚える（失敗は覚えない）。
+func (g *RadikoAreaGuide) Areas(ctx context.Context) (AreaInfo, error) {
+	own, err := g.areaID(ctx)
 	if err != nil {
-		return nil, err
+		return AreaInfo{}, err
+	}
+	g.mu.Lock()
+	if g.list.Areas != nil && g.now().Sub(g.listAt) < g.ttl() {
+		l := g.list
+		g.mu.Unlock()
+		return areaInfo(own, l), nil
+	}
+	g.mu.Unlock()
+	v, err := g.do(ctx, "areas", func(ctx context.Context) (any, error) {
+		l, err := g.Client.Areas(ctx)
+		if err != nil {
+			return radiko.AreaList{}, err
+		}
+		g.mu.Lock()
+		g.list, g.listAt = l, g.now()
+		g.mu.Unlock()
+		return l, nil
+	})
+	if err != nil {
+		return AreaInfo{}, err
+	}
+	return areaInfo(own, v.(radiko.AreaList)), nil
+}
+
+func areaInfo(own string, l radiko.AreaList) AreaInfo {
+	out := AreaInfo{Own: own, StationArea: l.StationArea}
+	for _, a := range l.Areas {
+		out.Areas = append(out.Areas, Area{ID: a.ID, Name: a.Name})
+	}
+	return out
+}
+
+// AreaAiringsOf は AreaGuide を実装する。
+func (g *RadikoAreaGuide) AreaAiringsOf(ctx context.Context, area string, day domain.BroadcastDay) ([]AreaStation, error) {
+	if area == "" {
+		var err error
+		if area, err = g.areaID(ctx); err != nil {
+			return nil, err
+		}
 	}
 	v, err := g.do(ctx, area+"/"+day.String(), func(ctx context.Context) (any, error) {
 		ss, err := g.Client.AreaPrograms(ctx, area, time.Date(day.Year, day.Month, day.Day, 0, 0, 0, 0, domain.JST))
