@@ -218,7 +218,7 @@ git tag -m vX.Y.Z vX.Y.Z <sha>
 git push origin vX.Y.Z
 ```
 
-`release.yml` はタグ名しか見ないので、タグの種類（署名付きの annotated か、署名なしの軽いタグか）には依らず動く（annotated は v0.38.0 の run で確かめた）。
+署名付きの annotated タグで `release.yml` が動くことは、v0.38.0 の run で確かめた。`release.yml` はタグ名しか見ないので、署名なしの軽いタグでも動く見込みだが、軽いタグで動いた run は無く、未確認。
 
 配布物（Windows・Linux のバイナリ）とコンテナイメージのバイナリには、含むソフトウェア（Go の依存の module と Web UI の依存）のライセンスの文と NOTICE の一覧を埋め込み、`rajikura licenses` で出す。一覧はビルドのたびに Dockerfile の中で作り（Go の分は `scripts/gen-licenses.sh`、Web UI の分は Vite の `build.license`）、repo には置かないので、依存を更新しても一覧を直す手間は無い。手元の `go build` には一覧が入らない（`rajikura licenses` はそのことを出す）。細部は `release.yml` と Dockerfile の冒頭に書いてある。イメージには OCI のラベル（`org.opencontainers.image.source`・`org.opencontainers.image.licenses`・`org.opencontainers.image.description`）を付ける。
 
