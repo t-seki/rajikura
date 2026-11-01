@@ -211,7 +211,7 @@ func summarize(j domain.Job, last *domain.Attempt, now time.Time) jobSummary {
 		Skippable:  j.State == domain.StateWaiting && j.Attempts == 0,
 		Recordable: j.State == domain.StateSkipped && (!j.Settled || j.Deadline.After(now)),
 		Attempts:   j.Attempts, NextAttemptAt: j.NextAttemptAt, Deadline: j.Deadline,
-		FinishedAt: finishedAt(j, last),
+		FinishedAt:   finishedAt(j, last),
 		Retryable:    (j.State == domain.StateRetrying || j.State == domain.StateExpired || settled) && domain.ManualRetryInTime(j, last, now),
 		Rerecordable: domain.CheckRerecord(j, now) == nil,
 		OutputPath:   j.OutputPath,
