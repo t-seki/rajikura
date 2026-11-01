@@ -169,6 +169,23 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o rajikura.exe ./cmd/rajikura
 | トレイ | `cmd/rajikura-tray`（exe は `rajikura-tray.exe`。接続先とトークンのファイルは `tray.toml` で、読み書きはトレイと `rajikura` の `service install`・`tray install` が共有する `internal/trayconf`。アイコンの状態は `iconState`）。入れる・消すのは `cmd/rajikura/tray_windows.go`（`service` と `tray` が共有する処理）と `cmd/rajikura/tray_command_windows.go`（`tray` のサブコマンド） |
 | 連携 | トレイの受け口は `cmd/rajikura-tray/link.go`（`startLink`、`POST /callback`）、Web UI の画面は `web/src/tray/TrayLinkPage.tsx`（URL は `/tray-link`）。発行するトークンの名前は「トレイ（<name>）」 |
 
+### README のスクリーンショットを撮り直す
+
+README の冒頭の画像（`docs/images/` の `guide.png`・`jobs.png`・`shows.png`。番組表・ジョブ・番組の PC 幅）は、人の手で撮らず、次のコマンドで作り直す。画面を変えたら、気づいたときに撮り直す（撮り直しを強制する検査は無い）。
+
+```bash
+cd web
+pnpm install
+pnpm screenshots
+```
+
+- 画面に映るのは、`web/mock/data.ts` の架空のダミーのデータだけ（局・番組名・出演者・説明・画像のすべて）。radiko の実際の番組表は映さない（[ADR 0028](adr/0028-publish-as-oss-under-radiko-terms.md)）。
+- `pnpm screenshots`（`web/scripts/screenshots.mjs`）は、ダミーのデータで `/api` に答える Vite の開発サーバー（`vite --mode mock`。`web/mock/plugin.ts`）を立て、ヘッドレスのブラウザで撮る。`rajikura serve` にも radiko にもつながらない。ブラウザの時計は `web/mock/data.ts` の `MOCK_NOW` に固定するので、何度流しても同じ画像になる（ブラウザの描画の違いは除く）。
+- ブラウザは手元の Microsoft Edge（`playwright-core` の `channel: "msedge"`）。ブラウザは別に入れない。Chrome を使うなら環境変数 `SCREENSHOT_CHANNEL=chrome` を付ける。
+- ダミーの画面を自分で見るだけなら `pnpm dev:mock`（http://localhost:5173）。読み出しだけ答え、書き込みの API は 405 で断る。
+- ダミーのデータの口は `pnpm dev:mock` のときだけ効き、`pnpm build` の成果物（`serve` に埋め込む Web UI）には入らない（`web/vite.config.ts` が `--mode mock` のときだけプラグインを足し、プラグインは開発サーバーだけに効く）。
+- 画面の型（`GuideAiring`・`JobSummary`・`Show`）を変えたら、`pnpm typecheck` が `web/mock/` の型の食い違いで落ちるので、ダミーのデータを直す。
+
 ## 足したら直す列挙
 
 処理・DB の表・待ち受ける口・データのフォルダに置くもの・通知の種類・サービスの異常・CLI のサブコマンドは、コメントと docs に散文で列挙してあり、用語とコードの名前の対応は「コード上の名前」の表にある。機械では漏れを見つけにくいので、足したりやめたりしたときは同じ PR で次を直す。直す場所には、項ごとの名前を付けた印（`足したら直す: <項の名前>`）を、その場所のコメント（Go・TS は `//`、Dockerfile は `#`、md は行末の `<!-- -->`。表の行では最後のセルの中に置き、コードブロックの中や表の見出しの行のように行末に置けない・表を壊しうる場所では、その直前の行や段落に置く）に置いてある。列挙の項に当たる場所を足したら、その場所に印を付ける。Go・TS では、印をコメントのブロックの最後の行に置くか、`//` だけの行で区切った段落に置き、文の間や箇条の途中に挟まない。md の同じ行に `<!-- glossary-ok: … -->` か `<!-- code-ref-ok: … -->` を置くときは、印をそれらより前に置く。過去の ADR（`docs/adr/`）には印を置かず、直さない。印のほかの言及は、「探す語」で repo 全体を grep して探す。
