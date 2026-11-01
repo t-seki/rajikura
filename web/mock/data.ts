@@ -98,6 +98,13 @@ export function guideOf(day: string): GuideStation[] {
   });
 }
 
+// 放送日 day（YYYY-MM-DD）の放送日の時刻 hhmm（HH:MM。24:00 以降も書ける）の時刻。番組表の並び（lineups）の時刻と合わせて書く。
+const jst = (day: string, hhmm: string) => {
+  const [h, m] = hhmm.split(":").map(Number);
+  return new Date(new Date(`${day}T00:00:00+09:00`).getTime() + (h * 60 + m) * 60_000).toISOString();
+};
+
+// 番組（shows）の weekly と next_airing、ジョブ（jobs）の stations は、番組表の並び（lineups）の放送回と同じ局・開始時刻・長さにする。
 export const shows: Show[] = [
   {
     name: "朝のどんぐりカフェ",
@@ -105,7 +112,7 @@ export const shows: Show[] = [
     split: "none",
     check_title: true,
     weekly: [{ station: "HOSHIZORA", weekday: 1, start: "05:00" }, { station: "HOSHIZORA", weekday: 3, start: "05:00" }],
-    next_airing: at(60 * 18 + 30),
+    next_airing: jst("2026-04-20", "05:00"),
   },
   {
     name: "月曜の小さな図書館",
@@ -113,7 +120,7 @@ export const shows: Show[] = [
     split: "none",
     check_title: true,
     weekly: [{ station: "HOSHIZORA", weekday: 1, start: "09:00" }],
-    next_airing: at(60 * 24 * 5 - 90),
+    next_airing: jst("2026-04-20", "09:00"),
   },
   {
     name: "夕やけトラベラーズ",
@@ -121,15 +128,15 @@ export const shows: Show[] = [
     split: "join",
     check_title: true,
     weekly: [{ station: "HOSHIZORA", weekday: 3, start: "16:00" }, { station: "HOSHIZORA", weekday: 6, start: "16:00" }],
-    next_airing: at(60 * 5 + 30),
+    next_airing: jst("2026-04-15", "16:00"),
   },
   {
     name: "星降る深夜ラジオ",
     enabled: true,
     split: "none",
     check_title: true,
-    weekly: [{ station: "HOSHIZORA", weekday: 3, start: "00:00" }],
-    next_airing: at(60 * 13 + 30),
+    weekly: [{ station: "HOSHIZORA", weekday: 3, start: "21:00" }],
+    next_airing: jst("2026-04-15", "21:00"),
   },
   {
     name: "波打ちぎわの昭和歌謡",
@@ -137,15 +144,15 @@ export const shows: Show[] = [
     split: "separate",
     check_title: false,
     weekly: [{ station: "MINATO", weekday: 4, start: "14:00" }],
-    next_airing: at(60 * 27 + 30),
+    next_airing: jst("2026-04-16", "14:00"),
   },
   {
     name: "つむぎ夜の読み物",
     enabled: true,
     split: "none",
     check_title: true,
-    weekly: [{ station: "TSUMUGI", weekday: 2, start: "21:00" }, { station: "TSUMUGI", weekday: 5, start: "21:00" }],
-    next_airing: at(60 * 34 + 30),
+    weekly: [{ station: "TSUMUGI", weekday: 2, start: "19:00" }, { station: "TSUMUGI", weekday: 5, start: "19:00" }],
+    next_airing: jst("2026-04-17", "19:00"),
   },
   {
     name: "ゆうびん屋さんのたより",
@@ -173,69 +180,67 @@ const baseJob = {
   lastError: "",
 } satisfies Partial<JobSummary>;
 
-const slotOf = (stationId: string, startOffsetMin: number, minutes: number) => ({
-  stationId,
-  start: at(startOffsetMin),
-  end: at(startOffsetMin + minutes),
-});
 
-const dayOf = (offsetMin: number) => new Date(nowMs + offsetMin * 60_000 + 9 * 3600_000 - 5 * 3600_000).toISOString().slice(0, 10);
+const slotOf = (stationId: string, day: string, from: string, minutes: number) => {
+  const start = jst(day, from);
+  return { stationId, start, end: new Date(new Date(start).getTime() + minutes * 60_000).toISOString() };
+};
 
 export const jobs: JobSummary[] = [
   {
     ...baseJob,
     id: 108,
     showName: "朝のどんぐりカフェ",
-    day: dayOf(-60 * 5),
+    day: "2026-04-15",
     part: 1,
     state: "done",
     attempts: 1,
     chapters: "added",
     rerecordable: true,
     outputPath: "朝のどんぐりカフェ/2026-04-15 朝のどんぐりカフェ.m4a",
-    stations: [slotOf("HOSHIZORA", -60 * 5.5, 120)],
+    stations: [slotOf("HOSHIZORA", "2026-04-15", "05:00", 120)],
   },
   {
     ...baseJob,
     id: 107,
     showName: "夕やけトラベラーズ",
-    day: dayOf(-60 * 20),
+    day: "2026-04-11",
     part: 1,
     state: "running",
     attempts: 1,
     progress: { stage: "fetch", fetchedSeconds: 2820, totalSeconds: 10800 },
-    stations: [slotOf("HOSHIZORA", -60 * 21, 180)],
+    stations: [slotOf("HOSHIZORA", "2026-04-11", "16:00", 180)],
   },
   {
     ...baseJob,
     id: 109,
     showName: "夕やけトラベラーズ",
-    day: dayOf(60 * 5),
+    day: "2026-04-15",
     part: 1,
     state: "waiting",
-    nextAttemptAt: at(60 * 8),
+    nextAttemptAt: jst("2026-04-15", "19:00"),
     deadline: at(60 * 24 * 7),
     skippable: true,
-    stations: [slotOf("HOSHIZORA", 60 * 5.5, 180)],
+    stations: [slotOf("HOSHIZORA", "2026-04-15", "16:00", 180)],
   },
   {
     ...baseJob,
     id: 110,
     showName: "星降る深夜ラジオ",
-    day: dayOf(60 * 13),
+    day: "2026-04-15",
     part: 1,
     state: "waiting",
-    nextAttemptAt: at(60 * 17),
+    nextAttemptAt: jst("2026-04-15", "21:00"),
     deadline: at(60 * 24 * 7),
     live: true,
     skippable: true,
-    stations: [slotOf("HOSHIZORA", 60 * 13.5, 180)],
+    stations: [slotOf("HOSHIZORA", "2026-04-15", "21:00", 180)],
   },
   {
     ...baseJob,
     id: 106,
     showName: "つむぎ夜の読み物",
-    day: dayOf(-60 * 36),
+    day: "2026-04-14",
     part: 1,
     state: "retrying",
     attempts: 2,
@@ -244,56 +249,56 @@ export const jobs: JobSummary[] = [
     deadline: at(60 * 24 * 5),
     lastFailedStage: "fetch",
     lastError: "音声の取得に失敗した（ダミーのエラー）",
-    stations: [slotOf("TSUMUGI", -60 * 37, 120)],
+    stations: [slotOf("TSUMUGI", "2026-04-14", "19:00", 180)],
   },
   {
     ...baseJob,
     id: 105,
     showName: "波打ちぎわの昭和歌謡",
-    day: dayOf(-60 * 24 * 2),
+    day: "2026-04-09",
     part: 1,
     state: "done",
     attempts: 1,
     chapters: "not_added",
     rerecordable: true,
-    outputPath: "波打ちぎわの昭和歌謡/2026-04-13 波打ちぎわの昭和歌謡.m4a",
-    stations: [slotOf("MINATO", -60 * 24 * 2 - 60 * 3, 180)],
+    outputPath: "波打ちぎわの昭和歌謡/2026-04-09 波打ちぎわの昭和歌謡.m4a",
+    stations: [slotOf("MINATO", "2026-04-09", "14:00", 180)],
   },
   {
     ...baseJob,
     id: 104,
     showName: "月曜の小さな図書館",
-    day: dayOf(-60 * 24 * 3),
+    day: "2026-04-13",
     part: 1,
     state: "done",
     attempts: 1,
     chapters: "added",
     rerecordable: true,
-    outputPath: "月曜の小さな図書館/2026-04-12 月曜の小さな図書館.m4a",
-    stations: [slotOf("HOSHIZORA", -60 * 24 * 3 - 60 * 2, 120)],
+    outputPath: "月曜の小さな図書館/2026-04-13 月曜の小さな図書館.m4a",
+    stations: [slotOf("HOSHIZORA", "2026-04-13", "09:00", 120)],
   },
   {
     ...baseJob,
     id: 103,
     showName: "つむぎ夜の読み物",
-    day: dayOf(-60 * 24 * 6),
+    day: "2026-04-10",
     part: 1,
     state: "expired",
     attempts: 5,
     lastFailedStage: "fetch",
     lastError: "録音の期限が過ぎた（ダミーのエラー）",
-    stations: [slotOf("TSUMUGI", -60 * 24 * 6, 120)],
+    stations: [slotOf("TSUMUGI", "2026-04-10", "19:00", 180)],
   },
   {
     ...baseJob,
     id: 111,
     showName: "波打ちぎわの昭和歌謡",
-    day: dayOf(60 * 27),
+    day: "2026-04-16",
     part: 1,
     state: "skipped",
     byPerson: true,
     recordable: true,
-    stations: [slotOf("MINATO", 60 * 27.5, 180)],
+    stations: [slotOf("MINATO", "2026-04-16", "14:00", 180)],
   },
 ];
 

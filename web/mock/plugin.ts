@@ -1,5 +1,5 @@
 // pnpm dev:mock（vite --mode mock）のときだけ、/api をダミーのデータで答える Vite のプラグイン。
-// rajikura serve にも radiko にもつながらない。読み出し（GET）だけ答え、書き込みは 405 で断る。
+// rajikura serve にも radiko にもつながらない。読み出し（GET）だけ答え、書き込みは 405 で断る。例外は POST /api/notifications/read（通知の画面が開くたびに呼ぶ）だけで、何もせず本物と同じ形（{"marked": 0}）で答える。
 // pnpm build の成果物には入らない（vite.config.ts が mode が mock のときだけ足し、apply も serve に限る）。
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Plugin } from "vite";
@@ -21,6 +21,7 @@ function answer(req: IncomingMessage, res: ServerResponse): boolean {
     return true;
   }
   if (!path.startsWith("/api/")) return false;
+  if (req.method === "POST" && path === "/api/notifications/read") return json(res, { marked: 0 }), true;
   if (req.method !== "GET") {
     json(res, { error: "ダミーのデータの口は読み出しだけ答える" }, 405);
     return true;
@@ -51,7 +52,7 @@ function answer(req: IncomingMessage, res: ServerResponse): boolean {
     return json(res, { settings: { library: "D:\\Radio", preset: "jellyfin" }, secrets: {}, library_set: true, unreadable_secrets: [], last_backup_at: null }), true;
   }
   if (path === "/api/notifications/status") return json(res, { unread: 0, failed: 0, anomalies: [], channel: "none" }), true;
-  if (path === "/api/notifications") return json(res, []), true;
+  if (path === "/api/notifications") return json(res, { notifications: [] }), true;
   json(res, { error: "ダミーのデータの口に無い API" }, 404);
   return true;
 }
