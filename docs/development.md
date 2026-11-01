@@ -209,7 +209,16 @@ pnpm screenshots
 
 ## リリース
 
-main で `vX.Y.Z` のタグを打つと、`.github/workflows/release.yml` がイメージを `ghcr.io/t-seki/rajikura:vX.Y.Z` に push し、Windows・Linux（x64）のバイナリと `SHA256SUMS` を付けた GitHub Release を作る。タグは lightweight で打つ（`release.yml` はタグ名しか見ない）。細部は `release.yml` の冒頭に書いてある。コンテナで動かす手順は [getting-started.md](getting-started.md#コンテナで動かす)。
+main で `vX.Y.Z` のタグを打つと、`.github/workflows/release.yml` がイメージを `ghcr.io/t-seki/rajikura:vX.Y.Z` に push し、Windows・Linux（x64）のバイナリと `SHA256SUMS` を付けた GitHub Release を作る。細部は `release.yml` の冒頭に書いてある。コンテナで動かす手順は [getting-started.md](getting-started.md#コンテナで動かす)。
+
+タグは署名付きの annotated タグで打つ。owner の git の設定は `tag.gpgsign true` なので、メッセージ無しの `git tag vX.Y.Z` は `fatal: no tag message?` で失敗する。メッセージはタグ名と同じにする。
+
+```bash
+git tag -m vX.Y.Z vX.Y.Z <sha>
+git push origin vX.Y.Z
+```
+
+`release.yml` はタグ名しか見ないので、タグの種類（署名付きの annotated か、署名なしの軽いタグか）には依らず動く（annotated は v0.38.0 の run で確かめた）。
 
 配布物（Windows・Linux のバイナリ）とコンテナイメージのバイナリには、含むソフトウェア（Go の依存の module と Web UI の依存）のライセンスの文と NOTICE の一覧を埋め込み、`rajikura licenses` で出す。一覧はビルドのたびに Dockerfile の中で作り（Go の分は `scripts/gen-licenses.sh`、Web UI の分は Vite の `build.license`）、repo には置かないので、依存を更新しても一覧を直す手間は無い。手元の `go build` には一覧が入らない（`rajikura licenses` はそのことを出す）。細部は `release.yml` と Dockerfile の冒頭に書いてある。イメージには OCI のラベル（`org.opencontainers.image.source`・`org.opencontainers.image.licenses`・`org.opencontainers.image.description`）を付ける。
 
