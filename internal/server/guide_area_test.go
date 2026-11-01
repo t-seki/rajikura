@@ -75,10 +75,14 @@ func TestGuideAreas(t *testing.T) {
 	type resp struct {
 		Own        string `json:"own"`
 		Switchable bool   `json:"switchable"`
+		PastDays   int    `json:"pastDays"`
 		Areas      []struct {
 			ID   string `json:"id"`
 			Name string `json:"name"`
 		} `json:"areas"`
+	}
+	pastDays := map[domain.Membership]int{
+		domain.MembershipFree: 7, domain.MembershipTimeFree30: 30, domain.MembershipAreaFree: 7, domain.MembershipDouble: 30,
 	}
 	for mm, want := range map[domain.Membership]bool{
 		domain.MembershipFree: false, domain.MembershipTimeFree30: false, domain.MembershipAreaFree: true, domain.MembershipDouble: true,
@@ -86,7 +90,7 @@ func TestGuideAreas(t *testing.T) {
 		m = mm
 		var got resp
 		e.call("GET", "/api/guide/areas", "", 200, &got)
-		if got.Own != "JP13" || got.Switchable != want || len(got.Areas) != 2 || got.Areas[1].ID != "JP27" || got.Areas[1].Name != "大阪府" {
+		if got.Own != "JP13" || got.Switchable != want || got.PastDays != pastDays[mm] || len(got.Areas) != 2 || got.Areas[1].ID != "JP27" || got.Areas[1].Name != "大阪府" {
 			t.Errorf("%s: 応答 = %+v, switchable want %v", mm, got, want)
 		}
 	}

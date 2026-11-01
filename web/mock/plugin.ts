@@ -41,7 +41,7 @@ function answer(req: IncomingMessage, res: ServerResponse): boolean {
   }
   if (path === "/api/guide/areas") {
     // 切り替えられない会員種別（非会員）の応答。READMEのスクリーンショットにエリアの切り替えを出さないため
-    return json(res, { own: "JP13", switchable: false, areas: [{ id: "JP13", name: "東京都" }, { id: "JP27", name: "大阪府" }] } satisfies GuideAreas), true;
+    return json(res, { own: "JP13", switchable: false, pastDays: 7, areas: [{ id: "JP13", name: "東京都" }, { id: "JP27", name: "大阪府" }] } satisfies GuideAreas), true;
   }
   if (path === "/api/guide/search") return json(res, { q: url.searchParams.get("q") ?? "", airings: [], truncated: false } satisfies SearchResult), true;
   if (path === "/api/stations") return json(res, stations satisfies Station[]), true;

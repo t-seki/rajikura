@@ -49,8 +49,13 @@ import { autoGroup, type Outcome } from "./reserve";
 
 const message = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
 
-/** 表示する放送日の範囲（今日の 7 日前から 7 日先まで）。 */
-const PAST_DAYS = 7;
+/**
+ * 表示する放送日の範囲（今日の N 日前から 7 日先まで）。N は会員種別の録音期限（GET /api/guide/areas の pastDays）で、
+ * 分かるまで・読めないときは非会員と同じ 7 日。URL の放送日は、最大の 30 日までを開いたときは受け付け、エリアの一覧が読めてから範囲の外なら今日にする。
+ */
+const DEFAULT_PAST_DAYS = 7;
+const MAX_PAST_DAYS = 30;
+const widestDays = (today: string) => Array.from({ length: MAX_PAST_DAYS + FUTURE_DAYS + 1 }, (_, i) => addDays(today, i - MAX_PAST_DAYS));
 const FUTURE_DAYS = 7;
 
 const PX_PER_MIN = 1.6;
@@ -727,9 +732,12 @@ export function GuidePage({
   onCreateKeyword?: (words: string) => void;
 } = {}) {
   const today = useMemo(() => broadcastDayOf(new Date()), []);
-  const days = useMemo(() => Array.from({ length: PAST_DAYS + FUTURE_DAYS + 1 }, (_, i) => addDays(today, i - PAST_DAYS)), [today]);
-  // 開いたときの URL のクエリ（onNavigate が無ければ使わない）
-  const [initial] = useState(() => parseGuideQuery(onNavigate ? urlSearch : "", days));
+  const [pastDays, setPastDays] = useState(DEFAULT_PAST_DAYS);
+  // エリアの一覧の読みが終わったか（読めなかったときも true。pastDays が確かな値になったか）
+  const [areasSettled, setAreasSettled] = useState(false);
+  const days = useMemo(() => Array.from({ length: pastDays + FUTURE_DAYS + 1 }, (_, i) => addDays(today, i - pastDays)), [today, pastDays]);
+  // 開いたときの URL のクエリ（onNavigate が無ければ使わない）。放送日は、会員種別が分かる前なので最大の範囲で見る
+  const [initial] = useState(() => parseGuideQuery(onNavigate ? urlSearch : "", widestDays(today)));
   const wide = useMediaQuery("(min-width: 48em)", false, { getInitialValueInEffect: false });
   // タッチの操作（修飾キーが無い）。「ほかの回も選ぶ」を出す
   const touch = useMediaQuery("(pointer: coarse)", false, { getInitialValueInEffect: false });
@@ -745,7 +753,8 @@ export function GuidePage({
   const [showHidden, setShowHidden] = useState(false);
   // 選んだエリアの ID（空 = 自分のエリア）。URL に切り替えられないエリアがあれば、エリアの一覧を読んで確かめるまで番組表を読まない
   const [area, setArea] = useState(initial.area);
-  const [areaChecked, setAreaChecked] = useState(initial.area === "");
+  // 番組表を読む前に、エリアの一覧（エリアの切り替えと過去の範囲）を待つか。URL がエリアか、7 日より前の放送日を指しているときだけ待つ
+  const [areaChecked, setAreaChecked] = useState(initial.area === "" && (initial.day === null || initial.day >= addDays(today, -DEFAULT_PAST_DAYS)));
   const [areas, setAreas] = useState<GuideAreas | null>(null);
   const areaRef = useRef(area);
   areaRef.current = area;
@@ -802,6 +811,10 @@ export function GuidePage({
       (got) => {
         if (!live) return;
         setAreas(got);
+        const past = Math.min(Math.max(got.pastDays || DEFAULT_PAST_DAYS, DEFAULT_PAST_DAYS), MAX_PAST_DAYS);
+        setPastDays(past);
+        setAreasSettled(true);
+        setDay((d) => (d < addDays(today, -past) ? today : d));
         const a = areaRef.current;
         if (a && (!got.switchable || a === got.own || !got.areas.some((x) => x.id === a))) setArea("");
         setAreaChecked(true);
@@ -809,6 +822,8 @@ export function GuidePage({
       () => {
         if (!live) return;
         setAreas(null);
+        setAreasSettled(true);
+        setDay((d) => (d < addDays(today, -DEFAULT_PAST_DAYS) ? today : d));
         if (areaRef.current) setArea("");
         setAreaChecked(true);
       },
@@ -1052,8 +1067,9 @@ export function GuidePage({
   // URL が変わったときだけ見る（状態の変化は、下の effect がクエリに書く）。
   useEffect(() => {
     if (!onNavigate) return;
-    const u = parseGuideQuery(urlSearch, days);
-    const d = u.day ?? today;
+    // 放送日は、会員種別が分かる前（エリアの一覧を読む前）は最大の範囲で見る（読んだ後の範囲の外は、一覧を読んだときに今日にする）
+    const u = parseGuideQuery(urlSearch, widestDays(today));
+    const d = u.day && (!areasSettled || u.day >= addDays(today, -pastDays)) ? u.day : today;
     if (d !== day) setDay(d);
     // 切り替えられないエリアは自分のエリアにする（エリアの一覧を読む前は、そのまま持っておいて一覧で確かめる）
     const ua = areas && (!areas.switchable || u.area === areas.own || !areas.areas.some((x) => x.id === u.area)) ? "" : u.area;

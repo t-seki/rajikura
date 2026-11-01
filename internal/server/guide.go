@@ -5,8 +5,8 @@ package server
 //   - GET /api/guide?day=YYYY-MM-DD&area=: 放送日 day の、エリアの全局の放送回。局ごとに {id, name, airings} を返す。
 //     area はエリア ID（省いたら自分のエリア）。自分のエリア以外は、会員種別がエリアフリー・ダブルプランのときだけ指せる
 //     （そうでなければ 400）。radiko の局の一覧（full.xml）に無いエリアも 400
-//   - GET /api/guide/areas: 番組表で選べるエリアの一覧 {own, switchable, areas: [{id, name}]}。own は自分のエリア ID、
-//     switchable はエリアを切り替えられるか（会員種別がエリアフリー・ダブルプラン）。エリアの名前は full.xml に無いので、
+//   - GET /api/guide/areas: 番組表で選べるエリアの一覧 {own, switchable, pastDays, areas: [{id, name}]}。own は自分のエリア ID、
+//     switchable はエリアを切り替えられるか（会員種別がエリアフリー・ダブルプラン）、pastDays は番組表で選べる過去の日数（下の N）。エリアの名前は full.xml に無いので、
 //     エリア ID の番号から都道府県名を引く（radiko.AreaName）。radiko から取れないときは 502
 //   - GET /api/guide/search?q=&area=: 表示する範囲の放送日すべての番組表から、番組名・出演者・説明を見る、空白区切りの語の AND
 //     （domain.KeywordMatcher。domain.NormalizeTitle で正規化してから部分一致を見る）に当たる放送回を、開始時刻の順に返す（{q, airings, truncated}）。q が正規化して空なら 400。
@@ -128,7 +128,7 @@ func (u *UI) guideAreas(w http.ResponseWriter, r *http.Request) {
 	for _, a := range info.Areas {
 		areas = append(areas, guideAreaJSON{ID: a.ID, Name: a.Name})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"own": info.Own, "switchable": u.membership().AreaFree(), "areas": areas})
+	writeJSON(w, http.StatusOK, map[string]any{"own": info.Own, "switchable": u.membership().AreaFree(), "pastDays": domain.MaxAvailableDays(u.membership()), "areas": areas})
 }
 
 // airingLookup は放送回を番組表で探す（1 回の予約の API が使う）。自分のエリアの番組表で探し、無ければ、エリアフリーの会員に限り、
