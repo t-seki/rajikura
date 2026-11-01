@@ -22,6 +22,7 @@ const kindColor: Record<string, string> = {
   deadline_near: "orange",
   sync: "red",
   out_of_area: "red",
+  login: "red",
   backup: "red",
   wake: "red",
   rescan: "red",

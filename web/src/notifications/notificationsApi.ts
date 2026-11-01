@@ -3,7 +3,7 @@
 export interface AppNotification {
   id: number;
   // 足したら直す: 通知の種類
-  /** 通知の種類（recorded・missing・expired・skipped・skip_planned・unskipped・deadline_near・sync・out_of_area・backup・wake・rescan・recovered・keyword_added・keyword_limit・unmatched_day・test）。 */
+  /** 通知の種類（recorded・missing・expired・skipped・skip_planned・unskipped・deadline_near・sync・out_of_area・login・backup・wake・rescan・recovered・keyword_added・keyword_limit・unmatched_day・test）。 */
   kind: string;
   message: string;
   createdAt: string;
@@ -110,6 +110,7 @@ const kindLabels: Record<string, string> = {
   deadline_near: "期限間近",
   sync: "番組表の同期の失敗",
   out_of_area: "エリア外",
+  login: "radiko のログインの失敗",
   backup: "バックアップの失敗",
   wake: "スリープから起こせない",
   rescan: "再スキャンの失敗",

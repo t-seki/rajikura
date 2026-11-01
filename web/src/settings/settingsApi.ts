@@ -14,7 +14,8 @@ export interface SettingsValues {
   chapters?: boolean;
   backup_dir?: string;
   backup_keep?: number;
-  radiko?: { program_cache_mb?: number };
+  /** radiko の設定。mail と password は radiko のログインに使うログイン情報（password は秘密で、返らない）。 */
+  radiko?: { program_cache_mb?: number; mail?: string; password?: string };
   notify?: {
     channel?: string;
     success?: boolean;
@@ -47,6 +48,7 @@ export const secretLabels: Record<string, string> = {
   "notify.slack_webhook": "Slack の Webhook の URL",
   "notify.smtp.password": "SMTP のパスワード",
   "jellyfin.api_key": "Jellyfin の API キー",
+  "radiko.password": "radiko のパスワード",
 };
 
 export class SettingsApiError extends Error {}

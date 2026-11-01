@@ -132,7 +132,7 @@ func (a *App) runJob(ctx context.Context, cur live, job domain.Job) error {
 		log.Warn("恒久的に取れないので期限切れにする")
 		return a.expire(ctx, log, job, failureText(err))
 	}
-	policy := domain.RetryPolicy{Membership: a.Membership, MaxAttemptsFree: cur.maxAttemptsFree}
+	policy := domain.RetryPolicy{Membership: a.membership(), MaxAttemptsFree: cur.maxAttemptsFree}
 	if next, ok := policy.NextAttemptAt(job.Attempts, started, job.Deadline, a.now()); ok {
 		log.Info("再試行する", "next", next)
 		return a.Store.Retry(ctx, job.ID, next)

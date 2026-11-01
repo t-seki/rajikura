@@ -41,7 +41,11 @@ import (
 //     食い違いを 2 行目に添える（check_title = false の番組は除く）。ライブで録るジョブが同時に録る本数の枠待ちだったときは、欠落あり・録音できなかったの
 //     末尾に枠待ちの 1 行を足す（liveWaitLine）。保存・expired の後なので、ctx が取り消されていても書く。
 //   - サービスの異常: 番組表の同期が 2 回続けて失敗した（syncLogged）・radiko がエリア外と判定した（authResult）。
-//     復旧（同期が成功した・認証が通った）も通知する。バックアップの異常（取れない。BackupIfDue。backup.go）の復旧は、
+//     復旧（同期が成功した・認証が通った）も通知する。radiko のログインの失敗（LoginResult。radiko が radiko のログインを拒んだ・
+//     radiko のログインの応答のエリアフリーの値が会員種別と食い違う）は、録音のループに限らず、radiko のログインを試した者（録音のループ・
+//     ライブの録音役・番組表の画面の HTTP の goroutine・展開役）が radiko.Client.OnLogin から書き、復旧は次に radiko のログインが通って食い違いも
+//     無いときと、会員種別を非会員にして保存したとき（SettingsApplied。radiko のログインを止めた）に書く。結果が届いた時点で
+//     会員種別が非会員なら、始まりは書かない。バックアップの異常（取れない。BackupIfDue。backup.go）の復旧は、
 //     次に取れたときと、取る先を空にして自動のバックアップを止めたときに書く。スリープから起こせない見込み（スリープ解除
 //     タイマーの許可が有効でない・この PC はタイマーで起きられない。Windows だけ）の復旧は、次にライブで録るジョブの分の
 //     タイマーを起こせる見込みで掛けられたときに書く（それまでは、タイマーを取り消しても続く）。再スキャンの失敗（頼めなかった・
@@ -362,6 +366,47 @@ func (a *App) authResult(ctx context.Context, log *slog.Logger, err error) {
 	}
 	a.addAnomaly(ctx, log, notify.KindOutOfArea, notify.KindOutOfArea,
 		"【エリア外】radiko がエリア外と判定した。録音できないので、ジョブは再試行を待つ。外向きの通信の経路を確かめる。\nエラー: "+oneLine(err.Error()))
+}
+
+// LoginResult は radiko のログインの結果（radiko.Client.OnLogin に渡すもの。ADR 0030）を見て、サービスの異常（radiko のログインの
+// 失敗）の始まりか復旧を書く（続いている間は書かない）。radiko が radiko のログインを拒んだとき・radiko のログインの応答のエリアフリーの値が会員種別と
+// 食い違うときに始まりを、radiko のログインが通って食い違いも無いときに復旧を書く（会員種別を非会員にして保存したときの復旧は
+// SettingsApplied が書く）。結果が届いた時点の会員種別が非会員なら、始まりを書かない（要求の間に非会員にして保存したとき）。radiko のログインが通ったら、応答の欄の名前と値をログに出す
+// （radiko_session の値は伏せてある。タイムフリー30 を表す値を後で見つけるため）。
+// 足したら直す: サービスの異常
+func (a *App) LoginResult(ev radiko.LoginEvent) {
+	ctx := context.Background()
+	log := a.log()
+	// radiko のログインの要求の間に会員種別を非会員にして保存したら（OnLogin は radiko.Client のロックを放した後に呼ばれる）、
+	// 始まりを書かない。SettingsApplied が先に復旧を書いた（か、何もしなかった）後に始まりを書くと、非会員のまま異常が残るため。
+	if (ev.Err != nil || ev.Mismatch) && !a.membership().Member() {
+		log.Info("radiko のログインの結果が届いたが、会員種別はもう非会員なので、radiko のログインの失敗は書かない", "err", ev.Err, "mismatch", ev.Mismatch)
+		return
+	}
+	if ev.Err != nil {
+		log.Warn("radiko が radiko のログインを拒んだ。非会員として認証して録る", "err", ev.Err)
+		a.addAnomaly(ctx, log, notify.KindLogin, notify.KindLogin,
+			"【radiko のログインの失敗】radiko が radiko のログインを拒んだ。非会員として録るので、エリアの外の局と、放送から 8 日目以降の放送回は録れない（ジョブは再試行を待つ）。"+
+				"設定のログイン情報（radiko のメールアドレスとパスワード）と会員種別を確かめる。\nエラー: "+oneLine(ev.Err.Error()))
+		return
+	}
+	fields := make([]any, 0, 2*len(ev.Fields))
+	for _, f := range ev.Fields {
+		fields = append(fields, f.Name, f.Value)
+	}
+	log.Info("radiko のログインが通った（応答の欄）", slog.Group("response", fields...))
+	if ev.Mismatch {
+		value := ev.AreaFreeValue
+		if value == "" {
+			value = "（無い）"
+		}
+		log.Warn("radiko のログインの応答のエリアフリーの値が、選んだ会員種別と食い違う", "areafree", value, "membership", a.membership())
+		a.addAnomaly(ctx, log, notify.KindLogin, notify.KindLogin,
+			fmt.Sprintf("【radiko のログインの失敗】radiko のログインの応答のエリアフリーの値（areafree = %s）が、選んだ会員種別（%s）と食い違う。"+
+				"会員として録れない放送回があるかもしれない。設定の会員種別と、radiko の契約を確かめる。", value, a.membership()))
+		return
+	}
+	a.addAnomaly(ctx, log, notify.KindRecovered, notify.KindLogin, "【復旧】radiko のログインが通った。")
 }
 
 // CheckNotifications は録音のループの周ごとの通知の処理をする。期限間近を判定して書き、まだ送れていない通知を

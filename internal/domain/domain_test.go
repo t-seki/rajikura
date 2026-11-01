@@ -212,7 +212,29 @@ func TestJobDeadline(t *testing.T) {
 
 func TestExcludedFromTimeFree30(t *testing.T) {
 	if ExcludedFromTimeFree30(Airing{TimeFree: TimeFreeFlags{InNG: 1, OutNG: 1}}) {
-		t.Error("仮の実装は常に対象外ではない")
+		t.Error("tsplus_in_ng が 0 なら、タイムフリー30 の対象外ではない")
+	}
+	if !ExcludedFromTimeFree30(Airing{TimeFree: TimeFreeFlags{PlusInNG: 1}}) {
+		t.Error("tsplus_in_ng が 0 でなければ、タイムフリー30 の対象外")
+	}
+}
+
+// tsplus_in_ng が 0 でない放送回は、タイムフリー30・ダブルプランでも録音期限が 7 日。
+func TestAvailableDaysTimeFree30Excluded(t *testing.T) {
+	ex := Airing{TimeFree: TimeFreeFlags{PlusInNG: 2}}
+	for m, want := range map[Membership][2]int{
+		MembershipFree:       {7, 7},
+		MembershipAreaFree:   {7, 7},
+		MembershipTimeFree30: {30, 7},
+		MembershipDouble:     {30, 7},
+	} {
+		if got := [2]int{AvailableDays(m, Airing{}), AvailableDays(m, ex)}; got != want {
+			t.Errorf("AvailableDays(%s) = %v（対象外でない・対象外）, want %v", m, got, want)
+		}
+	}
+	a := Airing{StationID: "TBS", Start: jst(2026, 10, 5, 10, 0), End: jst(2026, 10, 5, 11, 0), TimeFree: TimeFreeFlags{PlusInNG: 1}}
+	if got, want := AiringDeadline(a, MembershipDouble), jst(2026, 10, 13, 5, 0); !got.Equal(want) {
+		t.Errorf("AiringDeadline = %v, want %v（7 日）", got, want)
 	}
 }
 

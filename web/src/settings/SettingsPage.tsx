@@ -6,8 +6,9 @@ import { formatDateTime } from "../jobs/format";
 import { FolderPicker } from "./FolderPicker";
 import { fetchSettings, patchSettings, secretLabels, SettingsApiError, type SettingsValues, type SettingsView } from "./settingsApi";
 
-// 設定の画面。区切りは「保存先」「通知」「Jellyfin との連携」「バックアップ」「詳しい設定」。区切りごとに保存し、保存したらすぐに効く
-// （番組表のキャッシュの大きさだけは、serve の再起動まで効かない）。「バックアップ」は自動のバックアップの取る先と残す数を保存し、最後に自動で取れた日時を出す。DB の写しをダウンロードもさせる。
+// 設定の画面。区切りは「保存先」「radiko の会員種別」「通知」「Jellyfin との連携」「バックアップ」「詳しい設定」。区切りごとに保存し、
+// 保存したらすぐに効く（番組表のキャッシュの大きさだけは、serve の再起動まで効かない）。「radiko の会員種別」は会員種別と、
+// 非会員でないときの radiko のログインに使うログイン情報（メールアドレスとパスワード）を保存する。「バックアップ」は自動のバックアップの取る先と残す数を保存し、最後に自動で取れた日時を出す。DB の写しをダウンロードもさせる。
 // 秘密の欄は値を返さない。空のまま保存したら変えず、「消す」を押したときだけ空の文字列を送る。
 // onChanged は保存した後の設定を、画面の上の帯に渡す。
 export function SettingsPage({ onChanged }: { onChanged: (view: SettingsView) => void }) {
@@ -36,6 +37,7 @@ export function SettingsPage({ onChanged }: { onChanged: (view: SettingsView) =>
   return (
     <Stack>
       <LibrarySection view={view} onChanged={changed} />
+      <MembershipSection view={view} onChanged={changed} />
       <NotifySection view={view} onChanged={changed} />
       <JellyfinSection view={view} onChanged={changed} />
       <BackupSection view={view} onChanged={changed} />
@@ -177,6 +179,68 @@ function LibrarySection({ view, onChanged }: SectionProps) {
       <FolderField label="保存先のフォルダ" value={library} onChange={setLibrary} placeholder="/library" />
       <Group>
         <Button onClick={() => save({ library: library.trim() })} loading={busy} disabled={library.trim() === ""}>
+          保存
+        </Button>
+      </Group>
+    </Section>
+  );
+}
+
+const membershipOptions = [
+  { value: "free", label: "非会員" },
+  { value: "areafree", label: "エリアフリー（radiko プレミアム）" },
+  { value: "timefree30", label: "タイムフリー30" },
+  { value: "double", label: "ダブルプラン（エリアフリーとタイムフリー30）" },
+];
+
+// 会員種別と、radiko のログインに使うログイン情報。非会員でないときだけ、ログイン情報の欄を出す（そろっていなければサーバーが断る）。
+// 非会員に戻して保存しても、ログイン情報は消さない（消すのは「消す」を押したときだけ）。
+function MembershipSection({ view, onChanged }: SectionProps) {
+  const [membership, setMembership] = useState(view.settings.membership ?? "free");
+  const [mail, setMail] = useState(view.settings.radiko?.mail ?? "");
+  const [password, setPassword] = useState("");
+  const { busy, error, save } = useSaver(onChanged, "radiko の会員種別");
+  const member = membership !== "free";
+
+  async function submit() {
+    const patch: SettingsValues = { membership };
+    if (member) patch.radiko = { mail: mail.trim(), ...(password !== "" ? { password } : {}) };
+    if (await save(patch)) setPassword("");
+  }
+
+  // 保存してある会員種別が非会員でなければ、パスワードを消すとサーバーの確かめで断られるので、非会員にして一緒に送る。
+  async function clearPassword() {
+    const inUse = (view.settings.membership ?? "free") !== "free";
+    const msg = inUse
+      ? `${secretLabels["radiko.password"]}を消しますか。会員種別がログイン情報を使っているので、会員種別を非会員にして消します。`
+      : `${secretLabels["radiko.password"]}を消しますか。`;
+    if (!window.confirm(msg)) return;
+    if (await save(inUse ? { membership: "free", radiko: { password: "" } } : { radiko: { password: "" } })) {
+      if (inUse) setMembership("free");
+    }
+  }
+
+  return (
+    <Section
+      title="radiko の会員種別"
+      hint="radiko と契約している会員種別。非会員でなければ、radiko のアカウントのメールアドレスとパスワードで radiko にログインして録る。radiko にログインを拒まれたら、非会員として録り、通知で知らせる。"
+      error={error}
+    >
+      <Select label="会員種別" data={membershipOptions} value={membership} onChange={(v) => v && setMembership(v)} allowDeselect={false} />
+      {member && (
+        <Stack gap="xs">
+          <TextInput
+            label="radiko のメールアドレス"
+            value={mail}
+            onChange={(e) => setMail(e.currentTarget.value)}
+            placeholder="name@example.com"
+            autoComplete="off"
+          />
+          <SecretField name="radiko.password" view={view} value={password} onChange={setPassword} onClear={clearPassword} busy={busy} />
+        </Stack>
+      )}
+      <Group>
+        <Button onClick={submit} loading={busy}>
           保存
         </Button>
       </Group>

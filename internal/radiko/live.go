@@ -81,15 +81,16 @@ func (c *Client) liveRetryInterval() time.Duration {
 	return DefaultLiveRetryInterval
 }
 
-// parseLiveCandidates は、ストリーム情報の XML から timefree=0 かつ areafree=0 の playlist_create_url を並び順のまま取り出す。
-func parseLiveCandidates(data []byte) ([]string, error) {
+// parseLiveCandidates は、ストリーム情報の XML から timefree=0 かつ areafree が areaFree（"0" か "1"）の playlist_create_url を
+// 並び順のまま取り出す。エリアフリーのトークンでは areafree=1 の url を使う（タイムフリーに揃えた。ライブで確かめた手順ではない。未確認）。
+func parseLiveCandidates(data []byte, areaFree string) ([]string, error) {
 	var doc xmlStreams
 	if err := xml.Unmarshal(data, &doc); err != nil {
 		return nil, fmt.Errorf("%w: parse stream xml: %v", ErrTemporary, err)
 	}
 	var out []string
 	for _, u := range doc.URLs {
-		if u.Timefree == "0" && u.Areafree == "0" {
+		if u.Timefree == "0" && u.Areafree == areaFree {
 			if v := strings.TrimSpace(u.PlaylistCreateURL); v != "" {
 				out = append(out, v)
 			}
@@ -98,13 +99,13 @@ func parseLiveCandidates(data []byte) ([]string, error) {
 	return out, nil
 }
 
-func (c *Client) liveCandidates(ctx context.Context, stationID string) ([]string, error) {
+func (c *Client) liveCandidates(ctx context.Context, tok Token, stationID string) ([]string, error) {
 	u := fmt.Sprintf("%s/v3/station/stream/pc_html5/%s.xml", strings.TrimRight(c.ProgramHost, "/"), url.PathEscape(stationID))
 	data, err := c.getXML(ctx, u)
 	if err != nil {
 		return nil, err
 	}
-	cands, err := parseLiveCandidates(data)
+	cands, err := parseLiveCandidates(data, areaFreeAttr(tok))
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +163,9 @@ func (r *liveRun) connect(ctx context.Context) error {
 	q.Set("station_id", r.req.StationID)
 	q.Set("l", strconv.Itoa(liveLookbackSeconds))
 	q.Set("lsid", r.lsid)
-	q.Set("type", c.playlistType())
+	// ライブの type は、radiko のログインのセッションを付けても b のまま（type=c は、タイムフリーの手順として分かっている
+	// ものだけ。ライブで c にするかは確かめていない）。
+	q.Set("type", "b")
 	pu.RawQuery = q.Encode()
 	playlistURL := pu.String()
 
@@ -239,7 +242,7 @@ func (r *liveRun) poll(ctx context.Context) error {
 // step は、候補・繋ぎ・medialist の取得を、足りないところから 1 段進める。
 func (r *liveRun) step(ctx context.Context) error {
 	if r.cands == nil {
-		cands, err := r.c.liveCandidates(ctx, r.req.StationID)
+		cands, err := r.c.liveCandidates(ctx, r.token, r.req.StationID)
 		if err != nil {
 			return err
 		}
@@ -249,7 +252,7 @@ func (r *liveRun) step(ctx context.Context) error {
 		err := r.connect(ctx)
 		if errors.Is(err, errAuthExpired) && !r.reauthed {
 			r.reauthed = true
-			tok, aerr := r.c.Authenticate(ctx)
+			tok, aerr := r.c.reauthenticate(ctx, r.token)
 			if aerr != nil {
 				return aerr
 			}

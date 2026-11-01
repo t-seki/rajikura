@@ -171,11 +171,13 @@ type DescriptionPart struct {
 	Href string
 }
 
-// TimeFreeFlags は番組表のタイムフリーの可否のフラグの写し（radiko の ts_in_ng・ts_out_ng）。
-// 値の解釈はまだ分かっていないので、そのまま持つ。
+// TimeFreeFlags は番組表のタイムフリーの可否のフラグの写し（radiko の ts_in_ng・ts_out_ng・tsplus_in_ng）。
+// 値の解釈はまだ分かっていないので、そのまま持つ（InNG はタイムフリーの対象外、PlusInNG はタイムフリー30 の対象外として読む）。
 type TimeFreeFlags struct {
 	InNG  int
 	OutNG int
+	// PlusInNG は tsplus_in_ng。0 でなければタイムフリー30 の対象外（ExcludedFromTimeFree30）。
+	PlusInNG int
 }
 
 // TimeFreeExcluded は、放送回がタイムフリーの対象外か（番組表の ts_in_ng が 0 でない）。対象外の放送回はライブで録る。

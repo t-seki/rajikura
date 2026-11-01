@@ -2,12 +2,12 @@ package domain
 
 import "time"
 
-// ExcludedFromTimeFree30 は放送回がタイムフリー30の対象外か。
+// ExcludedFromTimeFree30 は放送回がタイムフリー30 の対象外か（番組表の tsplus_in_ng が 0 でない。TimeFreeFlags.PlusInNG）。
+// 対象外の放送回は、タイムフリー30・ダブルプランでも録音期限が 7 日になる。
 //
-// 判定に使う番組表のフラグの解釈はまだ分かっていないので、仮に常に「対象外ではない」を返す。
-// MVP は非会員だけなので効かない。
+// tsplus_in_ng をこの意味に読むのは、名前からの推測（本物の radiko では確かめていない。未確認）。
 func ExcludedFromTimeFree30(a Airing) bool {
-	return false
+	return a.TimeFree.PlusInNG != 0
 }
 
 // AvailableDays は会員種別と放送回から、録音できる日数を返す。

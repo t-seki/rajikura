@@ -15,10 +15,10 @@ package server
 //
 // 断るとき:
 //   - 400: JSON が読めない、airings が空、局か開始時刻が空、同じ放送回が重なっている、
-//     番組表の範囲（今日の 7 日前から 7 日先までの放送日）の外、番組表にその放送回が無い、
-//     録音期限を過ぎた放送回（タイムフリーの対象外の放送回（ライブで録る）は domain.AiringDeadline（放送の終了の 5 分後）、
-//     それ以外は domain.Once.Deadline で数える。タイムフリーから録る放送回は、今の会員種別（非会員）では番組表の範囲の内側で
-//     録音期限を過ぎないので起きない（会員種別が増えたときの防御））
+//     番組表の範囲（guide.go の guideRange。今日の 7 日前（タイムフリー30・ダブルプランは 30 日前）から 7 日先までの放送日）の外、
+//     番組表にその放送回が無い、録音期限を過ぎた放送回（タイムフリーの対象外の放送回（ライブで録る）は domain.AiringDeadline
+//     （放送の終了の 5 分後）、それ以外は domain.Once.Deadline で数える。タイムフリー30・ダブルプランでは、タイムフリー30 の対象外の
+//     放送回（7 日）が番組表の範囲の内側で録音期限を過ぎる）
 //   - 404: 番組が無い（消すときは、その番組にその 1 回の予約が無い）
 //   - 409: ほかの番組が当てている（reason: other_show。showName にその番組の名前）、同じ番組がすでに当てている（reason: already。showName は同じ番組）。
 //     409 のときは airing に断った放送回の {station, start} を付ける（並行するリクエストとの競合で store に
@@ -242,10 +242,11 @@ func (u *UI) createOnces(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// 録音期限を過ぎた放送回は足しても録れない。タイムフリーの対象外の放送回（ライブで録る）は、放送の終了の 5 分後
-		// （domain.AiringDeadline）を過ぎたら断る。タイムフリーから録る放送回は、今の会員種別（非会員）では番組表の範囲の
-		// 内側で録音期限を過ぎないので起きない（会員種別が増えたときの防御）。
+		// （domain.AiringDeadline）を過ぎたら断る。タイムフリー30 の対象外の放送回（domain.ExcludedFromTimeFree30）は、
+		// タイムフリー30・ダブルプランでも 7 日なので、放送回の録音期限（domain.AiringDeadline）で断る（domain.Once.Deadline は
+		// 放送回の番組表のフラグを知らない）。
 		deadline := domain.Once{StationID: a.StationID, Start: a.Start}.Deadline(u.membership())
-		if a.TimeFreeExcluded() {
+		if domain.ExcludedFromTimeFree30(a) || a.TimeFreeExcluded() {
 			deadline = domain.AiringDeadline(a, u.membership())
 		}
 		if !u.now().Before(deadline) {

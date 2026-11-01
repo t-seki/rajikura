@@ -30,6 +30,7 @@ const base: SettingsView = {
     "notify.slack_webhook": { set: false, unreadable: false },
     "notify.smtp.password": { set: false, unreadable: false },
     "jellyfin.api_key": { set: false, unreadable: false },
+    "radiko.password": { set: false, unreadable: false },
   },
   library_set: true,
   unreadable_secrets: [],
@@ -86,16 +87,75 @@ afterEach(() => {
 });
 
 describe("SettingsPage", () => {
-  it("保存先・通知・Jellyfin との連携・バックアップ・詳しい設定の 5 つの区切りを出す", async () => {
+  it("保存先・radiko の会員種別・通知・Jellyfin との連携・バックアップ・詳しい設定の 6 つの区切りを出す", async () => {
     mockApi(base);
     renderPage();
     expect(await screen.findByRole("region", { name: "保存先" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "radiko の会員種別" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "通知" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Jellyfin との連携" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "バックアップ" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "詳しい設定" })).toBeInTheDocument();
-    // 会員種別とプリセットは画面に出さない
-    expect(screen.queryByText(/会員種別|プリセット/)).toBeNull();
+    // プリセットは画面に出さない
+    expect(screen.queryByText(/プリセット/)).toBeNull();
+  });
+
+  it("会員種別を非会員でないものにすると、ログイン情報の欄を出し、会員種別とログイン情報を送る", async () => {
+    const calls = mockApi(base);
+    renderPage();
+    const region = await screen.findByRole("region", { name: "radiko の会員種別" });
+    // 非会員のときは、ログイン情報の欄を出さない
+    expect(within(region).queryByLabelText("radiko のメールアドレス")).toBeNull();
+    await userEvent.click(within(region).getByRole("combobox", { name: "会員種別" }));
+    await userEvent.click(await screen.findByRole("option", { name: "ダブルプラン（エリアフリーとタイムフリー30）", hidden: true }));
+    await userEvent.type(within(region).getByLabelText("radiko のメールアドレス"), " me@example.com ");
+    await userEvent.type(within(region).getByLabelText("radiko のパスワード"), "pass");
+    await userEvent.click(within(region).getByRole("button", { name: "保存" }));
+    expect(calls.find((c) => c.method === "PATCH")!.body).toEqual({
+      membership: "double",
+      radiko: { mail: "me@example.com", password: "pass" },
+    });
+    expect(await screen.findByText("radiko の会員種別を保存した")).toBeInTheDocument();
+    expect(within(region).getByLabelText("radiko のパスワード")).toHaveValue("");
+  });
+
+  it("radiko のパスワードは設定済みかだけを出し、空のまま保存したら送らない", async () => {
+    const calls = mockApi({
+      ...base,
+      settings: { ...base.settings, membership: "areafree", radiko: { program_cache_mb: 64, mail: "me@example.com" } },
+      secrets: { ...base.secrets, "radiko.password": { set: true, unreadable: false } },
+    });
+    renderPage();
+    const region = await screen.findByRole("region", { name: "radiko の会員種別" });
+    expect(within(region).getByLabelText("radiko のメールアドレス")).toHaveValue("me@example.com");
+    const password = within(region).getByLabelText("radiko のパスワード");
+    expect(password).toHaveValue("");
+    expect(password).toHaveAttribute("placeholder", "設定済み（変えるときだけ入れる）");
+    await userEvent.click(within(region).getByRole("button", { name: "保存" }));
+    expect(calls.find((c) => c.method === "PATCH")!.body).toEqual({ membership: "areafree", radiko: { mail: "me@example.com" } });
+  });
+
+  it("会員種別がログイン情報を使っているときに radiko のパスワードを消すと、非会員にして消す", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const calls = mockApi({
+      ...base,
+      settings: { ...base.settings, membership: "timefree30", radiko: { program_cache_mb: 64, mail: "me@example.com" } },
+      secrets: { ...base.secrets, "radiko.password": { set: true, unreadable: false } },
+    });
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "radiko のパスワードを消す" }));
+    expect(confirm.mock.calls[0][0]).toContain("非会員にして消します");
+    expect(calls.find((c) => c.method === "PATCH")!.body).toEqual({ membership: "free", radiko: { password: "" } });
+  });
+
+  it("ログイン情報がそろっていないと断られたら、理由を会員種別の区切りに出す", async () => {
+    mockApi(base, () => ({ status: 400, body: { error: "membership = \"areafree\" なのに、radiko のログインに使うログイン情報（radiko.password）が無い" } }));
+    renderPage();
+    const region = await screen.findByRole("region", { name: "radiko の会員種別" });
+    await userEvent.click(within(region).getByRole("combobox", { name: "会員種別" }));
+    await userEvent.click(await screen.findByRole("option", { name: "エリアフリー（radiko プレミアム）", hidden: true }));
+    await userEvent.click(within(region).getByRole("button", { name: "保存" }));
+    expect(await within(region).findByRole("alert")).toHaveTextContent("radiko.password");
   });
 
   it("保存先を変えて保存すると、library だけを送る", async () => {

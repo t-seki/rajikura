@@ -14,8 +14,10 @@ import (
 	"time"
 
 	"github.com/t-seki/rajikura/internal/config"
+	"github.com/t-seki/rajikura/internal/domain"
 	"github.com/t-seki/rajikura/internal/library"
 	"github.com/t-seki/rajikura/internal/notify"
+	"github.com/t-seki/rajikura/internal/radiko"
 	"github.com/t-seki/rajikura/internal/secret"
 	"github.com/t-seki/rajikura/internal/store"
 )
@@ -26,6 +28,9 @@ import (
 // 部品と値の写し（Runtime）を丸ごと 1 つ持ち、保存したら新しい写しに atomic に差し替える。使う側（録音のループ・展開役・
 // HTTP の goroutine）は、使うときに最新の写しを読むので、保存した設定は再起動しなくてもすぐに効く
 // （番組表のキャッシュの大きさ（radiko.program_cache_mb）は除く。キャッシュは cmd が起動したときの値で作るので、再起動が要る）。
+// 会員種別もすぐに効く（録音期限・再試行・番組表の範囲は、使うときの会員種別から読む）。会員種別かログイン情報を保存したら、
+// OnApply（cmd が App.SettingsApplied をつなぐ）が、持っている radiko のログインのセッションを捨て、会員種別が変わったなら
+// まだ終わっていないジョブの録音期限を付け直す（ADR 0030）。
 // ジョブの実行は、試行を始めたときに写しを 1 つ取り、その試行の最後（保存・再スキャン）までその写しを使う（録音の途中で
 // 保存先が変わって、1 つのジョブのファイルが 2 か所に分かれないように）。
 //
@@ -64,6 +69,9 @@ type Settings struct {
 	Build Build
 	// Log は nil なら slog.Default。
 	Log *slog.Logger
+	// OnApply は、Apply が保存して写しを差し替えた後に、当てた p と前後の設定を渡して呼ぶ（nil なら呼ばない）。Apply の中で
+	// 呼ぶので、次の Apply は OnApply が終わるまで待つ。
+	OnApply func(ctx context.Context, p config.Patch, prev, next config.Config)
 
 	// mu は Apply を 1 つずつにする（読んでから書くまでに、ほかの保存が割り込まないように）。
 	mu  sync.Mutex
@@ -215,8 +223,22 @@ func (s *Settings) Apply(ctx context.Context, p config.Patch) (config.Config, er
 	slices.Sort(changed)
 	// 秘密は値を出さず、変えた秘密の名前だけを出す。
 	s.log().Info("設定を保存した", "library", next.Library, "notify", next.NotifyChannel, "notify_success", next.NotifySuccess,
-		"backup_dir", next.BackupDir, "backup_keep", next.BackupKeep, "jellyfin", next.JellyfinURL, "muxer", next.Muxer, "chapters", next.Chapters, "secrets_changed", changed)
+		"backup_dir", next.BackupDir, "backup_keep", next.BackupKeep, "jellyfin", next.JellyfinURL, "muxer", next.Muxer, "chapters", next.Chapters,
+		"membership", next.Membership, "secrets_changed", changed)
+	if s.OnApply != nil {
+		s.OnApply(context.WithoutCancel(ctx), p, cur, next)
+	}
 	return next, nil
+}
+
+// RadikoAccount は、今の設定から radiko のログインに使うログイン情報を返す（radiko.Client.Account にする）。会員種別が非会員のとき、
+// ログイン情報がそろっていない（パスワードを復号できないときも）ときは false（非会員として認証する）。
+func (s *Settings) RadikoAccount() (radiko.Account, bool) {
+	c := s.Current()
+	if !c.Membership.Member() || c.RadikoMail == "" || c.RadikoPassword == "" {
+		return radiko.Account{}, false
+	}
+	return radiko.Account{Mail: c.RadikoMail, Password: c.RadikoPassword, AreaFree: c.Membership.AreaFree()}, true
 }
 
 // checkDir はフォルダ dir（what は「保存先」など、エラーの文に出す呼び名）を作り、書けることを確かめる（試しのファイルを書いて消す）。
@@ -251,6 +273,8 @@ type live struct {
 	backupKeep        int
 	// chapters は設定 chapters（タイムフリーから録るファイルにチャプターを入れるか。ADR 0027）。
 	chapters bool
+	// membership は会員種別（録音期限・再試行・キーワードの照合に使う。保存したらすぐ効く。ADR 0030）。
+	membership domain.Membership
 }
 
 // current は今の設定の値。Live があれば最新の写しを読み、無ければ App のフィールドを使う。
@@ -260,6 +284,7 @@ func (a *App) current() live {
 			library: a.Library, media: a.Media, preset: a.Preset, maxAttemptsFree: a.MaxAttemptsFree,
 			keywordMaxPending: a.KeywordMaxPending, notifier: a.Notifier, muteSuccess: a.MuteSuccess, rescanner: a.Rescanner,
 			backupDir: a.BackupDir, backupKeep: cmp.Or(a.BackupKeep, config.DefaultBackupKeep), chapters: a.Chapters,
+			membership: cmp.Or(a.Membership, domain.MembershipFree),
 		}
 	}
 	rt := a.Live()
@@ -267,5 +292,42 @@ func (a *App) current() live {
 		library: rt.Config.Library, media: rt.Media, preset: rt.Preset, maxAttemptsFree: rt.Config.MaxAttemptsFree,
 		keywordMaxPending: rt.Config.KeywordMaxPending, notifier: rt.Notifier, muteSuccess: !rt.Config.NotifySuccess, rescanner: rt.Rescanner,
 		backupDir: rt.Config.BackupDir, backupKeep: cmp.Or(rt.Config.BackupKeep, config.DefaultBackupKeep), chapters: rt.Config.Chapters,
+		membership: cmp.Or(rt.Config.Membership, domain.MembershipFree),
 	}
+}
+
+// membership は今の会員種別（Live があれば設定の最新の写しから、無ければ App.Membership）。
+func (a *App) membership() domain.Membership { return a.current().membership }
+
+// LoginResetter は、持っている radiko のログインのセッションを捨てられるもの（*radiko.Client が満たす）。
+type LoginResetter interface {
+	ResetLogin()
+}
+
+// SettingsApplied は、設定を保存した後に呼ぶ（cmd が Settings.OnApply につなぐ）。会員種別かログイン情報（radiko.mail・
+// radiko.password）を保存したら、持っている radiko のログインのセッションを捨てる（Fetcher が LoginResetter を満たすとき）。
+// 会員種別を非会員にして保存したら、radiko のログインの失敗の異常が続いていれば、radiko のログインを止めたことを復旧として閉じる
+// （もう radiko のログインをしないので、ログインが通る日は来ない。バックアップの取る先を空にしたときと同じ）。
+// 会員種別が変わったら、まだ終わっていないジョブ（waiting・retrying・skipped）の録音期限を新しい会員種別で付け直す（ADR 0030）。
+// 足したら直す: サービスの異常
+func (a *App) SettingsApplied(ctx context.Context, p config.Patch, prev, next config.Config) {
+	login := p.Membership != nil || (p.Radiko != nil && (p.Radiko.Mail != nil || p.Radiko.Password != nil))
+	if r, ok := a.Fetcher.(LoginResetter); ok && login {
+		r.ResetLogin()
+		a.log().Info("会員種別かログイン情報を保存したので、radiko のログインのセッションを捨てた（次に認証が要るときに radiko のログインをし直す）",
+			"membership", next.Membership)
+	}
+	if p.Membership != nil && !next.Membership.Member() {
+		a.addAnomaly(ctx, a.log(), notify.KindRecovered, notify.KindLogin,
+			"【復旧】会員種別を非会員にしたので、radiko のログインを止めた。radiko のログインの失敗は終わりにするが、会員としては録っていない。")
+	}
+	if next.Membership == prev.Membership {
+		return
+	}
+	n, err := a.Store.ReviseDeadlines(ctx, next.Membership)
+	if err != nil {
+		a.log().Error("会員種別を変えたが、まだ終わっていないジョブの録音期限を付け直せない", "membership", next.Membership, "err", err)
+		return
+	}
+	a.log().Info("会員種別を変えたので、まだ終わっていないジョブの録音期限を付け直した", "from", prev.Membership, "to", next.Membership, "jobs", n)
 }

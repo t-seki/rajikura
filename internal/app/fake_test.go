@@ -85,6 +85,13 @@ type fakeRadiko struct {
 	liveMasters []time.Time
 	// onLiveMedia があれば、ライブの medialist を返す前に呼ぶ（ロックの外）。
 	onLiveMedia func()
+
+	// 以下は radiko のログイン（login_test.go）。loginReject が true ならログインを 401 で拒む。loginAreaFree は応答の areafree
+	// （空なら "1"）。logins はログインの回数、authSessions は auth2 に付いた radiko_session（付かなければ空）。
+	loginReject   bool
+	loginAreaFree string
+	logins        int
+	authSessions  []string
 }
 
 func newFakeRadiko(t *testing.T) *fakeRadiko {
@@ -103,12 +110,31 @@ func newFakeRadiko(t *testing.T) *fakeRadiko {
 	mux.HandleFunc("/v2/api/auth2", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		out := f.outOfArea
+		f.authSessions = append(f.authSessions, r.URL.Query().Get("radiko_session"))
 		f.mu.Unlock()
 		if out {
 			fmt.Fprint(w, "OUT\n")
 			return
 		}
 		fmt.Fprint(w, "JP13,東京都,tokyo Japan\n")
+	})
+	mux.HandleFunc("/v4/api/member/login", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.logins++
+		n, reject, af := f.logins, f.loginReject, f.loginAreaFree
+		f.mu.Unlock()
+		if r.Method != http.MethodPost || r.FormValue("mail") == "" || r.FormValue("pass") == "" {
+			http.Error(w, "bad login", http.StatusBadRequest)
+			return
+		}
+		if reject {
+			http.Error(w, `{"message":"invalid"}`, http.StatusUnauthorized)
+			return
+		}
+		if af == "" {
+			af = "1"
+		}
+		fmt.Fprintf(w, `{"radiko_session":"sess%d","areafree":%q}`, n, af)
 	})
 	mux.HandleFunc("/v3/station/region/full.xml", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()

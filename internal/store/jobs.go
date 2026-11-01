@@ -127,10 +127,10 @@ func putAirings(ctx context.Context, tx *sql.Tx, jobID int64, airings, missing [
 	for i, a := range airings {
 		_, err := tx.ExecContext(ctx, `INSERT INTO job_airings
 			(job_id, position, airing_key, program_id, station_id, start_at, end_at,
-			 title, performer, description, image_url, ts_in_ng, ts_out_ng, missing, chapter_wait)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 title, performer, description, image_url, ts_in_ng, ts_out_ng, tsplus_in_ng, missing, chapter_wait)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			jobID, i, a.Key(), a.ProgramID, a.StationID, formatTime(a.Start), formatTime(a.End),
-			a.Title, a.Performer, a.Description, a.ImageURL, a.TimeFree.InNG, a.TimeFree.OutNG,
+			a.Title, a.Performer, a.Description, a.ImageURL, a.TimeFree.InNG, a.TimeFree.OutNG, a.TimeFree.PlusInNG,
 			boolInt(miss[a.Key()]), int(waits[a.Key()]))
 		if err != nil {
 			return err
@@ -173,7 +173,7 @@ func scanJob(sc interface{ Scan(...any) error }) (domain.Job, error) {
 
 func loadAirings(ctx context.Context, q querier, j *domain.Job) error {
 	rows, err := q.QueryContext(ctx, `SELECT program_id, station_id, start_at, end_at,
-		title, performer, description, image_url, ts_in_ng, ts_out_ng, missing, chapter_wait
+		title, performer, description, image_url, ts_in_ng, ts_out_ng, tsplus_in_ng, missing, chapter_wait
 		FROM job_airings WHERE job_id = ? ORDER BY position`, j.ID)
 	if err != nil {
 		return err
@@ -185,7 +185,7 @@ func loadAirings(ctx context.Context, q querier, j *domain.Job) error {
 		var start, end string
 		var missing, wait int
 		if err := rows.Scan(&a.ProgramID, &a.StationID, &start, &end, &a.Title, &a.Performer,
-			&a.Description, &a.ImageURL, &a.TimeFree.InNG, &a.TimeFree.OutNG, &missing, &wait); err != nil {
+			&a.Description, &a.ImageURL, &a.TimeFree.InNG, &a.TimeFree.OutNG, &a.TimeFree.PlusInNG, &missing, &wait); err != nil {
 			return err
 		}
 		if a.Start, err = parseTime(start); err != nil {
@@ -775,4 +775,37 @@ func (s *Store) LatestAttemptsFromDay(ctx context.Context, day domain.BroadcastD
 		out[a.JobID] = a
 	}
 	return out, rows.Err()
+}
+
+// ReviseDeadlines は、まだ終わっていないジョブ（waiting・retrying・skipped）の録音期限を、会員種別 m で付け直す
+// （会員種別を保存したとき。docs/adr/0030-radiko-login-follows-chosen-membership.md）。録音期限は DB の放送回から
+// domain.JobDeadline で求める。retrying のジョブの次の試行が新しい録音期限より後なら、録音期限に寄せる（録音期限を過ぎたら、
+// 次の試行で取れた分を保存するか expired にするかを決めるため）。done・expired・running のジョブは触らない。
+// 付け直したジョブの数を返す。
+func (s *Store) ReviseDeadlines(ctx context.Context, m domain.Membership) (int, error) {
+	n := 0
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		n = 0
+		jobs, err := queryJobs(ctx, tx, `WHERE state IN ('waiting', 'retrying', 'skipped')`)
+		if err != nil {
+			return err
+		}
+		for _, j := range jobs {
+			d := domain.JobDeadline(j.Airings, m)
+			if d.IsZero() || d.Equal(j.Deadline) {
+				continue
+			}
+			next := j.NextAttemptAt
+			if j.State == domain.StateRetrying && next.After(d) {
+				next = d
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE jobs SET deadline = ?, next_attempt_at = ? WHERE id = ?`,
+				formatTime(d), formatTime(next), j.ID); err != nil {
+				return fmt.Errorf("ジョブ %d の録音期限を付け直せない: %w", j.ID, err)
+			}
+			n++
+		}
+		return nil
+	})
+	return n, err
 }

@@ -45,6 +45,7 @@ const (
 	// サービスの異常（始まり）
 	KindSync      = "sync"        // 番組表の同期が 2 回続けて失敗した
 	KindOutOfArea = "out_of_area" // radiko がエリア外と判定した
+	KindLogin     = "login"       // radiko のログインが拒まれた・応答が会員種別と食い違う
 	KindBackup    = "backup"      // 自動のバックアップを取れなかった
 	KindWake      = "wake"        // ライブ録音の前にスリープ中の PC を起こせない見込み
 	KindRescan    = "rescan"      // ライブラリの再スキャンを頼めなかった
@@ -57,7 +58,7 @@ const (
 // Kinds は通知の種類の全部。
 // 足したら直す: 通知の種類
 var Kinds = []string{KindRecorded, KindMissing, KindExpired, KindSkipped, KindSkipPlanned, KindUnskipped, KindDeadlineNear, KindKeywordAdded, KindKeywordLimit,
-	KindUnmatchedDay, KindSync, KindOutOfArea, KindBackup, KindWake, KindRescan, KindRecovered, KindTest}
+	KindUnmatchedDay, KindSync, KindOutOfArea, KindLogin, KindBackup, KindWake, KindRescan, KindRecovered, KindTest}
 
 // Notifier は通知先。
 type Notifier interface {

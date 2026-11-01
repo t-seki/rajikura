@@ -144,7 +144,7 @@
 // # 通知
 //
 // ジョブの出来事（録音済み・欠落あり・録音できなかった・録らない予定にした・録音予定に戻した・録らなかった・期限間近）とサービスの異常（番組表の同期が 2 回続けて
-// 失敗した・radiko がエリア外と判定した・自動のバックアップを取れない・ライブ録音の前にスリープ中の PC を起こせない見込み・
+// 失敗した・radiko がエリア外と判定した・radiko のログインが拒まれた・自動のバックアップを取れない・ライブ録音の前にスリープ中の PC を起こせない見込み・
 // ライブラリの再スキャンを頼めない、とその復旧）を、通知として DB に書く（notify.go）。キーワードの出来事
 // （キーワードで録音予定にした・上限で足すのを止めた）は、キーワードを当てた展開役が、足すのと同じトランザクションで書く（keyword.go）。
 // ジョブの出来事のうち録らない予定にした・録音予定に戻した・録らなかったは、展開役が展開の差分を当てた後に書く（syncDay）。
@@ -238,7 +238,7 @@ type App struct {
 	Library string
 	// ArtworkClient は放送回の画像の取得に使う。nil なら http.DefaultClient。
 	ArtworkClient *http.Client
-	// Membership は会員種別。
+	// Membership は会員種別。空なら非会員。Live があれば使わない（設定の最新の写しから読むので、保存したらすぐ効く）。
 	Membership domain.Membership
 	// MaxAttemptsFree は非会員の試行回数の上限。0 以下なら domain の既定。
 	MaxAttemptsFree int
@@ -296,7 +296,7 @@ type App struct {
 	RescanTimeout time.Duration
 
 	// Live は、保存したらすぐに効く設定の写し（Settings.Runtime）を返す。nil なら、上のフィールド（Library・Media・Preset・
-	// MaxAttemptsFree・KeywordMaxPending・Chapters・Notifier・MuteSuccess・Rescanner）をそのまま使う（テストで使う）。
+	// Membership・MaxAttemptsFree・KeywordMaxPending・Chapters・Notifier・MuteSuccess・Rescanner）をそのまま使う（テストで使う）。
 	// Live があれば、それらのフィールドは使わず、使うときに Live を呼んで最新の写しを読む。
 	Live func() Runtime
 
@@ -971,7 +971,7 @@ func (a *App) stationName(ctx context.Context, id string) (name string, known bo
 func (a *App) Sync(ctx context.Context) error {
 	a.lastSync = nil
 	now := a.now()
-	if n, err := a.Store.DeleteExpiredOnces(ctx, now, a.Membership); err != nil {
+	if n, err := a.Store.DeleteExpiredOnces(ctx, now, a.membership()); err != nil {
 		return fmt.Errorf("録音期限を過ぎた 1 回の予約を消せない: %w", err)
 	} else if n > 0 {
 		a.log().Info("録音期限を過ぎた 1 回の予約を消した", "count", n)
@@ -1015,7 +1015,7 @@ func (a *App) Sync(ctx context.Context) error {
 			days = append(days, j.Day)
 		}
 	}
-	for _, d := range append(a.pastOnceDays(now, enabled), domain.PastWeeklyDays(now, a.Membership, enabled)...) {
+	for _, d := range append(a.pastOnceDays(now, enabled), domain.PastWeeklyDays(now, a.membership(), enabled)...) {
 		if !slices.Contains(days, d) {
 			days = append(days, d)
 		}
@@ -1077,7 +1077,7 @@ func (a *App) pastOnceDays(now time.Time, shows []domain.Show) []domain.Broadcas
 	var out []domain.BroadcastDay
 	for _, s := range shows {
 		for _, o := range s.Onces {
-			if d := o.Day(); d.Start().Before(today.Start()) && now.Before(o.Deadline(a.Membership)) && !slices.Contains(out, d) {
+			if d := o.Day(); d.Start().Before(today.Start()) && now.Before(o.Deadline(a.membership())) && !slices.Contains(out, d) {
 				out = append(out, d)
 			}
 		}
@@ -1114,7 +1114,7 @@ func (a *App) expandShowDays(ctx context.Context, shows ...domain.Show) ([]expan
 	now := a.now()
 	today := domain.BroadcastDayOf(now)
 	days := a.pastOnceDays(now, shows)
-	for _, d := range domain.PastWeeklyDays(now, a.Membership, shows) {
+	for _, d := range domain.PastWeeklyDays(now, a.membership(), shows) {
 		if !slices.Contains(days, d) {
 			days = append(days, d)
 		}
@@ -1208,7 +1208,7 @@ func (a *App) syncDay(ctx context.Context, station string, day domain.BroadcastD
 		StationID:  station,
 		Day:        day,
 		Airings:    airings,
-		Membership: a.Membership,
+		Membership: a.membership(),
 		TFMaxDelay: a.station(ctx, station).TFMaxDelay,
 		Now:        a.now(),
 	}

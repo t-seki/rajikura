@@ -37,8 +37,8 @@ type serveOptions struct {
 
 // serve は常駐する。ctx が取り消されたら終わる。boot は起動の設定（データのフォルダと待ち受けるアドレスと許すホスト名）。
 // Web UI のパスワードが無ければ、起動のたびにセットアップコードを作り、データのフォルダの setup-code.txt とログに出す。
-// 設定は DB から読み（app.Settings）、Web UI・API で保存したら、再起動しなくてもすぐに効く。
-// ただし番組表のキャッシュの大きさ（radiko.program_cache_mb）と会員種別は、起動したときの値で番組表のキャッシュを作る。
+// 設定は DB から読み（app.Settings）、Web UI・API で保存したら、再起動しなくてもすぐに効く（会員種別も。ADR 0030）。
+// ただし番組表のキャッシュの大きさ（radiko.program_cache_mb）は、起動したときの値で番組表のキャッシュを作る。
 func serve(ctx context.Context, boot config.Boot, opts serveOptions, stdout, stderr io.Writer) error {
 	log := slog.New(slog.NewTextHandler(stderr, nil))
 
@@ -70,23 +70,29 @@ func serve(ctx context.Context, boot config.Boot, opts serveOptions, stdout, std
 	if boot.RadikoProgramHost != "" {
 		client.ProgramHost = boot.RadikoProgramHost
 	}
-	client.EnableProgramCache(domain.MaxAvailableDays(cfg.Membership), int64(cfg.RadikoProgramCacheMB)<<20, log)
+	// 番組表のキャッシュは、会員種別によらず、会員種別の最大の録音期限（30 日）の前から持つ（会員種別を保存したらすぐ効くように）。
+	client.EnableProgramCache(domain.MaxAvailableDays(domain.MembershipDouble), int64(cfg.RadikoProgramCacheMB)<<20, log)
+	// radiko のログインは、認証のたびに設定の最新の写しからログイン情報を読む（ADR 0030）。
+	client.Account = settings.RadikoAccount
 	mt := metrics.New()
 	mt.InitNotifyKinds(app.NotifyKinds...)
 	// エリアの日別番組表は、Web UI の番組表とキーワードの照合（展開役）で共有する（エリア ID と取得中のものを 1 つにまとめる）。
 	areaGuide := app.NewRadikoAreaGuide(client)
 	a := &app.App{
-		Store:      st,
-		Guide:      app.RadikoGuide{Client: client},
-		Fetcher:    client,
-		WorkDir:    boot.WorkDir(),
-		Membership: cfg.Membership,
-		AreaGuide:  areaGuide,
-		Log:        log,
-		Metrics:    mt,
+		Store:     st,
+		Guide:     app.RadikoGuide{Client: client},
+		Fetcher:   client,
+		WorkDir:   boot.WorkDir(),
+		AreaGuide: areaGuide,
+		Log:       log,
+		Metrics:   mt,
 		// 保存先・通知先などは、使うときに設定の最新の写しを読む。
 		Live: settings.Runtime,
 	}
+	// radiko のログインの結果からサービスの異常（radiko のログインの失敗）を書き、会員種別かログイン情報を保存したら
+	// セッションを捨てて録音期限を付け直す。
+	client.OnLogin = a.LoginResult
+	settings.OnApply = a.SettingsApplied
 	if err := a.LoadMetrics(ctx); err != nil {
 		return fmt.Errorf("最後に保存した時刻を読めない: %w", err)
 	}

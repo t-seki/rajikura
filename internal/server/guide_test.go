@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"sync"
 	"testing"
 	"testing/fstest"
@@ -397,6 +398,46 @@ func TestGuideDayPastWeeklyFrom(t *testing.T) {
 		if wantID := map[bool]int64{true: jobID}[a.Title == "録らなかったのジョブ"]; a.JobID != wantID {
 			t.Errorf("%s の jobId = %d, want %d", a.Title, a.JobID, wantID)
 		}
+	}
+}
+
+// membershipSettings は会員種別だけを返す Settings（m を書き換えると、次の要求から効く）。
+type membershipSettings struct {
+	Settings
+	m *domain.Membership
+}
+
+func (s membershipSettings) Current() config.Config {
+	return config.Config{Chapters: true, Membership: *s.m}
+}
+
+// 番組表の API の過去の範囲は、今の会員種別の最大の録音期限の日数（7 日か 30 日）。会員種別を保存したらすぐ効く。
+func TestGuideDayRangeFollowsMembership(t *testing.T) {
+	e := newGuideUI(t)
+	m := domain.MembershipFree
+	e.ui.Settings = membershipSettings{m: &m}
+	// 今日は 2026-10-07。
+	e.call("GET", "/api/guide?day=2026-09-30", "", 200, nil)
+	e.call("GET", "/api/guide?day=2026-09-29", "", 400, nil)
+	for _, mm := range []domain.Membership{domain.MembershipTimeFree30, domain.MembershipDouble} {
+		m = mm
+		e.call("GET", "/api/guide?day=2026-09-07", "", 200, nil)
+		e.call("GET", "/api/guide?day=2026-09-06", "", 400, nil)
+		e.call("GET", "/api/guide?day=2026-10-14", "", 200, nil)
+		e.call("GET", "/api/guide?day=2026-10-15", "", 400, nil)
+	}
+	m = domain.MembershipAreaFree
+	e.call("GET", "/api/guide?day=2026-09-29", "", 400, nil)
+	// 検索も同じ範囲の放送日を見る。
+	m = domain.MembershipDouble
+	e.area.mu.Lock()
+	e.area.asked = nil
+	e.area.mu.Unlock()
+	e.call("GET", "/api/guide/search?q=a", "", 200, nil)
+	e.area.mu.Lock()
+	defer e.area.mu.Unlock()
+	if len(e.area.asked) != 38 || !slices.Contains(e.area.asked, "2026-09-07") || slices.Contains(e.area.asked, "2026-09-06") {
+		t.Errorf("検索で見た放送日 = %v, want 2026-09-07 から 2026-10-14 の 38 日", e.area.asked)
 	}
 }
 

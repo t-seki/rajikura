@@ -3,7 +3,7 @@ import { formatDateTime } from "../jobs/format";
 import type { NotificationStatus } from "./notificationsApi";
 
 // どのページの上部にも出す帯。既読とは関係なく、直るまで出し続ける（直ったかはサーバーが決める）。
-//   - まだ復旧していないサービスの異常（番組表の同期の失敗が続いている・エリア外・バックアップを取れない・スリープから起こせない・再スキャンを頼めない）: 異常ごとに 1 つ
+//   - まだ復旧していないサービスの異常（番組表の同期の失敗が続いている・エリア外・radiko のログインの失敗・バックアップを取れない・スリープから起こせない・再スキャンを頼めない）: 異常ごとに 1 つ
 //   - 通知先に送れなかった通知がある: 件数と、履歴のページへのリンク
 // 足したら直す: サービスの異常
 export function NotificationBanners({ status, onOpenHistory }: { status: NotificationStatus | null; onOpenHistory: () => void }) {

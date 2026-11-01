@@ -91,7 +91,7 @@ func toAirings(ps []radiko.Program) []domain.Airing {
 			DescriptionParts: parts,
 			ImageURL:         p.ImageURL,
 			// radiko のクライアントは ts_out_ng を読まないので、OutNG は 0 のまま。
-			TimeFree: domain.TimeFreeFlags{InNG: atoi(p.TSInNG)},
+			TimeFree: domain.TimeFreeFlags{InNG: atoi(p.TSInNG), PlusInNG: atoi(p.TSPlusInNG)},
 		}
 	}
 	return out

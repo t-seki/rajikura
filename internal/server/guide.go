@@ -7,7 +7,8 @@ package server
 //     （domain.KeywordMatcher。domain.NormalizeTitle で正規化してから部分一致を見る）に当たる放送回を、開始時刻の順に返す（{q, airings, truncated}）。q が正規化して空なら 400。
 //     一致が多すぎるときは先頭の searchLimit 件にして truncated を true にする
 //
-// 表示する範囲は、今日の 7 日前から 7 日先までの放送日（非会員のタイムフリーの録音期限）。範囲の外の放送日は 400。
+// 表示する範囲は、今日の N 日前から 7 日先までの放送日（N は今の会員種別の最大の録音期限の日数。非会員・エリアフリーは 7、
+// タイムフリー30・ダブルプランは 30。domain.MaxAvailableDays）。範囲の外の放送日は 400。
 // エリアは認証（auth2）で radiko が判定したもので、そのエリアの全局を返す。エリアが分からない・radiko から番組表を
 // 取れないときは 502。番組表は app.AreaGuide が放送日ごとにメモリに覚える（番組表の同期とは共有しない）。
 //
@@ -42,8 +43,8 @@ import (
 )
 
 const (
-	// guidePastDays と guideFutureDays は、番組表の API が答える放送日の範囲（今日から数える）。
-	guidePastDays   = 7
+	// guideFutureDays は、番組表の API が答える、今日より先の放送日の数。今日より前は、会員種別の最大の録音期限の日数
+	// （domain.MaxAvailableDays。7 日か 30 日）まで答える（guideRange）。
 	guideFutureDays = 7
 	// searchLimit は検索が返す放送回の数の上限。
 	searchLimit = 500
@@ -105,10 +106,11 @@ type guideStationJSON struct {
 	Airings []guideAiringJSON `json:"airings"`
 }
 
-// guideRange は番組表の API が答える放送日の範囲（両端を含む）。
+// guideRange は番組表の API が答える放送日の範囲（両端を含む）。過去は、今の会員種別の最大の録音期限の日数まで
+// （会員種別を保存したらすぐ効く）。
 func (u *UI) guideRange() (first, last domain.BroadcastDay) {
 	today := domain.BroadcastDayOf(u.now())
-	return today.AddDays(-guidePastDays), today.AddDays(guideFutureDays)
+	return today.AddDays(-domain.MaxAvailableDays(u.membership())), today.AddDays(guideFutureDays)
 }
 
 // shows は放送回に状態を付けるための、ジョブと番組。
