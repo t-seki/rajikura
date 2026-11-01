@@ -17,6 +17,9 @@ export interface AppNotification {
   link?: string;
 }
 
+/** GET /api/notifications の応答。 */
+export type NotificationList = { notifications: AppNotification[] };
+
 /** link が指す画面を開くリンクの文。知らない形の link は null（リンクを出さない）。 */
 export function linkLabel(link: string): string | null {
   if (link.startsWith("/jobs/")) return "ジョブを開く";
@@ -73,7 +76,7 @@ async function call(method: string, url: string): Promise<Response> {
 }
 
 export async function listNotifications(): Promise<AppNotification[]> {
-  return ((await (await call("GET", "/api/notifications")).json()) as { notifications: AppNotification[] }).notifications;
+  return ((await (await call("GET", "/api/notifications")).json()) as NotificationList).notifications;
 }
 
 /** 未読の通知を全部既読にする。 */

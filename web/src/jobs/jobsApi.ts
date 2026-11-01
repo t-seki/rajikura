@@ -148,9 +148,12 @@ async function call<T>(method: string, url: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** GET /api/jobs の応答。 */
+export type JobList = { jobs: JobSummary[] };
+
 export async function listJobs(states: JobState[]): Promise<JobSummary[]> {
   const q = states.length > 0 ? `?state=${states.join(",")}` : "";
-  return (await call<{ jobs: JobSummary[] }>("GET", `/api/jobs${q}`)).jobs;
+  return (await call<JobList>("GET", `/api/jobs${q}`)).jobs;
 }
 
 export const getJob = (id: number) => call<JobDetail>("GET", `/api/jobs/${id}`);
