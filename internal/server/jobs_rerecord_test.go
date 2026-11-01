@@ -23,6 +23,7 @@ func TestRerecord(t *testing.T) {
 		return d
 	}
 	timefree := domain.Airing{StationID: "TBS", Start: now.Add(-3 * time.Hour), End: now.Add(-2 * time.Hour)}
+	old := domain.Airing{StationID: "TBS", Start: now.Add(-9 * 24 * time.Hour), End: now.Add(-9*24*time.Hour + time.Hour)}
 	live := timefree
 	live.TimeFree.InNG = 2
 	add := func(name string, state domain.State, deadline time.Time, a domain.Airing) int64 {
@@ -49,7 +50,7 @@ func TestRerecord(t *testing.T) {
 	}{
 		{"expired", add("expired", domain.StateExpired, now.Add(time.Hour), timefree), domain.StateExpired, "この状態では録り直せない（録り直せるのは録音済みのジョブだけ）"},
 		{"ライブ録音", add("live", domain.StateDone, now.Add(time.Hour), live), domain.StateDone, "ライブ録音は録り直せない"},
-		{"録音期限を過ぎた", add("late", domain.StateDone, now, timefree), domain.StateDone, "録音期限を過ぎているので録り直せない"},
+		{"録音期限を過ぎた", add("late", domain.StateDone, now, old), domain.StateDone, "録音期限を過ぎているので録り直せない"},
 	}
 	for _, tt := range refusals {
 		t.Run(tt.name, func(t *testing.T) {

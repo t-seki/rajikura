@@ -26,7 +26,7 @@ type Jobs interface {
 	ManualRetry(ctx context.Context, id int64, now time.Time) error
 	SkipByPerson(ctx context.Context, id int64, now time.Time) error
 	RecordByPerson(ctx context.Context, id int64, now time.Time) error
-	Rerecord(ctx context.Context, id int64, now time.Time) error
+	Rerecord(ctx context.Context, id int64, m domain.Membership, now time.Time) error
 }
 
 var _ Jobs = (*store.Store)(nil)
@@ -204,7 +204,7 @@ type jobDetail struct {
 
 // summarize はジョブの一覧の 1 行にする。last はそのジョブの直近の試行（無ければ nil）で、失敗の段階とエラー（LastFailedStage・LastError）、済んだ時刻（finishedAt）、
 // 手動再試行の可否（domain.ManualRetryInTime）、録れた分を残す期限（domain.LiveKeepUntil）に使う。
-func summarize(j domain.Job, last *domain.Attempt, now time.Time) jobSummary {
+func summarize(j domain.Job, last *domain.Attempt, m domain.Membership, now time.Time) jobSummary {
 	settled := j.State == domain.StateSkipped && j.Settled
 	s := jobSummary{
 		ID: j.ID, ShowName: j.ShowName, Day: j.Day.String(), Part: j.Part, State: string(j.State),
@@ -214,7 +214,7 @@ func summarize(j domain.Job, last *domain.Attempt, now time.Time) jobSummary {
 		Attempts:   j.Attempts, NextAttemptAt: j.NextAttemptAt, Deadline: j.Deadline,
 		FinishedAt:   finishedAt(j, last),
 		Retryable:    (j.State == domain.StateRetrying || j.State == domain.StateExpired || settled) && domain.ManualRetryInTime(j, last, now),
-		Rerecordable: domain.CheckRerecord(j, now) == nil,
+		Rerecordable: domain.CheckRerecord(j, m, now) == nil,
 		OutputPath:   j.OutputPath,
 		MissingCount: len(j.Missing),
 		Stations:     stationSpans(j.Airings),
@@ -272,7 +272,7 @@ func (u *UI) summarizeJob(ctx context.Context, j domain.Job) (jobSummary, error)
 	if err != nil {
 		return jobSummary{}, err
 	}
-	s := summarize(j, lastOf(as), u.now())
+	s := summarize(j, lastOf(as), u.membership(), u.now())
 	u.withProgress(&s, j)
 	return s, nil
 }
@@ -310,7 +310,7 @@ func (u *UI) listJobs(w http.ResponseWriter, r *http.Request) {
 		if a, ok := latest[j.ID]; ok {
 			last = &a
 		}
-		s := summarize(j, last, u.now())
+		s := summarize(j, last, u.membership(), u.now())
 		u.withProgress(&s, j)
 		out = append(out, s)
 	}
@@ -354,7 +354,7 @@ func (u *UI) getJob(w http.ResponseWriter, r *http.Request) {
 	for _, a := range j.Missing {
 		missing[a.Key()] = true
 	}
-	d := jobDetail{jobSummary: summarize(j, lastOf(as), u.now()), Airings: []airingView{}, AttemptLog: []attemptView{}}
+	d := jobDetail{jobSummary: summarize(j, lastOf(as), u.membership(), u.now()), Airings: []airingView{}, AttemptLog: []attemptView{}}
 	u.withProgress(&d.jobSummary, j)
 	for _, a := range j.Airings {
 		d.Airings = append(d.Airings, airingView{
@@ -429,7 +429,9 @@ func (u *UI) recordJob(w http.ResponseWriter, r *http.Request) {
 // 録音のループを起こす。拒むときは、done でない・ライブ録音・録音期限を過ぎた、で文言を分けて 409 にする。受け付けたことは通知しない。
 // 足したら直す: ジョブの状態の移り方
 func (u *UI) rerecordJob(w http.ResponseWriter, r *http.Request) {
-	u.act(w, r, func(ctx context.Context, id int64) error { return u.wakeAfter(u.Jobs.Rerecord(ctx, id, u.now())) }, rerecordRefusal)
+	u.act(w, r, func(ctx context.Context, id int64) error {
+		return u.wakeAfter(u.Jobs.Rerecord(ctx, id, u.membership(), u.now()))
+	}, rerecordRefusal)
 }
 
 // rerecordRefusal は、録り直しを拒んだわけ（domain.CheckRerecord の返すエラー）を 409 の文言にする。
