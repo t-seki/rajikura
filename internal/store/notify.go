@@ -258,7 +258,8 @@ func (s *Store) DeleteNotificationsBefore(ctx context.Context, before time.Time)
 }
 
 // DeadlineNearJobs は、録音期限が now+within 以前で、まだ録音を終えていない（waiting・running・retrying。done・expired・skipped でない）
-// うえに、期限間近をまだ通知していないジョブを、録音期限の順に読む。
+// うえに、期限間近をまだ通知していないジョブ（deadline_notified_at が空。付け直しで録音期限が過ぎた値になって印を立てたジョブは
+// 入らない）を、録音期限の順に読む。
 func (s *Store) DeadlineNearJobs(ctx context.Context, now time.Time, within time.Duration) ([]domain.Job, error) {
 	return queryJobs(ctx, s.db, `WHERE state IN ('waiting', 'running', 'retrying')
 		AND deadline <= ? AND deadline_notified_at = ''

@@ -18,6 +18,8 @@ type failingAreaGuide struct {
 	ownAreaGuide
 	failMu sync.Mutex
 	fail   bool
+	// onFetch があれば、局一覧を返す前に 1 度だけ呼ぶ（付け直しの途中で何かが起きるテスト用）。
+	onFetch func()
 }
 
 func (g *failingAreaGuide) setFail(fail bool) {
@@ -28,8 +30,12 @@ func (g *failingAreaGuide) setFail(fail bool) {
 
 func (g *failingAreaGuide) AreaAiringsOf(ctx context.Context, areaID string, day domain.BroadcastDay) ([]AreaStation, error) {
 	g.failMu.Lock()
-	fail := g.fail
+	fail, onFetch := g.fail, g.onFetch
+	g.onFetch = nil
 	g.failMu.Unlock()
+	if onFetch != nil {
+		onFetch()
+	}
 	if fail {
 		return nil, errors.New("boom")
 	}
@@ -265,6 +271,8 @@ func TestSettingsAppliedRevisesWithOwnArea(t *testing.T) {
 	m := string(domain.MembershipAreaFree)
 	e.app.SettingsApplied(e.ctx, config.Patch{Membership: &m},
 		config.Config{Membership: domain.MembershipDouble}, config.Config{Membership: domain.MembershipAreaFree})
+	// 付け直しは展開役が行う。
+	e.expandPending()
 	j := e.getJob(old)
 	if want := oldAiring.End.Add(domain.LiveDeadlineAfter); !j.Deadline.Equal(want) || !j.NextAttemptAt.Equal(want) {
 		t.Errorf("deadline = %v, next = %v; want どちらも %v（放送の終了の 5 分後）", j.Deadline, j.NextAttemptAt, want)
@@ -272,5 +280,41 @@ func TestSettingsAppliedRevisesWithOwnArea(t *testing.T) {
 	// 会員種別の保存では、自分のエリアの変化を通知しない。
 	if ns := e.areaChangedNotifications(); len(ns) != 0 {
 		t.Errorf("通知した: %+v", ns)
+	}
+}
+
+// 自分のエリアの付け直しの途中（局一覧を取っている間）に会員種別を保存しても、2 つの付け直しは展開役で順に行うので並ばず、
+// 後から保存した会員種別の値が残る。
+func TestReviseAfterMembershipSavedDuringOwnAreaRevise(t *testing.T) {
+	e, g, old := newOwnAreaEnv(t)
+	if err := e.store.SetOwnArea(e.ctx, "JP27"); err != nil {
+		t.Fatal(err)
+	}
+	g.set("QRR")
+	before := domain.JobDeadline([]domain.Airing{oldAiring}, domain.MembershipDouble)
+	m := string(domain.MembershipTimeFree30)
+	g.failMu.Lock()
+	g.onFetch = func() {
+		// 展開役が自分のエリアの付け直しで局一覧を取っている間に、会員種別をタイムフリー30 にして保存する。
+		e.app.Membership = domain.MembershipTimeFree30
+		e.app.SettingsApplied(e.ctx, config.Patch{Membership: &m},
+			config.Config{Membership: domain.MembershipDouble}, config.Config{Membership: domain.MembershipTimeFree30})
+		// 保存は待たず、保存した goroutine では付け直さない。
+		if j := e.getJob(old); !j.Deadline.Equal(before) {
+			t.Errorf("保存した goroutine で付け直した: deadline = %v", j.Deadline)
+		}
+	}
+	g.failMu.Unlock()
+	e.app.seeOwnArea(e.ctx, e.app.log(), "JP13")
+	e.expandPending()
+	// 自分のエリアの付け直しは、読んだ時点の会員種別（ダブルプラン）で行った。TBS はエリアの外で ts_out_ng なので過ぎた値になった。
+	ns := e.areaChangedNotifications()
+	if len(ns) != 1 || !strings.Contains(ns[0].Message, "1 件。うち録音期限が過ぎた値になったジョブ 1 件") {
+		t.Fatalf("通知 = %+v", ns)
+	}
+	// 頼まれた会員種別の付け直しが後から走り、タイムフリー30（エリアの外とは見なさない）の 30 日になる（展開役が先に拾っていても同じ）。
+	e.expandPending()
+	if j, want := e.getJob(old), domain.JobDeadline([]domain.Airing{oldAiring}, domain.MembershipTimeFree30); !j.Deadline.Equal(want) {
+		t.Errorf("deadline = %v, want %v（後から保存した会員種別の値）", j.Deadline, want)
 	}
 }

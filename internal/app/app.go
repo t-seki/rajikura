@@ -359,7 +359,7 @@ type App struct {
 	// progressSeen があれば、進捗を置く・変える・消すたびに、変えた後の値で呼ぶ（消したら ok が false）。テストが移り方を見る。
 	progressSeen func(id int64, p Progress, ok bool)
 
-	// ownAreaMu は、自分のエリアの覚え（ownAreaLoaded・ownAreaSeen・ownAreaPending）を守る（認証した goroutine と展開役が触る。
+	// ownAreaMu は、自分のエリアの覚え（ownAreaLoaded・ownAreaSeen・ownAreaPending）と reviseByMembership を守る（認証した goroutine と展開役が触る。
 	// own_area.go）。
 	ownAreaMu sync.Mutex
 	// ownAreaLoaded は、最後に見た自分のエリアを DB から読んだこと（起動の後に初めて認証したときに読む）。
@@ -368,6 +368,8 @@ type App struct {
 	ownAreaSeen string
 	// ownAreaPending は、ownAreaSeen と違うと分かって、展開役に付け直しを頼んだ自分のエリア。空なら頼んでいない。
 	ownAreaPending string
+	// reviseByMembership は、会員種別を保存したので録音期限の付け直しを展開役に頼んだこと（requestRevise）。ownAreaMu が守る。
+	reviseByMembership bool
 }
 
 // Progress は録音中のジョブの進捗（用語集）。今の試行の段階と、入手の間だけ、それまでに録れた音の長さとジョブの放送回の長さの
@@ -625,8 +627,8 @@ func (a *App) RunExpander(ctx context.Context) error {
 // runExpander は展開役（goroutine 1 本）の中身。番組表の同期と展開（syncDay）は、ここから呼ぶ処理だけが行うので、
 // 2 つの展開が同時に走らない。順に処理するのは次の 5 つ。
 //
-//   - 自分のエリアが変わったときの録音期限の付け直しと、続く番組表の同期 1 回（seeOwnArea が expandWake で頼む。
-//     reviseForOwnArea。own_area.go）
+//   - 録音期限の付け直し（自分のエリアが変わったときは続く番組表の同期 1 回も。seeOwnArea と、会員種別を保存したときの
+//     requestRevise が expandWake で頼む。reviseIfRequested。own_area.go）
 //   - 展開の依頼（RequestExpand。expandRequested）
 //   - 展開の依頼で展開できなかった局・放送日の試し直し（retryExpand。間は ExpandRetryDelays で延ばしていく）
 //   - 番組表の同期（syncOnExpander）。起動時（Startup が onExpander で頼む）と SyncInterval ごと
@@ -655,7 +657,7 @@ func (a *App) runExpander(ctx context.Context) {
 		case <-syncT.C:
 			a.syncOnExpander(ctx)
 		case <-a.expandWake:
-			a.reviseForOwnArea(ctx)
+			a.reviseIfRequested(ctx)
 			a.expandRequested(ctx)
 			a.WakeRecorder()
 		case <-retryC:
@@ -738,12 +740,12 @@ func (a *App) RequestExpand(shows ...domain.Show) {
 	}
 }
 
-// ExpandPending は、積まれている展開の依頼を展開役で今すぐ展開し、終わるまで待つ（テストのため）。自分のエリアの付け直しが
+// ExpandPending は、積まれている展開の依頼を展開役で今すぐ展開し、終わるまで待つ（テストのため）。録音期限の付け直しが
 // 頼まれていれば、先に付け直す（runExpander の expandWake と同じ順）。
 // 失敗した依頼は、ほかの依頼と同じく試し直しに回し、エラーは返さない。
 func (a *App) ExpandPending(ctx context.Context) error {
 	return a.onExpander(ctx, func(ctx context.Context) error {
-		a.reviseForOwnArea(ctx)
+		a.reviseIfRequested(ctx)
 		a.expandRequested(ctx)
 		return nil
 	})

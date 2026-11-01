@@ -171,7 +171,7 @@ pnpm screenshots
 | 試行 | `Attempt` |
 | 進捗 | app の `app.Progress`（serve のメモリにジョブごとに持ち、読むのは `App.JobProgress`。DB には持たない）。server が読む口は `server.Progresses`（`UI.Recorder` が満たせば使う）。ジョブの API の JSON は `progress`（`stage`・`fetchedSeconds`・`totalSeconds`）。タイムフリーの入手でチャンクを書くたびに呼ぶ口は、radiko の `Client.FetchTimefree` の引数 `onChunk` |
 | 録音期限 | `Deadline` |
-| 会員種別 | `Membership`（設定のキーは `membership`。保存したときにまだ終わっていないジョブの録音期限を付け直すのは `Store.ReviseDeadlines`（録音期限を求めるのは `domain.ReviseJobDeadline`）、呼ぶのは app の `App.SettingsApplied`。自分のエリアが変わったときも同じ付け直しを通る） |
+| 会員種別 | `Membership`（設定のキーは `membership`。保存したときにまだ終わっていないジョブの録音期限を付け直すのは `Store.ReviseDeadlines`（録音期限を求めるのは `domain.ReviseJobDeadline`）、保存を受けて展開役に頼むのは app の `App.SettingsApplied`。自分のエリアが変わったときも同じ付け直しを通る） |
 | radiko のログイン | radiko の `Client.Authenticate` の中で行う（`internal/radiko/login.go`。セッションを捨てるのは `Client.ResetLogin`、結果は `radiko.LoginEvent` で、サービスの異常を書くのは app の `App.LoginResult`）。サービスの異常の種類は `login` |
 | ログイン情報 | 設定のキーは `radiko.mail` と秘密の `radiko.password`（`config.Config` の `RadikoMail`・`RadikoPassword`）。radiko に渡す形は `radiko.Account`（作るのは app の `Settings.RadikoAccount`） |
 | タイムフリー30 の対象外 | domain の `domain.ExcludedFromTimeFree30`（値は、`Airing.OutOfArea` が立っていなければ `TimeFreeFlags.PlusInNG`、立っていれば `TimeFreeFlags.PlusOutNG`。radiko の番組表の `tsplus_in_ng`・`tsplus_out_ng`、`Program.TSPlusInNG`・`Program.TSPlusOutNG`。DB は `job_airings.tsplus_in_ng`・`job_airings.tsplus_out_ng`）。番組表の API の JSON は `timeFree30Excluded`（会員種別がタイムフリー30・ダブルプランのときだけ立つ。画面では「タイムフリー30 の対象外」） |

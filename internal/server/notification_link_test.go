@@ -66,6 +66,7 @@ func TestNotificationLinks(t *testing.T) {
 		// `/` もパスの 1 区切りとしてエスケープする（Web UI の routeOf がデコードして名前に戻す）。
 		{store.Notification{Kind: notify.KindUnmatchedDay, Show: "a/b?c#d%e"}, "/shows/a%2Fb%3Fc%23d%25e"},
 		{store.Notification{Kind: notify.KindKeywordLimit}, "/keywords"},
+		{store.Notification{Kind: notify.KindAreaChanged}, ""},
 		{store.Notification{Kind: notify.KindSync, Anomaly: notify.KindSync}, ""},
 		{store.Notification{Kind: notify.KindOutOfArea, Anomaly: notify.KindOutOfArea}, ""},
 		{store.Notification{Kind: notify.KindBackup, Anomaly: notify.KindBackup}, ""},

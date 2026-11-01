@@ -294,8 +294,10 @@ func (g *RadikoAreaGuide) areaID(ctx context.Context) (string, error) {
 	return v.(string), nil
 }
 
-// setOwnArea は、覚えている自分のエリアを area に差し替える（ほかの認証で自分のエリアが変わったと分かったとき。TTL を待たずに
-// 新しいエリアで番組表を引くため。internal/app/own_area.go の ownAreaSetter）。覚えた時刻も今にする。OnArea は呼ばない。
+// setOwnArea は、覚えている自分のエリアを area に差し替える（どの認証で気付いたとき（この RadikoAreaGuide の認証も含む）でも、
+// 自分のエリアが変わったと分かって展開役が付け直すとき。TTL を待たずに新しいエリアで番組表を引くため。
+// internal/app/own_area.go の ownAreaSetter）。付け直しが後で失敗しても戻さない（radiko が判定した今のエリアなので）。
+// 覚えた時刻も今にする。OnArea は呼ばない。
 func (g *RadikoAreaGuide) setOwnArea(area string) {
 	g.mu.Lock()
 	g.area, g.areaAt = area, g.now()
