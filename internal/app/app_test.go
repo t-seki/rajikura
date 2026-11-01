@@ -185,6 +185,40 @@ func TestRetryThenSuccess(t *testing.T) {
 	}
 }
 
+// 試行の間に会員種別が保存されて録音期限が付け直されたら、試行が失敗した後の再試行は、付け直した録音期限で決める
+// （始めたときの録音期限なら、次の試行が無く期限切れになる）。
+func TestRetryUsesRevisedDeadlineAfterAttempt(t *testing.T) {
+	e := newFlowEnv(t)
+	e.putShows(flatShow)
+	e.store.DeleteShow(e.ctx, suppinShow.Name)
+	if err := e.app.Startup(e.ctx); err != nil {
+		t.Fatal(err)
+	}
+	j := e.job(flatShow.Name)
+	if want := jst(2026, 10, 15, 5, 0); !j.Deadline.Equal(want) {
+		t.Fatalf("deadline = %v, want %v", j.Deadline, want)
+	}
+	e.clock.Set(jst(2026, 10, 15, 4, 55))
+	e.fake.set(func(f *fakeRadiko) {
+		f.streamFail = true
+		f.onStream = func() {
+			if _, err := e.store.ReviseDeadlines(e.ctx, domain.MembershipTimeFree30); err != nil {
+				t.Error(err)
+			}
+		}
+	})
+	if !e.runDue() {
+		t.Fatal("実行されない")
+	}
+	j = e.job(flatShow.Name)
+	if want := jst(2026, 11, 7, 5, 0); !j.Deadline.Equal(want) {
+		t.Errorf("deadline = %v, want %v", j.Deadline, want)
+	}
+	if j.State != domain.StateRetrying {
+		t.Errorf("job = %+v, want retrying（付け直した録音期限の内側に次の試行がある）", j)
+	}
+}
+
 func TestNotAvailableExpires(t *testing.T) {
 	e := newFlowEnv(t)
 	if err := e.app.Startup(e.ctx); err != nil {
