@@ -138,7 +138,7 @@ groups:
 - `GET /api/settings`: 今の設定。`{"settings": {...}, "secrets": {"<秘密の名前>": {"set": <設定済みか>, "unreadable": <復号できないか>}}, "library_set": <保存先が決まっているか>, "unreadable_secrets": [<復号できない秘密の名前>, ...], "last_backup_at": <最後に自動のバックアップを取れた時刻（RFC 3339）。まだ取れていないなら null>}`。`settings` のキーは [設定](settings.md) の表のキー（`library`・`notify` の `channel` など）で、秘密の値は含まない。秘密の名前は `notify.discord_webhook`・`notify.slack_webhook`・`notify.smtp.password`・`jellyfin.api_key`・`radiko.password`。復号できない秘密は `set` も `true`。
 - `PATCH /api/settings`: body は `settings` と同じ形の JSON で、書いた項目だけを変える。秘密は `notify.discord_webhook` などの位置に値を書き、空の文字列なら消す。Web UI の設定の画面が呼ぶ。成功すると 200 と、`GET` と同じ形の当てた後の設定。
 - 知らないキー・JSON が読めない・値の誤り（[設定](settings.md)の確かめと同じ）・保存先のフォルダを作れない・書けないときは 400 で、何も当てない。
-- 保存したら、再起動しなくてもすぐに効く（`radiko.program_cache_mb` を除く）（`GET /api/notifications/status` の `channel` も、保存した通知先の種類になる）。`membership` を変えたら、番組表の API の範囲も変わり、まだ終わっていないジョブの録音期限も付け直す（[settings.md の「会員種別と radiko のログイン」](settings.md#会員種別と-radiko-のログインmembership)）。
+- 保存したら、再起動しなくてもすぐに効く（`radiko.program_cache_mb` を除く）（`GET /api/notifications/status` の `channel` も、保存した通知先の種類になる）。`membership` を変えたら、番組表の API の範囲も変わり、まだ終わっていないジョブの録音期限も、保存を待たずに付け直す（[settings.md の「会員種別と radiko のログイン」](settings.md#会員種別と-radiko-のログインmembership)）。
 
 ### フォルダ
 

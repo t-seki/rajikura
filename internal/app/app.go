@@ -319,7 +319,8 @@ type App struct {
 	expanderRunning atomic.Bool
 	// expandTasks は onExpander で頼まれた処理。
 	expandTasks chan expandTask
-	// expandWake は、展開の依頼を積んだこと（と、自分のエリアの付け直しを頼んだこと。own_area.go）を展開役に知らせる。
+	// expandWake は、展開の依頼を積んだこと（と、録音期限の付け直しを頼んだこと。自分のエリアの変化の seeOwnArea と、会員種別の
+	// 保存の requestRevise。own_area.go）を展開役に知らせる。
 	expandWake chan struct{}
 	// recordWake は、録音のループを次の見回りを待たずに起こす（WakeRecorder）。
 	recordWake chan struct{}
