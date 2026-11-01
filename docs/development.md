@@ -158,7 +158,8 @@ pnpm screenshots
 | 入手 | `Fetch`（試行の段階の値は `fetch`。画面では「入手」） |
 | タイムフリーからの録音 | （方式を表す型は無い。`Job.Live` が false のジョブ。入手は radiko の `Client.FetchTimefree`） |
 | ライブ録音 | domain の `Job.Live`（判定は `domain.LiveAirings`）。拾うのは `Store.ClaimDueLive` と `Store.ClaimDueLiveSave`（録音期限を過ぎた、保存だけのやり直し）（途中で止まったものは `Store.RunningLive`）、録るのは app の `internal/app/live.go`、入手は radiko の `Client.FetchLive`。ジョブの API の JSON は `live`（画面では「ライブ録音」） |
-| タイムフリーの対象外 | domain の `Airing.TimeFreeExcluded`（値は `TimeFreeFlags.InNG`。radiko の番組表の `ts_in_ng`、`Program.TSInNG`。DB は `job_airings.ts_in_ng`）。番組表の API の JSON は `notAvailable`（画面では「ライブで録る」） |
+| タイムフリーの対象外 | domain の `Airing.TimeFreeExcluded`（値は、`Airing.OutOfArea` が立っていなければ `TimeFreeFlags.InNG`、立っていれば `TimeFreeFlags.OutNG`。radiko の番組表の `ts_in_ng`・`ts_out_ng`、`Program.TSInNG`・`Program.TSOutNG`。DB は `job_airings.ts_in_ng`・`job_airings.ts_out_ng`）。番組表の API の JSON は `notAvailable`（画面では「ライブで録る」）。フラグの読み方は #27 |
+| 自分のエリアの外の局（エリアの外から録る） | domain の `Airing.OutOfArea`（DB は `job_airings.out_of_area`）。決めるのは、展開では app の `App.markOutOfArea`、番組表の画面では `RadikoAreaGuide.AreaAiringsOf`（自分のエリアの局一覧に無い局で立てる） |
 | ジョブ | `Job` |
 | 再試行待ち | domain の `StateRetrying`（DB と JSON は `retrying`）。録音か検証に失敗したジョブの状態で、画面では「録音予定（失敗・再試行待ち）」。人は手動再試行で戻せる（CLI は `retry`） |
 | 期限切れ | domain の `StateExpired`（DB と JSON は `expired`）。録音期限までに録音できなかったジョブの状態で、画面では「録音できなかった」 |
@@ -172,7 +173,7 @@ pnpm screenshots
 | 会員種別 | `Membership`（設定のキーは `membership`。保存したときにまだ終わっていないジョブの録音期限を付け直すのは `Store.ReviseDeadlines`、呼ぶのは app の `App.SettingsApplied`） |
 | radiko のログイン | radiko の `Client.Authenticate` の中で行う（`internal/radiko/login.go`。セッションを捨てるのは `Client.ResetLogin`、結果は `radiko.LoginEvent` で、サービスの異常を書くのは app の `App.LoginResult`）。サービスの異常の種類は `login` |
 | ログイン情報 | 設定のキーは `radiko.mail` と秘密の `radiko.password`（`config.Config` の `RadikoMail`・`RadikoPassword`）。radiko に渡す形は `radiko.Account`（作るのは app の `Settings.RadikoAccount`） |
-| タイムフリー30 の対象外 | domain の `domain.ExcludedFromTimeFree30`（値は `TimeFreeFlags.PlusInNG`。radiko の番組表の `tsplus_in_ng`、`Program.TSPlusInNG`。DB は `job_airings.tsplus_in_ng`）。番組表の API の JSON は `timeFree30Excluded`（会員種別がタイムフリー30・ダブルプランのときだけ立つ。画面では「タイムフリー30 の対象外」） |
+| タイムフリー30 の対象外 | domain の `domain.ExcludedFromTimeFree30`（値は、`Airing.OutOfArea` が立っていなければ `TimeFreeFlags.PlusInNG`、立っていれば `TimeFreeFlags.PlusOutNG`。radiko の番組表の `tsplus_in_ng`・`tsplus_out_ng`、`Program.TSPlusInNG`・`Program.TSPlusOutNG`。DB は `job_airings.tsplus_in_ng`・`job_airings.tsplus_out_ng`）。番組表の API の JSON は `timeFree30Excluded`（会員種別がタイムフリー30・ダブルプランのときだけ立つ。画面では「タイムフリー30 の対象外」） |
 | 分割番組 | domain の `Show.Split`（型は `SplitMode`。値は `SplitNone`・`SplitJoin`・`SplitSeparate`、JSON のキーは `split` で値は `"none"`・`"join"`・`"separate"`。分割番組かは `Show.IsSplit`）、library の `Input.Split`。DB は `shows.split` と `shows.join_airings` の 2 つの列 |
 | 無効な番組 | domain の `Show.Disabled`（JSON は `enabled` が `false`、DB は `shows.enabled` が 0） |
 | 連結 | domain の `Show.Joins`（`Show.Split` が `SplitJoin`）。DB は `shows.join_airings` |

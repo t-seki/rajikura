@@ -38,7 +38,7 @@ var (
 	ErrNotYetAvailable = errors.New("radiko: not yet available")
 	// ErrNotAvailable は、恒久的に取れない（タイムフリーの対象外など）ことを表す。
 	// このパッケージが返すのは、局にタイムフリー・ライブのストリームが無いときなど、確実に分かる場合だけ。
-	// 放送回ごとに恒久的に取れないかは、番組表の ts_in_ng（Program.TSInNG）から呼び出し側が判断する。
+	// 放送回ごとに恒久的に取れないかは、番組表の ts_in_ng・ts_out_ng（Program.TSInNG・TSOutNG）から呼び出し側が判断する。
 	// 再生の URL が 4xx を返す場合は公開前かもしれず、恒久と決められないので ErrTemporary にする。
 	ErrNotAvailable = errors.New("radiko: not available")
 	// ErrOutOfArea は、エリア外であることを表す。

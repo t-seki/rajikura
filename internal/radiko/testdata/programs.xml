@@ -24,6 +24,8 @@
           <img>https://example.invalid/img2.jpg</img>
           <ts_in_ng>2</ts_in_ng>
           <tsplus_in_ng>1</tsplus_in_ng>
+          <ts_out_ng>1</ts_out_ng>
+          <tsplus_out_ng>2</tsplus_out_ng>
         </prog>
         <prog id="P002" ft="20261008100000" to="20261008110000" dur="3600">
           <title>ふらっと (2)</title>

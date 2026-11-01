@@ -217,6 +217,39 @@ func TestExcludedFromTimeFree30(t *testing.T) {
 	if !ExcludedFromTimeFree30(Airing{TimeFree: TimeFreeFlags{PlusInNG: 1}}) {
 		t.Error("tsplus_in_ng が 0 でなければ、タイムフリー30 の対象外")
 	}
+	// エリアの外から録る放送回は tsplus_out_ng で決める（1 でも 2 でも対象外）。
+	if ExcludedFromTimeFree30(Airing{TimeFree: TimeFreeFlags{PlusInNG: 1}, OutOfArea: true}) {
+		t.Error("エリアの外からは、tsplus_in_ng だけではタイムフリー30 の対象外ではない")
+	}
+	for _, v := range []int{1, 2} {
+		if !ExcludedFromTimeFree30(Airing{TimeFree: TimeFreeFlags{PlusOutNG: v}, OutOfArea: true}) {
+			t.Errorf("エリアの外からは、tsplus_out_ng が %d ならタイムフリー30 の対象外", v)
+		}
+	}
+	if ExcludedFromTimeFree30(Airing{TimeFree: TimeFreeFlags{PlusOutNG: 1}}) {
+		t.Error("自分のエリアの局では、tsplus_out_ng だけではタイムフリー30 の対象外ではない")
+	}
+}
+
+// エリアの外から録る放送回の録音期限は、out のフラグで決める（ts_out_ng ならライブで録るので終了の 5 分後、tsplus_out_ng なら
+// タイムフリー30・ダブルプランでも 7 日）。
+func TestAiringDeadlineOutOfArea(t *testing.T) {
+	base := Airing{StationID: "FMT", Start: jst(2026, 10, 5, 10, 0), End: jst(2026, 10, 5, 11, 0), OutOfArea: true}
+	plusOut := base
+	plusOut.TimeFree = TimeFreeFlags{PlusOutNG: 1}
+	if got, want := AiringDeadline(plusOut, MembershipDouble), jst(2026, 10, 13, 5, 0); !got.Equal(want) {
+		t.Errorf("tsplus_out_ng: AiringDeadline = %v, want %v（7 日）", got, want)
+	}
+	plusIn := base
+	plusIn.TimeFree = TimeFreeFlags{PlusInNG: 1}
+	if got, want := AiringDeadline(plusIn, MembershipDouble), jst(2026, 11, 5, 5, 0); !got.Equal(want) {
+		t.Errorf("tsplus_in_ng だけ: AiringDeadline = %v, want %v（30 日）", got, want)
+	}
+	out := base
+	out.TimeFree = TimeFreeFlags{OutNG: 1}
+	if got, want := AiringDeadline(out, MembershipAreaFree), base.End.Add(LiveDeadlineAfter); !got.Equal(want) {
+		t.Errorf("ts_out_ng: AiringDeadline = %v, want %v（ライブ）", got, want)
+	}
 }
 
 // tsplus_in_ng が 0 でない放送回は、タイムフリー30・ダブルプランでも録音期限が 7 日。

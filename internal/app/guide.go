@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -90,14 +92,52 @@ func toAirings(ps []radiko.Program) []domain.Airing {
 			Description:      p.Description,
 			DescriptionParts: parts,
 			ImageURL:         p.ImageURL,
-			// radiko のクライアントは ts_out_ng を読まないので、OutNG は 0 のまま。
-			TimeFree: domain.TimeFreeFlags{InNG: atoi(p.TSInNG), PlusInNG: atoi(p.TSPlusInNG)},
+			// 4 つのフラグはそのまま写す。in と out のどちらを見るかは、エリアの外から録るかの印（OutOfArea）で domain が決める。
+			// 印はここでは立てない（呼び出し側が自分のエリアで決める。App.markOutOfArea と RadikoAreaGuide.AreaAiringsOf）。
+			TimeFree: domain.TimeFreeFlags{InNG: atoi(p.TSInNG), OutNG: atoi(p.TSOutNG),
+				PlusInNG: atoi(p.TSPlusInNG), PlusOutNG: atoi(p.TSPlusOutNG)},
 		}
 	}
 	return out
 }
 
-// atoi は数字でなければ 0 を返す（フラグの解釈はまだ分かっていないので、読めない値は 0 とみなす）。
+// stationSet はエリアの番組表 ss に出てくる局 ID の集合（エリアの局一覧）。
+func stationSet(ss []AreaStation) map[string]bool {
+	out := make(map[string]bool, len(ss))
+	for _, s := range ss {
+		out[s.ID] = true
+	}
+	return out
+}
+
+// markOutOfArea は、展開する局 station の放送日 day の放送回 airings に、エリアの外から録るかの印（domain.Airing.OutOfArea）を
+// 付けたものを返す（airings は書き換えない）。印は、局が自分のエリア（radiko の認証で得たエリア）の同じ放送日の局一覧
+// （AreaGuide.AreaAirings）に無ければ立てる。判定は展開のたびに、その時点の自分のエリアで行う（展開が触るジョブの印は、
+// 展開で書き直る。展開が触らないジョブの付け直しは、ここではしない）。
+// 会員種別がエリアフリー・ダブルプランでなければ、自分のエリアの局しか録らないので、局一覧を取らずに印を立てない。
+// AreaGuide が無いとき（テストの組み立て）も立てない。自分のエリアの局一覧を取れない・空なら、印を決められないのでエラー。
+func (a *App) markOutOfArea(ctx context.Context, station string, day domain.BroadcastDay, airings []domain.Airing) ([]domain.Airing, error) {
+	if !a.membership().AreaFree() || a.AreaGuide == nil {
+		return airings, nil
+	}
+	ss, err := a.AreaGuide.AreaAirings(ctx, day)
+	if err != nil {
+		return nil, fmt.Errorf("自分のエリアの局一覧を取れない: %w", err)
+	}
+	if len(ss) == 0 {
+		return nil, errors.New("自分のエリアの局一覧が空")
+	}
+	if stationSet(ss)[station] {
+		return airings, nil
+	}
+	out := slices.Clone(airings)
+	for i := range out {
+		out[i].OutOfArea = true
+	}
+	return out, nil
+}
+
+// atoi は数字でなければ 0 を返す（読めない値は 0（聴ける）とみなす）。
 func atoi(s string) int {
 	n, _ := strconv.Atoi(s)
 	return n
@@ -118,6 +158,7 @@ type AreaGuide interface {
 	AreaAirings(ctx context.Context, day domain.BroadcastDay) ([]AreaStation, error)
 	// AreaAiringsOf は放送日 day の、エリア areaID の全局の放送回を返す。areaID が空なら AreaAirings と同じ（自分のエリア）。
 	// 自分のエリア以外を返してよいかは呼び出し側が決める（エリアフリーの会員だけ。internal/server/guide.go）。
+	// 自分のエリアの局一覧に無い局の放送回には、エリアの外から録るかの印（domain.Airing.OutOfArea）を立てる。
 	AreaAiringsOf(ctx context.Context, areaID string, day domain.BroadcastDay) ([]AreaStation, error)
 	// Areas は、自分のエリアと、radiko の局の一覧（full.xml）から作ったエリアの一覧を返す。
 	Areas(ctx context.Context) (AreaInfo, error)
@@ -290,22 +331,39 @@ func areaInfo(own string, l radiko.AreaList) AreaInfo {
 	return out
 }
 
-// AreaAiringsOf は AreaGuide を実装する。
+// AreaAiringsOf は AreaGuide を実装する。自分のエリア以外のエリアでは、自分のエリアの同じ放送日の局一覧に無い局の放送回に、
+// エリアの外から録るかの印（domain.Airing.OutOfArea）を立てる（自分のエリアの番組表も取る。取れなければエラー）。
+// 自分のエリアの局一覧にもある局（局は複数のエリアにまたがる）の放送回と、自分のエリアの番組表の放送回には立てない。
 func (g *RadikoAreaGuide) AreaAiringsOf(ctx context.Context, area string, day domain.BroadcastDay) ([]AreaStation, error) {
+	own, err := g.areaID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if area == "" {
-		var err error
-		if area, err = g.areaID(ctx); err != nil {
-			return nil, err
-		}
+		area = own
 	}
 	v, err := g.do(ctx, area+"/"+day.String(), func(ctx context.Context) (any, error) {
 		ss, err := g.Client.AreaPrograms(ctx, area, time.Date(day.Year, day.Month, day.Day, 0, 0, 0, 0, domain.JST))
 		if err != nil {
 			return nil, err
 		}
+		var inOwn map[string]bool
+		if area != own {
+			ownSS, err := g.AreaAiringsOf(ctx, own, day)
+			if err != nil {
+				return nil, err
+			}
+			inOwn = stationSet(ownSS)
+		}
 		out := make([]AreaStation, len(ss))
 		for i, s := range ss {
-			out[i] = AreaStation{ID: s.ID, Name: s.Name, Airings: toAirings(s.Programs)}
+			airings := toAirings(s.Programs)
+			if inOwn != nil && !inOwn[s.ID] {
+				for j := range airings {
+					airings[j].OutOfArea = true
+				}
+			}
+			out[i] = AreaStation{ID: s.ID, Name: s.Name, Airings: airings}
 		}
 		return out, nil
 	})

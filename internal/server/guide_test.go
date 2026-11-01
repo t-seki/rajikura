@@ -468,6 +468,34 @@ func TestGuideViewTimeFree30Excluded(t *testing.T) {
 	}
 }
 
+// エリアの外から録る放送回（番組表が OutOfArea を立てたもの）の notAvailable・timeFree30Excluded は、out のフラグ
+// （ts_out_ng・tsplus_out_ng）で決める。自分のエリアの局の放送回は in のフラグで決める（#27）。
+func TestGuideViewOutOfArea(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		flags     domain.TimeFreeFlags
+		outOfArea bool
+		wantNA    bool
+		wantT30   bool
+	}{
+		{"エリアの外・out が 2", domain.TimeFreeFlags{OutNG: 2, PlusOutNG: 2}, true, true, true},
+		{"エリアの外・out が 1", domain.TimeFreeFlags{OutNG: 1, PlusOutNG: 1}, true, true, true},
+		{"エリアの外・plus_out だけ 1", domain.TimeFreeFlags{PlusOutNG: 1}, true, false, true},
+		{"エリアの外・in だけ 1", domain.TimeFreeFlags{InNG: 1, PlusInNG: 1}, true, false, false},
+		{"自分のエリア・out だけ 2", domain.TimeFreeFlags{OutNG: 2, PlusOutNG: 2}, false, false, false},
+		{"自分のエリア・in が 1", domain.TimeFreeFlags{InNG: 1, PlusInNG: 1}, false, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := domain.Airing{StationID: "FMT", Start: jst(2026, 10, 31, 8, 30), End: jst(2026, 10, 31, 9, 0), Title: "番組",
+				TimeFree: tc.flags, OutOfArea: tc.outOfArea}
+			got := shows{now: jst(2026, 11, 1, 12, 0), membership: domain.MembershipDouble}.view(a, "FMとやま")
+			if got.NotAvailable != tc.wantNA || got.TimeFree30Excluded != tc.wantT30 {
+				t.Errorf("notAvailable, timeFree30Excluded = %v, %v; want %v, %v", got.NotAvailable, got.TimeFree30Excluded, tc.wantNA, tc.wantT30)
+			}
+		})
+	}
+}
+
 // 番組表の API の過去の範囲は、今の会員種別の最大の録音期限の日数（7 日か 30 日）。会員種別を保存したらすぐ効く。
 func TestGuideDayRangeFollowsMembership(t *testing.T) {
 	e := newGuideUI(t)

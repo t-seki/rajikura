@@ -163,6 +163,16 @@ type Airing struct {
 	ImageURL         string
 	// TimeFree は番組表のタイムフリーの可否のフラグ。
 	TimeFree TimeFreeFlags
+	// OutOfArea は、放送回の局を自分のエリアの外から（エリアフリーで）録るか。立っていれば TimeFree の out のフラグ
+	// （OutNG・PlusOutNG）、立っていなければ in のフラグ（InNG・PlusInNG）で、タイムフリーで録れるかと録音期限を決める
+	// （TimeFreeExcluded・ExcludedFromTimeFree30）。
+	//
+	// 局が自分のエリア（radiko の認証で得たエリア）の局一覧に入っていなければ立てる。局は複数のエリアにまたがるので、局の
+	// 本拠地（full.xml の area_id）では決めない。非会員・タイムフリー30 は自分のエリアの局しか録らないので、いつも立てない。
+	// 番組表を読んだ側（internal/app の展開と、エリアの番組表）が、そのときの自分のエリアで決める。ジョブは展開の判定を DB に
+	// 持ち、展開が触るジョブ（Job.Expandable）は展開のたびにその時点の判定で書き直る（equal が印も比べるので、印が変わらなければ
+	// 更新しない）。展開が触らないジョブは書き直らない（#28 の範囲）。
+	OutOfArea bool
 }
 
 // DescriptionPart は説明の部品。Href が空でなければリンク。
@@ -171,18 +181,40 @@ type DescriptionPart struct {
 	Href string
 }
 
-// TimeFreeFlags は番組表のタイムフリーの可否のフラグの写し（radiko の ts_in_ng・ts_out_ng・tsplus_in_ng）。
-// 値はそのまま持つ（InNG はタイムフリーの対象外、PlusInNG はタイムフリー30 の対象外として読む。PlusInNG の読み方は
-// 2026-11-01 に実機で確かめた。ExcludedFromTimeFree30）。
+// TimeFreeFlags は番組表のタイムフリーの可否のフラグの写し（radiko の ts_in_ng・ts_out_ng・tsplus_in_ng・tsplus_out_ng）。
+// 値はそのまま持ち、0 でなければ（1 でも 2 でも）聴けないと読む。in は自分のエリアから聴くとき、out はエリアの外から
+// （エリアフリーで）聴くときのフラグで、どちらを見るかは Airing.OutOfArea で決める。ts_* はタイムフリーで聴けるか
+// （TimeFreeExcluded）、tsplus_* はタイムフリー30 で 8 日目からも聴けるか（ExcludedFromTimeFree30）。
+//
+// この読み方は、2026-11-01 に owner が東京からエリアフリー・タイムフリー30 で radiko の公式で聴いて確かめた（#27）。
+// 全国 47 エリアの 10/3・10/31 の番組表（重複を除いて 9,734 件）から、次の放送回を聴いた。
+//   - in / plus_in / out / plus_out が 0 / 0 / 2 / 2（FMTOYAMA 10/31 08:30）: エリアフリーに対応していないので、放送エリアの
+//     外からは聴けないと出た。0 / 0 / 1 / 1（FMF 10/31 24:00）も聴けなかった
+//   - 1 / 1 / 1 / 1（CBC 10/31 12:00）: タイムフリー非対応と出た（再生はでき、配信を停止しているというアナウンスの音声が流れた）
+//   - 0 / 1 / 0 / 1（FM-FUJI 10/31 13:00）: 7 日以内は聴けた
+//
+// 47 エリアの番組表では、同じ放送回のフラグはどのエリアの番組表でも同じだった（どのエリアの番組表から読んでもよい）。
+// radiko の画面の聴取可能期限は聴けない放送回にも出るので、聴けるかの判断には使わない。
 type TimeFreeFlags struct {
-	InNG  int
+	// InNG は ts_in_ng。自分のエリアから聴くとき、0 でなければタイムフリーの対象外（ライブで録る）。
+	InNG int
+	// OutNG は ts_out_ng。エリアの外から聴くとき、0 でなければタイムフリーの対象外（ライブで録る）。
 	OutNG int
-	// PlusInNG は tsplus_in_ng。0 でなければタイムフリー30 の対象外（ExcludedFromTimeFree30）。
+	// PlusInNG は tsplus_in_ng。自分のエリアから聴くとき、0 でなければタイムフリー30 の対象外（ExcludedFromTimeFree30）。
 	PlusInNG int
+	// PlusOutNG は tsplus_out_ng。エリアの外から聴くとき、0 でなければタイムフリー30 の対象外（ExcludedFromTimeFree30）。
+	PlusOutNG int
 }
 
-// TimeFreeExcluded は、放送回がタイムフリーの対象外か（番組表の ts_in_ng が 0 でない）。対象外の放送回はライブで録る。
+// TimeFreeExcluded は、放送回がタイムフリーの対象外か（Airing.OutOfArea が立っていれば番組表の ts_out_ng、立っていなければ
+// ts_in_ng が 0 でない）。対象外の放送回はライブで録る。
+//
+// エリアの外の局で ts_out_ng が 0 でない放送回も、仮にライブで録る。エリアの外からライブで聴けるかは確かめていない
+// （2026-11-01 時点。録れなければ、録音できなかったの通知で分かる）。
 func (a Airing) TimeFreeExcluded() bool {
+	if a.OutOfArea {
+		return a.TimeFree.OutNG != 0
+	}
 	return a.TimeFree.InNG != 0
 }
 
@@ -214,7 +246,7 @@ func (a Airing) equal(b Airing) bool {
 		a.Start.Equal(b.Start) && a.End.Equal(b.End) &&
 		a.Title == b.Title && a.Performer == b.Performer &&
 		a.Description == b.Description && a.ImageURL == b.ImageURL &&
-		a.TimeFree == b.TimeFree
+		a.TimeFree == b.TimeFree && a.OutOfArea == b.OutOfArea
 }
 
 // Membership は会員種別。
@@ -288,7 +320,8 @@ func (j Job) Expandable() bool {
 	return j.State == StateWaiting || j.State == StateSkipped && !j.Settled
 }
 
-// Live は、ジョブをライブで録るか（LiveAirings）。方式は、ジョブの放送回の番組表の値（展開が写した ts_in_ng）で決める。
+// Live は、ジョブをライブで録るか（LiveAirings）。方式は、ジョブの放送回の番組表の値（展開が写した ts_in_ng・ts_out_ng）と、
+// エリアの外から録るかの印（Airing.OutOfArea）で決める。
 // ライブで録るジョブは、ライブの録音役（internal/app）が拾い、タイムフリーの録音のループは拾わない。入手（録音）の失敗では
 // retrying にせず、録れた分の保存が失敗したとき（保存か検証の段階の失敗）だけ retrying にして保存をやり直す。
 // 足したら直す: ジョブの状態の移り方
