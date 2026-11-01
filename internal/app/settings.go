@@ -308,7 +308,7 @@ type LoginResetter interface {
 // radiko.password）を保存したら、持っている radiko のログインのセッションを捨てる（Fetcher が LoginResetter を満たすとき）。
 // 会員種別を非会員にして保存したら、radiko のログインの失敗の異常が続いていれば、radiko のログインを止めたことを復旧として閉じる
 // （もう radiko のログインをしないので、ログインが通る日は来ない。バックアップの取る先を空にしたときと同じ）。
-// 会員種別が変わったら、まだ終わっていないジョブ（waiting・retrying・skipped）の録音期限を新しい会員種別で付け直す（ADR 0030）。
+// 会員種別が変わったら、まだ終わっていないジョブ（waiting・retrying・skipped・running）の録音期限を新しい会員種別で付け直す（ADR 0030）。
 // 足したら直す: サービスの異常
 func (a *App) SettingsApplied(ctx context.Context, p config.Patch, prev, next config.Config) {
 	login := p.Membership != nil || (p.Radiko != nil && (p.Radiko.Mail != nil || p.Radiko.Password != nil))
