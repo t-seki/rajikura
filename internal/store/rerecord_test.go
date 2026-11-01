@@ -11,7 +11,7 @@ import (
 
 // 録り直しは、done のタイムフリーから録るジョブで録音期限の内側のものを retrying・試行回数 0・次の試行を今にする。保存先・
 // 欠落の印・期限間近を通知した時刻・試行の履歴は変えない。done でない・ライブで録るジョブ・録音期限を過ぎたジョブは、
-// 理由を分けて拒み、状態を変えない（ADR 0025）。
+// 理由を分けて拒み、状態を変えない（ADR 0031）。
 func TestRerecord(t *testing.T) {
 	ctx := context.Background()
 	s, _ := openTemp(t)
@@ -116,7 +116,7 @@ func liveAiring(a domain.Airing) domain.Airing {
 	return a
 }
 
-// 録り直しを受け付けるかと、書き換える録音期限は、今の会員種別で決める（ADR 0025・0030）。DB の録音期限が非会員のころの
+// 録り直しを受け付けるかと、書き換える録音期限は、今の会員種別で決める（ADR 0031）。DB の録音期限が非会員のころの
 // 7 日のままでも、タイムフリー30 なら 30 日の録音期限になり、非会員なら断る。
 func TestRerecordUsesCurrentMembership(t *testing.T) {
 	ctx := context.Background()

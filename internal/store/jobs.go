@@ -567,14 +567,14 @@ func manualRetry(ctx context.Context, tx *sql.Tx, j domain.Job, now time.Time) e
 	return err
 }
 
-// Rerecord は、人が録り直しを選んだ done のジョブを retrying にして、次の試行を now にする（ADR 0025）。戻し方は手動再試行と
+// Rerecord は、人が録り直しを選んだ done のジョブを retrying にして、次の試行を now にする（ADR 0031）。戻し方は手動再試行と
 // 同じで、試行回数を 0 に戻し、試行の履歴は消さない。保存先（output_path）・欠落の印（job_airings.missing）・期限間近を
 // 通知した時刻（deadline_notified_at）は変えない（録れなければ前の値のまま残し、期限間近は 1 度だけ通知する）。
 // 作業用フォルダは done にしたときに消えているので、次の試行はどの放送回も radiko から取り直す。
 // チャプターを待っていれば待ちを消して入らなかったにし（保存のたびに待つかを決め直す）、チャプターの取り直しの印は外す（ADR 0027）。
 // 受け付けるかは domain.CheckRerecord で、今の会員種別 m の録音期限で、読み出しと同じトランザクションの中で決める。
 // 受け付けたら録音期限の列（deadline）も m の録音期限に書き換える（そのままだと、retrying に戻ったジョブが古い期限で
-// すぐに期限の判定に掛かり、チャプターの取り直しの打ち切りも古い期限で数えるため。ADR 0025・0030）。done でないジョブは
+// すぐに期限の判定に掛かり、チャプターの取り直しの打ち切りも古い期限で数えるため。ADR 0031）。done でないジョブは
 // domain.ErrInvalidTransition、ライブで録るジョブは domain.ErrRerecordLive、録音期限を過ぎたジョブは
 // domain.ErrRerecordPastDeadline、無いジョブは ErrNotFound を包んだエラーにする。通知はしない（人の操作）。
 // 足したら直す: ジョブの状態の移り方

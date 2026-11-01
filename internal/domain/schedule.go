@@ -180,7 +180,7 @@ func RerecordDeadline(j Job, m Membership) time.Time {
 	return j.Deadline
 }
 
-// CheckRerecord は、録り直し（ADR 0025）を受け付けるかを確かめ、受け付けなければ理由のエラーを返す。受け付けるのは、done の
+// CheckRerecord は、録り直し（ADR 0031）を受け付けるかを確かめ、受け付けなければ理由のエラーを返す。受け付けるのは、done の
 // タイムフリーから録るジョブ（Job.Live が false）で、録音期限（RerecordDeadline。今の会員種別 m で求める）の内側のものだけ。
 // done でなければ ErrInvalidTransition、ライブで録るジョブなら ErrRerecordLive、録音期限を過ぎていれば ErrRerecordPastDeadline を包む。
 // ライブ録音で録れた分を残している間の例外（ManualRetryInTime）は当てない。internal/store の Rerecord と internal/server の

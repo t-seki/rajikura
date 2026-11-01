@@ -88,7 +88,7 @@ type jobSummary struct {
 	// 足したら直す: ジョブの状態の移り方
 	Retryable bool `json:"retryable"`
 	// Rerecordable は、いま録り直し（POST /api/jobs/{id}/rerecord）を受け付けるか（done のタイムフリーから録るジョブで、録音期限を
-	// 過ぎていないこと。store.Rerecord と同じく domain.CheckRerecord で決める。ADR 0025）。
+	// 過ぎていないこと。store.Rerecord と同じく domain.CheckRerecord で決める。ADR 0031）。
 	// 足したら直す: ジョブの状態の移り方
 	Rerecordable bool `json:"rerecordable"`
 	// SaveRetryUntil は、ライブで録るジョブの録れた分の保存を自動でやり直している間（retrying で、最後の試行が保存か検証の段階で
@@ -425,7 +425,7 @@ func (u *UI) recordJob(w http.ResponseWriter, r *http.Request) {
 	u.act(w, r, func(ctx context.Context, id int64) error { return u.wakeAfter(u.Jobs.RecordByPerson(ctx, id, u.now())) }, nil)
 }
 
-// rerecordJob は録り直し（ADR 0025）。done のタイムフリーから録るジョブで録音期限の内側のものを、手動再試行と同じく retrying にして
+// rerecordJob は録り直し（ADR 0031）。done のタイムフリーから録るジョブで録音期限の内側のものを、手動再試行と同じく retrying にして
 // 録音のループを起こす。拒むときは、done でない・ライブ録音・録音期限を過ぎた、で文言を分けて 409 にする。受け付けたことは通知しない。
 // 足したら直す: ジョブの状態の移り方
 func (u *UI) rerecordJob(w http.ResponseWriter, r *http.Request) {
