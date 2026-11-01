@@ -656,6 +656,8 @@ func (a *App) runExpander(ctx context.Context) {
 		case t := <-a.expandTasks:
 			t.done <- t.fn(ctx)
 		case <-syncT.C:
+			// 局一覧を取れずに残った会員種別の付け直しの依頼も、同期の周でやり直す。
+			a.reviseIfRequested(ctx)
 			a.syncOnExpander(ctx)
 		case <-a.expandWake:
 			a.reviseIfRequested(ctx)
@@ -922,9 +924,14 @@ func (a *App) startupRecover(ctx context.Context) error {
 	return nil
 }
 
-// startupSync は起動時の番組表の同期を展開役に頼み、終わるまで待つ。
+// startupSync は起動時の会員種別の録音期限の付け直しと番組表の同期を展開役に頼み、終わるまで待つ。付け直しの依頼
+// （requestRevise）はメモリだけに持つので、止める前に拾われなかった依頼は、ここで拾い直す（own_area.go）。
 func (a *App) startupSync(ctx context.Context) error {
 	if err := a.onExpander(ctx, func(ctx context.Context) error {
+		a.ownAreaMu.Lock()
+		a.reviseByMembership = true
+		a.ownAreaMu.Unlock()
+		a.reviseIfRequested(ctx)
 		a.syncOnExpander(ctx)
 		return nil
 	}); err != nil && ctx.Err() == nil {

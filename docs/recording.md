@@ -80,7 +80,7 @@ rajikura が予約からジョブを作り、録音して保存するまでの�
 
 ## 録音期限の付け直し
 
-録音期限は、ジョブの放送回の番組表の値、録音の方式、会員種別、自分のエリアで決まる。会員種別を保存したときと、radiko が判定した自分のエリアが変わったときは、まだ終わっていないジョブ（`waiting`・`retrying`・`skipped`・`running`）の録音期限を、今の会員種別と今の自分のエリアで、同じやり方で付け直す（[ADR 0030](adr/0030-radiko-login-follows-chosen-membership.md)・[ADR 0032](adr/0032-revise-deadlines-when-own-area-changes.md)）。`done`・`expired` のジョブは付け直さない。
+録音期限は、ジョブの放送回の番組表の値、録音の方式、会員種別、自分のエリアで決まる。会員種別を保存したときと、`serve` を起動したときと、radiko が判定した自分のエリアが変わったときは、まだ終わっていないジョブ（`waiting`・`retrying`・`skipped`・`running`）の録音期限を、今の会員種別と今の自分のエリアで、同じやり方で付け直す（[ADR 0030](adr/0030-radiko-login-follows-chosen-membership.md)・[ADR 0032](adr/0032-revise-deadlines-when-own-area-changes.md)）。`done`・`expired` のジョブは付け直さない。
 
 - 付け直しでは、録音の方式（ライブかタイムフリーか）を変えない。録音予定（`waiting`）と録らない予定のジョブは、番組表の同期のたびに、その時点の自分のエリアで録音の方式も決め直す。
 - 新しい録音期限より後に次の試行があれば、録音期限に寄せる。`running` のジョブは、試行が終わった後に、付け直した録音期限で再試行・期限の判定をする。

@@ -310,8 +310,7 @@ type LoginResetter interface {
 // （もう radiko のログインをしないので、ログインが通る日は来ない。バックアップの取る先を空にしたときと同じ）。
 // 会員種別が変わったら、まだ終わっていないジョブ（waiting・retrying・skipped・running）の録音期限の付け直しを展開役に頼み、
 // 待たずに戻る（ADR 0030・0032。自分のエリアが変わったときと同じ reviseDeadlines を、展開役が reviseForMembership で呼ぶ）。
-// エリアフリー・ダブルプランなら今の自分のエリアの局一覧を取って使い、取れなければジョブの放送回の印（エリアの外から録るか）の
-// まま付け直す。
+// エリアフリー・ダブルプランなら覚えている自分のエリアの局一覧を取って使い、取れなければ付け直さずに依頼を残す（own_area.go）。
 // 足したら直す: サービスの異常
 func (a *App) SettingsApplied(ctx context.Context, p config.Patch, prev, next config.Config) {
 	login := p.Membership != nil || (p.Radiko != nil && (p.Radiko.Mail != nil || p.Radiko.Password != nil))

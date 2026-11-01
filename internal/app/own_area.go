@@ -27,7 +27,10 @@ import (
 //
 // 会員種別を保存したときの付け直しも、展開役に頼む（requestRevise。SettingsApplied は待たない）。付け直しは展開役だけが行い、
 // Store.ExpandDay の書き込みとも順番に並ぶ。会員種別と自分のエリアは、展開役が付け直す直前に読むので、2 つの付け直しが重なって
-// 古い値で上書きすることは無い（付け直しの間に会員種別が保存されたら、その後にもう一度付け直す）。
+// 古い値で上書きすることは無い（付け直しの間に会員種別が保存されたら、その後にもう一度付け直す）。依頼はメモリだけに持つので、
+// serve の起動のときにも、展開役で会員種別の付け直しを 1 回行う（起動時の同期の前。止める前に拾われなかった依頼を拾い直す）。
+// 会員種別の付け直しは、App と DB が覚えている自分のエリアの局一覧を使い、エリアフリー・ダブルプランで局一覧を取れなければ
+// 付け直さずに依頼を残し、展開役が次に起きたとき（expandWake か番組表の同期の周）にやり直す（すぐには起こさない）。
 
 // ownAreaSetter は、覚えている自分のエリアを差し替えられる AreaGuide（RadikoAreaGuide）。自分のエリアが変わったと分かったら、
 // TTL を待たずに新しいエリアで番組表を引くように差し替える。
@@ -93,9 +96,10 @@ func (a *App) requestRevise() {
 	}
 }
 
-// reviseIfRequested は、頼まれた録音期限の付け直し（自分のエリアの変化・会員種別の保存）を行う。展開役で呼ぶ。
-// 自分のエリアの変化があれば、その付け直し（今の会員種別で行う）を先に行い、済めば会員種別の保存の分はそれで足りる。
-// 会員種別と自分のエリアは、ここで読む（頼んだ時点の値ではない）。
+// reviseIfRequested は、頼まれた録音期限の付け直し（自分のエリアの変化・会員種別の保存と起動のとき）を行う。展開役で呼ぶ
+// （expandWake で起きたとき・番組表の同期の周・起動時の同期の前）。自分のエリアの変化があれば、その付け直し（今の会員種別で
+// 行う）を先に行い、済めば会員種別の分はそれで足りる。会員種別と自分のエリアは、ここで読む（頼んだ時点の値ではない）。
+// 会員種別の付け直しができなければ依頼を残し、次に呼ばれたときにやり直す。
 func (a *App) reviseIfRequested(ctx context.Context) {
 	a.ownAreaMu.Lock()
 	from, to := a.ownAreaSeen, a.ownAreaPending
@@ -105,33 +109,60 @@ func (a *App) reviseIfRequested(ctx context.Context) {
 	if to != "" && to != from && a.reviseForOwnArea(ctx, from, to) {
 		return
 	}
-	if byMembership {
-		a.reviseForMembership(ctx)
+	if byMembership && !a.reviseForMembership(ctx) {
+		// 付け直せなかった。依頼を残し、展開役が次に起きたとき（expandWake か、番組表の同期の周）にやり直す。ここでは起こさない
+		// （すぐに起こすと、局一覧を取れない間、展開役が回り続けるため）。
+		a.ownAreaMu.Lock()
+		a.reviseByMembership = true
+		a.ownAreaMu.Unlock()
 	}
 }
 
-// reviseForMembership は、会員種別を保存したときの録音期限の付け直し。展開役で呼ぶ。今の会員種別と、今の自分のエリア
-// （RadikoAreaGuide が覚えているもの）の局一覧で付け直す。局一覧を取れなければ、ジョブの放送回の印（エリアの外から録るか）の
-// まま付け直す。
-func (a *App) reviseForMembership(ctx context.Context) {
-	m := a.membership()
-	own, err := a.ownStations(ctx, m, "")
-	if err != nil {
-		if ctx.Err() != nil {
-			return
+// rememberedOwnArea は、App と DB が覚えている自分のエリアを返す（まだ DB から読んでいなければ読む）。覚えていなければ空。
+func (a *App) rememberedOwnArea(ctx context.Context) (string, error) {
+	a.ownAreaMu.Lock()
+	defer a.ownAreaMu.Unlock()
+	if !a.ownAreaLoaded {
+		v, err := a.Store.OwnArea(ctx)
+		if err != nil {
+			return "", err
 		}
-		a.log().Warn("会員種別を変えたが、自分のエリアの局一覧を取れないので、エリアの外から録るかはジョブの放送回の印のまま録音期限を付け直す",
-			"membership", m, "err", err)
-		own = nil
+		a.ownAreaSeen, a.ownAreaLoaded = v, true
+	}
+	return a.ownAreaSeen, nil
+}
+
+// reviseForMembership は、会員種別の付け直し（会員種別を保存したときと、serve の起動のとき）。展開役で呼ぶ。付け直せたら true。
+// 今の会員種別と、App と DB が覚えている自分のエリア（覚えていなければ、RadikoAreaGuide の今の認証のエリア）の局一覧で付け直す。
+// エリアフリー・ダブルプランで局一覧を取れないときと、DB を読み書きできないときは、付け直さずに false を返す（呼び出し側が
+// 依頼を残す）。エリアフリーでない会員種別は局一覧を使わないので、取らずに付け直す。
+func (a *App) reviseForMembership(ctx context.Context) bool {
+	m := a.membership()
+	area, err := a.rememberedOwnArea(ctx)
+	if err != nil {
+		if ctx.Err() == nil {
+			a.log().Warn("会員種別の録音期限の付け直しで、覚えている自分のエリアを DB から読めないので、付け直さない（後でやり直す）",
+				"membership", m, "err", err)
+		}
+		return false
+	}
+	own, err := a.ownStations(ctx, m, area)
+	if err != nil {
+		if ctx.Err() == nil {
+			a.log().Warn("会員種別の録音期限の付け直しで、自分のエリアの局一覧を取れないので、付け直さない（後でやり直す）",
+				"membership", m, "area", area, "err", err)
+		}
+		return false
 	}
 	r, err := a.reviseDeadlines(ctx, m, own)
 	if err != nil {
 		if ctx.Err() == nil {
-			a.log().Error("会員種別を変えたが、まだ終わっていないジョブの録音期限を付け直せない", "membership", m, "err", err)
+			a.log().Error("まだ終わっていないジョブの録音期限を会員種別で付け直せない（後でやり直す）", "membership", m, "err", err)
 		}
-		return
+		return false
 	}
-	a.log().Info("会員種別を変えたので、まだ終わっていないジョブの録音期限を付け直した", "membership", m, "jobs", r.Revised, "passed", r.Passed)
+	a.log().Info("まだ終わっていないジョブの録音期限を会員種別で付け直した", "membership", m, "area", area, "jobs", r.Revised, "passed", r.Passed)
+	return true
 }
 
 // reviseForOwnArea は、自分のエリアが from から to に変わったときの録音期限の付け直し。展開役で呼ぶ。付け直せたら true。
