@@ -5,3 +5,13 @@ package domain
 func MaxAvailableDays(m Membership) int {
 	return AvailableDays(m, Airing{})
 }
+
+// AreaFree は、会員種別がエリアフリーを含む（エリアフリー・ダブルプラン）か。radiko のログインの応答の areafree と比べる。
+func (m Membership) AreaFree() bool {
+	return m == MembershipAreaFree || m == MembershipDouble
+}
+
+// Member は、会員種別が非会員でない（radiko のログインが要る）か。
+func (m Membership) Member() bool {
+	return m != MembershipFree
+}

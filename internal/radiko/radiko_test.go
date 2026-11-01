@@ -203,7 +203,7 @@ func TestParseCandidatesOrder(t *testing.T) {
 <url areafree="0" timefree="1"><playlist_create_url>first</playlist_create_url></url>
 <url areafree="1" timefree="1"><playlist_create_url>areafree</playlist_create_url></url>
 <url areafree="0" timefree="1"><playlist_create_url>second</playlist_create_url></url>
-</urls>`))
+</urls>`), "0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,16 +211,22 @@ func TestParseCandidatesOrder(t *testing.T) {
 		t.Fatalf("candidates = %v, want [first second]", got)
 	}
 
-	got, err = parseCandidates([]byte(`<urls><url areafree="1" timefree="1"><playlist_create_url>x</playlist_create_url></url></urls>`))
+	areafreeOnly := []byte(`<urls><url areafree="1" timefree="1"><playlist_create_url>x</playlist_create_url></url></urls>`)
+	got, err = parseCandidates(areafreeOnly, "0")
 	if err != nil || len(got) != 0 {
 		t.Fatalf("areafree-only: got %v, %v; want no candidates", got, err)
+	}
+	// エリアフリーのトークンでは、areafree=1 の url だけを使う。
+	got, err = parseCandidates(areafreeOnly, "1")
+	if err != nil || len(got) != 1 || got[0] != "x" {
+		t.Fatalf("areafree token: got %v, %v; want [x]", got, err)
 	}
 }
 
 func TestTimefreeCandidatesNone(t *testing.T) {
 	f := newFake(t)
 	// 偽のサーバーは TBS だけ持つ。ストリーム情報が無い局は取れない（4 分類のどれかに入る）。
-	_, err := f.client().timefreeCandidates(context.Background(), "NOPE")
+	_, err := f.client().timefreeCandidates(context.Background(), Token{}, "NOPE")
 	if !errors.Is(err, ErrTemporary) {
 		t.Fatalf("err = %v, want ErrTemporary", err)
 	}
@@ -238,16 +244,6 @@ func TestProgramsDayInJST(t *testing.T) {
 	f := newFake(t)
 	// UTC の 2026-10-06 16:00 は日本時間の 2026-10-07 01:00。偽のサーバーは 20261007 の URL だけ受け付ける。
 	if _, err := f.client().Programs(context.Background(), "TBS", time.Date(2026, 10, 6, 16, 0, 0, 0, time.UTC)); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestFetchTimefreePlaylistType(t *testing.T) {
-	f, c, tok, start, end := fetchEnv(t)
-	f.wantType = "c"
-	c.PlaylistType = "c"
-	var out bytes.Buffer
-	if _, err := c.FetchTimefree(context.Background(), tok, "TBS", start, end, &out, nil); err != nil {
 		t.Fatal(err)
 	}
 }

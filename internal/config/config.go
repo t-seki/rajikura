@@ -70,10 +70,12 @@ const (
 	SecretSlackWebhook   = "notify.slack_webhook"
 	SecretSMTPPassword   = "notify.smtp.password"
 	SecretJellyfinAPIKey = "jellyfin.api_key"
+	// SecretRadikoPassword は radiko のログインに使うパスワード（ログイン情報。ADR 0030）。
+	SecretRadikoPassword = "radiko.password"
 )
 
 // SecretNames は秘密の名前の一覧（並びは API の並び）。
-var SecretNames = []string{SecretDiscordWebhook, SecretSlackWebhook, SecretSMTPPassword, SecretJellyfinAPIKey}
+var SecretNames = []string{SecretDiscordWebhook, SecretSlackWebhook, SecretSMTPPassword, SecretJellyfinAPIKey, SecretRadikoPassword}
 
 // Boot は起動の設定（serve のフラグで渡す。設定と違って Web UI からは変えられず、変えるには再起動が要る）。
 type Boot struct {
@@ -116,7 +118,7 @@ func DefaultDataDir() (string, error) {
 	return filepath.Dir(exe), nil
 }
 
-// Config は設定。秘密（DiscordWebhook・SlackWebhook・SMTPPassword・JellyfinAPIKey）も持つが、ログ・API には値を出さない。
+// Config は設定。秘密（DiscordWebhook・SlackWebhook・SMTPPassword・JellyfinAPIKey・RadikoPassword）も持つが、ログ・API には値を出さない。
 type Config struct {
 	// Library は保存先のルート（絶対パス）。空なら保存先はまだ決まっていない（録音を待たせる）。
 	Library string
@@ -128,7 +130,7 @@ type Config struct {
 	Preset string
 	// TruncateArtist は、artist タグに書く出演者を 250 バイトに切り詰めるか。既定は true。
 	TruncateArtist bool
-	// Membership は会員種別。MVP で動かせるのは free だけ。
+	// Membership は会員種別。free 以外なら、ログイン情報（RadikoMail と RadikoPassword）が要る（Validate。ADR 0030）。
 	Membership domain.Membership
 	// MaxAttemptsFree は非会員の試行回数の上限。
 	MaxAttemptsFree int
@@ -145,6 +147,10 @@ type Config struct {
 	Chapters bool
 	// RadikoProgramCacheMB は番組表のキャッシュの合計の大きさの上限（MB）。
 	RadikoProgramCacheMB int
+	// RadikoMail は radiko のログインに使うメールアドレス（ログイン情報。radiko.mail）。
+	RadikoMail string
+	// RadikoPassword は radiko のログインに使うパスワード（秘密。radiko.password）。
+	RadikoPassword string
 	// NotifyChannel は通知先（ChannelDiscord・ChannelSlack・ChannelEmail・ChannelNone）。
 	NotifyChannel string
 	// NotifySuccess は、録音済みの通知を通知先に送るか（false でも DB には書く）。既定は true。
@@ -197,6 +203,8 @@ func (c *Config) secretField(name string) *string {
 		return &c.SMTPPassword
 	case SecretJellyfinAPIKey:
 		return &c.JellyfinAPIKey
+	case SecretRadikoPassword:
+		return &c.RadikoPassword
 	}
 	panic("知らない秘密の名前: " + name)
 }
@@ -208,7 +216,7 @@ func (c Config) Secret(name string) string { return *c.secretField(name) }
 func (c *Config) SetSecret(name, v string) { *c.secretField(name) = v }
 
 // Patch は設定の変え方。nil の欄は変えない（PATCH /api/settings の本文）。
-// 秘密の欄（DiscordWebhook・SlackWebhook・SMTP.Password・Jellyfin.APIKey）の空の文字列は「消す」。
+// 秘密の欄（DiscordWebhook・SlackWebhook・SMTP.Password・Jellyfin.APIKey・Radiko.Password）の空の文字列は「消す」。
 // Values で作った Patch は、秘密を除く全部の欄を持つ（DB に置く形、GET /api/settings）。
 type Patch struct {
 	Library           *string        `json:"library,omitempty"`
@@ -231,6 +239,9 @@ type Patch struct {
 // RadikoPatch は [radiko]。
 type RadikoPatch struct {
 	ProgramCacheMB *int `json:"program_cache_mb,omitempty"`
+	// Mail と Password は radiko のログインに使うログイン情報（Password は秘密）。
+	Mail     *string `json:"mail,omitempty"`
+	Password *string `json:"password,omitempty"`
 }
 
 // NotifyPatch は [notify]。
@@ -277,6 +288,9 @@ func (p Patch) Secrets() map[string]string {
 	if p.Jellyfin != nil {
 		set(SecretJellyfinAPIKey, p.Jellyfin.APIKey)
 	}
+	if p.Radiko != nil {
+		set(SecretRadikoPassword, p.Radiko.Password)
+	}
 	return out
 }
 
@@ -296,6 +310,11 @@ func (p Patch) WithoutSecrets() Patch {
 		j := *p.Jellyfin
 		j.APIKey = nil
 		p.Jellyfin = &j
+	}
+	if p.Radiko != nil {
+		r := *p.Radiko
+		r.Password = nil
+		p.Radiko = &r
 	}
 	return p
 }
@@ -317,7 +336,7 @@ func Values(c Config) Patch {
 		FFmpeg:            ptr(c.FFmpeg),
 		FFprobe:           ptr(c.FFprobe),
 		Chapters:          ptr(c.Chapters),
-		Radiko:            &RadikoPatch{ProgramCacheMB: ptr(c.RadikoProgramCacheMB)},
+		Radiko:            &RadikoPatch{ProgramCacheMB: ptr(c.RadikoProgramCacheMB), Mail: ptr(c.RadikoMail)},
 		Notify: &NotifyPatch{
 			Channel: ptr(c.NotifyChannel),
 			Success: ptr(c.NotifySuccess),
@@ -412,9 +431,6 @@ func merge(c *Config, p Patch, stored bool) error {
 		if err != nil {
 			return fmt.Errorf("membership: %w", err)
 		}
-		if m != domain.MembershipFree {
-			return fmt.Errorf("membership %q は未対応（いま動かせるのは free だけ）", m)
-		}
 		c.Membership = m
 	}
 	if p.MaxAttemptsFree != nil {
@@ -459,6 +475,15 @@ func merge(c *Config, p Patch, stored bool) error {
 			return fmt.Errorf("radiko.program_cache_mb は 1 以上（%d）", *p.Radiko.ProgramCacheMB)
 		}
 		c.RadikoProgramCacheMB = *p.Radiko.ProgramCacheMB
+	}
+	if r := p.Radiko; r != nil {
+		if r.Mail != nil && *r.Mail != "" {
+			if err := checkAddress("radiko.mail", *r.Mail); err != nil {
+				return err
+			}
+		}
+		setStr(&c.RadikoMail, r.Mail)
+		setStr(&c.RadikoPassword, r.Password)
 	}
 	if n := p.Notify; n != nil {
 		if n.Channel != nil {
@@ -505,7 +530,18 @@ func setStr(dst *string, v *string) {
 //
 //   - jellyfin.url と jellyfin.library は、両方書くか両方省く。url があれば API キー（jellyfin.api_key）が要る
 //   - notify.channel に選んだ通知先の設定（Webhook の URL・[notify.smtp] とパスワード）が無ければ、エラーにする
+//   - membership が free でなければ、radiko のログインに使うログイン情報（radiko.mail と radiko.password）が要る（ADR 0030）
 func (c Config) Validate() error {
+	if c.Membership.Member() && (c.RadikoMail == "" || c.RadikoPassword == "") {
+		var missing []string
+		if c.RadikoMail == "" {
+			missing = append(missing, "radiko.mail")
+		}
+		if c.RadikoPassword == "" {
+			missing = append(missing, SecretRadikoPassword)
+		}
+		return fmt.Errorf("membership = %q なのに、radiko のログインに使うログイン情報（%s）が無い", c.Membership, strings.Join(missing, "・"))
+	}
 	if (c.JellyfinURL == "") != (c.JellyfinLibrary == "") {
 		return errors.New("jellyfin.url と jellyfin.library は、両方書くか両方省く")
 	}

@@ -126,7 +126,8 @@ func TestSettingsPatchErrors(t *testing.T) {
 		"JSON の誤り":       {`{`, "JSON が読めない"},
 		"値の誤り":           {`{"keyword_max_pending":3,"muxer":"go"}`, "muxer"},
 		"書けない保存先":        {`{"keyword_max_pending":3,"library":` + quoteJSON(filepath.Join(file, "lib")) + `}`, "保存先"},
-		"会員種別":           {`{"membership":"areafree"}`, "未対応"},
+		"会員種別":           {`{"membership":"areafree"}`, "radiko.mail"},
+		"会員種別のパスワード":     {`{"membership":"double","radiko":{"mail":"me@example.com"}}`, "radiko.password"},
 		"書けないバックアップの取る先": {`{"keyword_max_pending":3,"backup_dir":` + quoteJSON(filepath.Join(file, "bk")) + `}`, "バックアップの取る先"},
 		"相対のバックアップの取る先":  {`{"backup_dir":"bk"}`, "絶対パス"},
 		"残す数":            {`{"backup_keep":0}`, "backup_keep"},
@@ -146,4 +147,25 @@ func TestSettingsPatchErrors(t *testing.T) {
 
 func quoteJSON(s string) string {
 	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
+}
+
+// 会員種別とログイン情報を保存できる。パスワードは返さず、設定済みかだけを返す。
+func TestSettingsPatchMembership(t *testing.T) {
+	h, s, cookie := newSettingsUI(t)
+	rec := do(h, "PATCH", "/api/settings", `{"membership":"double","radiko":{"mail":"me@example.com","password":"TOPSECRET"}}`, cookie)
+	if rec.Code != 200 || strings.Contains(rec.Body.String(), "TOPSECRET") {
+		t.Fatalf("PATCH = %d %s", rec.Code, rec.Body)
+	}
+	var v config.View
+	decode(t, rec.Body.Bytes(), &v)
+	if *v.Settings.Membership != "double" || *v.Settings.Radiko.Mail != "me@example.com" || !v.Secrets[config.SecretRadikoPassword].Set {
+		t.Fatalf("PATCH の答え = %s", rec.Body)
+	}
+	if c := s.Current(); c.Membership != domain.MembershipDouble || c.RadikoPassword != "TOPSECRET" {
+		t.Fatalf("当てていない: %+v", c.Membership)
+	}
+	// パスワードだけを消す保存は 400 で断る。
+	if rec := do(h, "PATCH", "/api/settings", `{"radiko":{"password":""}}`, cookie); rec.Code != 400 || s.Current().RadikoPassword != "TOPSECRET" {
+		t.Fatalf("PATCH（パスワードを消す） = %d %s", rec.Code, rec.Body)
+	}
 }

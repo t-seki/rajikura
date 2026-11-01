@@ -76,15 +76,16 @@ type xmlStreams struct {
 	URLs []xmlStreamURL `xml:"url"`
 }
 
-// parseCandidates は、ストリーム情報の XML から timefree=1 かつ areafree=0 の playlist_create_url を並び順のまま取り出す。
-func parseCandidates(data []byte) ([]string, error) {
+// parseCandidates は、ストリーム情報の XML から timefree=1 かつ areafree が areaFree（"0" か "1"）の playlist_create_url を
+// 並び順のまま取り出す。エリアフリーのトークンでは areafree=1 の url を使う（login.go）。
+func parseCandidates(data []byte, areaFree string) ([]string, error) {
 	var doc xmlStreams
 	if err := xml.Unmarshal(data, &doc); err != nil {
 		return nil, fmt.Errorf("%w: parse stream xml: %v", ErrTemporary, err)
 	}
 	var out []string
 	for _, u := range doc.URLs {
-		if u.Timefree == "1" && u.Areafree == "0" {
+		if u.Timefree == "1" && u.Areafree == areaFree {
 			if v := strings.TrimSpace(u.PlaylistCreateURL); v != "" {
 				out = append(out, v)
 			}
@@ -201,14 +202,14 @@ func newLsid() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// timefreeCandidates は、ストリーム情報から playlist_create_url の候補を並び順で返す。
-func (c *Client) timefreeCandidates(ctx context.Context, stationID string) ([]string, error) {
+// timefreeCandidates は、ストリーム情報から、トークン tok で使う playlist_create_url の候補を並び順で返す。
+func (c *Client) timefreeCandidates(ctx context.Context, tok Token, stationID string) ([]string, error) {
 	u := fmt.Sprintf("%s/v3/station/stream/pc_html5/%s.xml", strings.TrimRight(c.ProgramHost, "/"), url.PathEscape(stationID))
 	data, err := c.getXML(ctx, u)
 	if err != nil {
 		return nil, err
 	}
-	cands, err := parseCandidates(data)
+	cands, err := parseCandidates(data, areaFreeAttr(tok))
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +240,7 @@ func (c *Client) fetchChunk(ctx context.Context, token Token, candidate, station
 	q.Set("seek", ck.Seek.In(JST).Format(timeLayout))
 	q.Set("l", strconv.Itoa(ck.L))
 	q.Set("lsid", lsid)
-	q.Set("type", c.playlistType())
+	q.Set("type", playlistType(token))
 	pu.RawQuery = q.Encode()
 	playlistURL := pu.String()
 
@@ -320,7 +321,9 @@ func checkChunk(cd *chunkData, ck chunk, needPDT bool, prevEnd time.Time, havePr
 // FetchTimefree は、放送局 stationID の start〜end（1 放送回分）のタイムフリーの音声を取り、ADTS のまま w に書く。
 //
 // token は呼び出し側が 1 回の試行で使い回すために渡す。チャンクの途中でトークンが失効したら、
-// 認証をやり直してそのチャンクから続ける（1 回の取得で 1 回まで）。
+// 認証をやり直してそのチャンクから続ける（1 回の取得で 1 回まで。radiko のログインのセッションを付けたトークンなら、
+// radiko のログインをし直す）。候補 URL と再生リストの type は token で決める（エリアフリーなら areafree=1 の url、セッションを付けたなら type=c）。
+// 認証をやり直してトークンのエリアフリーが変わっても、候補は取り直さない。
 // 候補 URL は並び順に試し、取れなかったり継ぎ目の検証に落ちたりしたら、そのチャンクを次の候補で取り直す。
 // 終了時刻が未来ならネットワークに出る前に ErrNotYetAvailable を返す。
 //
@@ -339,7 +342,7 @@ func (c *Client) FetchTimefree(ctx context.Context, token Token, stationID strin
 	if end.After(c.now()) {
 		return res, fmt.Errorf("%w: program ends at %s", ErrNotYetAvailable, end.Format(time.RFC3339))
 	}
-	cands, err := c.timefreeCandidates(ctx, stationID)
+	cands, err := c.timefreeCandidates(ctx, token, stationID)
 	if err != nil {
 		return res, err
 	}
@@ -376,7 +379,7 @@ func (c *Client) FetchTimefree(ctx context.Context, token Token, stationID strin
 					return res, fmt.Errorf("%w: token rejected again after re-authentication", ErrTemporary)
 				}
 				reauthed = true
-				if token, err = c.Authenticate(ctx); err != nil {
+				if token, err = c.reauthenticate(ctx, token); err != nil {
 					return res, err
 				}
 				continue

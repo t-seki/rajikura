@@ -222,6 +222,34 @@ func TestOnceTimeFreeExcluded(t *testing.T) {
 	e.call("POST", osPath("単発の番組"), airingsBody(11), 201, nil)
 }
 
+// タイムフリー30・ダブルプランでは、番組表の 30 日前までの放送回に 1 回の予約を足せる。タイムフリー30 の対象外の放送回
+// （tsplus_in_ng が 0 でない）は録音期限が 7 日なので、8 日目以降は録音期限を過ぎた放送回として 400 で断る。
+func TestOnceTimeFree30Excluded(t *testing.T) {
+	e, area := newOnceUI(t)
+	m := domain.MembershipDouble
+	e.ui.Settings = membershipSettings{m: &m}
+	e.h = Handler(Health{LastPoll: time.Now}, e.ui)
+	e.cookie = login(t, e.h)
+	// 今日（2026-10-07）の 10 日前の放送日。
+	old := []domain.Airing{
+		{StationID: "TBS", Start: jst(2026, 9, 27, 10, 0), End: jst(2026, 9, 27, 11, 0), Title: "30 日の放送回"},
+		{StationID: "TBS", Start: jst(2026, 9, 27, 11, 0), End: jst(2026, 9, 27, 12, 0), Title: "対象外の放送回",
+			TimeFree: domain.TimeFreeFlags{PlusInNG: 1}},
+	}
+	e.guide.airings["TBS/2026-09-27"] = old
+	area.stations["2026-09-27"] = []app.AreaStation{{ID: "TBS", Name: "TBSラジオ", Airings: old}}
+	e.call("POST", "/api/shows", `{"name":"単発の番組","weekly":[]}`, 201, nil)
+	body := func(h int) string {
+		return `{"airings":[{"station":"TBS","start":"` + jst(2026, 9, 27, h, 0).Format(time.RFC3339) + `"}]}`
+	}
+	var bad map[string]string
+	e.call("POST", osPath("単発の番組"), body(11), 400, &bad)
+	if !strings.Contains(bad["error"], "録音期限を過ぎた放送回") {
+		t.Fatalf("録音期限を過ぎた放送回として断っていない: %v", bad)
+	}
+	e.call("POST", osPath("単発の番組"), body(10), 201, nil)
+}
+
 func TestOnceListInShow(t *testing.T) {
 	e, area := newOnceUI(t)
 	e.call("POST", "/api/shows", `{"name":"単発の番組","enabled":false,"weekly":[]}`, 201, nil)

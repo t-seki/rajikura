@@ -169,7 +169,10 @@ pnpm screenshots
 | 試行 | `Attempt` |
 | 進捗 | app の `app.Progress`（serve のメモリにジョブごとに持ち、読むのは `App.JobProgress`。DB には持たない）。server が読む口は `server.Progresses`（`UI.Recorder` が満たせば使う）。ジョブの API の JSON は `progress`（`stage`・`fetchedSeconds`・`totalSeconds`）。タイムフリーの入手でチャンクを書くたびに呼ぶ口は、radiko の `Client.FetchTimefree` の引数 `onChunk` |
 | 録音期限 | `Deadline` |
-| 会員種別 | `Membership` |
+| 会員種別 | `Membership`（設定のキーは `membership`。保存したときにまだ終わっていないジョブの録音期限を付け直すのは `Store.ReviseDeadlines`、呼ぶのは app の `App.SettingsApplied`） |
+| radiko のログイン | radiko の `Client.Authenticate` の中で行う（`internal/radiko/login.go`。セッションを捨てるのは `Client.ResetLogin`、結果は `radiko.LoginEvent` で、サービスの異常を書くのは app の `App.LoginResult`）。サービスの異常の種類は `login` |
+| ログイン情報 | 設定のキーは `radiko.mail` と秘密の `radiko.password`（`config.Config` の `RadikoMail`・`RadikoPassword`）。radiko に渡す形は `radiko.Account`（作るのは app の `Settings.RadikoAccount`） |
+| タイムフリー30 の対象外 | domain の `domain.ExcludedFromTimeFree30`（値は `TimeFreeFlags.PlusInNG`。radiko の番組表の `tsplus_in_ng`、`Program.TSPlusInNG`。DB は `job_airings.tsplus_in_ng`） |
 | 分割番組 | domain の `Show.Split`（型は `SplitMode`。値は `SplitNone`・`SplitJoin`・`SplitSeparate`、JSON のキーは `split` で値は `"none"`・`"join"`・`"separate"`。分割番組かは `Show.IsSplit`）、library の `Input.Split`。DB は `shows.split` と `shows.join_airings` の 2 つの列 |
 | 無効な番組 | domain の `Show.Disabled`（JSON は `enabled` が `false`、DB は `shows.enabled` が 0） |
 | 連結 | domain の `Show.Joins`（`Show.Split` が `SplitJoin`）。DB は `shows.join_airings` |

@@ -5,6 +5,7 @@ rajikura の設定（保存先・通知先・会員種別など、動かし方�
 - [設定の変え方](#設定の変え方)
 - [キー](#キー)
 - [秘密](#秘密)
+- [会員種別と radiko のログイン（`membership`）](#会員種別と-radiko-のログインmembership)
 - [m4a への格納（`muxer`）](#m4a-への格納muxer)
 - [チャプター（`chapters`）](#チャプターchapters)
 - [番組表のキャッシュ](#番組表のキャッシュ)
@@ -22,7 +23,7 @@ rajikura の設定（保存先・通知先・会員種別など、動かし方�
 
 - 人は、Web UI のナビの「設定」の画面で変える（[web-ui.md の「設定の画面と帯」](web-ui.md#設定の画面と帯)）。
 - スクリプトや AI は、API トークンで `PATCH /api/settings` に、変えるキーだけを JSON で送る（[api.md の「設定」](api.md#設定)）。書いていないキーは今の値のまま残る。今の値は `GET /api/settings` で読める（秘密の値は返らない）。
-- 保存したら、再起動しなくてもすぐに効く（`radiko.program_cache_mb` を除く）。
+- 保存したら、再起動しなくてもすぐに効く（`radiko.program_cache_mb` を除く。`membership` もすぐに効く）。
 - 走っている録音は、始めたときの設定（保存先など）のまま最後まで進める（1 つのジョブのファイルが 2 か所に分かれないように）。
 - 値の確かめは、書いたキーを当てた後の設定の全体に対して行う。知らないキー（綴りの誤り）・値の誤り・通知先の設定の不足が 1 つでもあれば、1 つも当てない。
 
@@ -53,7 +54,7 @@ rajikura の設定（保存先・通知先・会員種別など、動かし方�
 | `library` | 保存先のルート（絶対パス）。決まるまで録音は待たされる（番組表の同期と展開は動く）。変えるときは、`serve` がフォルダを作り、書けることを確かめてから保存する（書けなければエラーにして何も当てない）。一度決めたら空にはできない | （未定） |
 | `preset` | 保存先の命名とタグのプリセット。いまは `jellyfin` だけ（[shows.md の「保存の形」](shows.md#保存の形)） | `jellyfin` |
 | `truncate_artist` | artist タグに書く出演者を 250 バイトに切り詰めるか。`false` なら全文で書く（[shows.md の「artist の切り詰め」](shows.md#artist-の切り詰め)） | `true` |
-| `membership` | 会員種別。`free` / `areafree` / `timefree30` / `double`。いま動かせるのは `free` だけで、ほかの値は「未対応」としてエラーにする | `free` |
+| `membership` | 会員種別。`free`（非会員）/ `areafree`（エリアフリー）/ `timefree30`（タイムフリー30）/ `double`（ダブルプラン）。`free` 以外なら `radiko.mail` と `radiko.password` が要り、そろっていなければエラーにする（下の [会員種別と radiko のログイン](#会員種別と-radiko-のログインmembership)） | `free` |
 | `max_attempts_free` | 非会員の試行回数の上限（1 以上） | `10` |
 | `keyword_max_pending` | [キーワード](shows.md#キーワード)ごとの上限（1 以上）。キーワードが足した放送回のうち、まだ録音を終えていない放送回の数がこれに達したら、それ以上は足さない | `10` |
 | `backup_dir` | 自動のバックアップを取る先のフォルダ（絶対パス）。空なら自動では取らない。変えるときは、`serve` がフォルダを作り、書けることを確かめてから保存する（[backup.md の「自動のバックアップ」](backup.md#自動のバックアップ)） | 空（自動では取らない） |
@@ -62,6 +63,8 @@ rajikura の設定（保存先・通知先・会員種別など、動かし方�
 | `ffmpeg` / `ffprobe` | ffmpeg / ffprobe のパス（絶対パスか、PATH から探す名前だけ）。`muxer` が `builtin` なら使わない | 空（PATH の上の `ffmpeg` / `ffprobe`） |
 | `chapters` | タイムフリーから録るファイルに、radiko のチャプターを入れるか（下の [チャプター](#チャプターchapters)） | `true` |
 | `radiko.program_cache_mb` | 番組表のキャッシュの合計の大きさの上限（MB。1 以上）。変えたら `serve` の再起動が要る（下の [番組表のキャッシュ](#番組表のキャッシュ)） | `64` |
+| `radiko.mail` | radiko のログインに使う、radiko のアカウントのメールアドレス（ログイン情報。`membership` が `free` 以外のとき要る） | 空 |
+| `radiko.password` | radiko のログインに使う、radiko のアカウントのパスワード（ログイン情報。`membership` が `free` 以外のとき要る）。秘密 | 空 |
 | `notify.channel` | 通知先。`discord` / `slack` / `email` / `none`（[notifications.md](notifications.md)） | `none` |
 | `notify.success` | 録音済みの通知を通知先に送るか。`false` でも Web UI の履歴には残る。ほかの通知は止められない | `true` |
 | `notify.discord_webhook` | 通知を送る Discord の Webhook の URL（`channel` が `discord` のとき要る）。秘密 | 空 |
@@ -75,13 +78,14 @@ rajikura の設定（保存先・通知先・会員種別など、動かし方�
 `membership` は録音期限の日数を決める。
 
 - 放送回の録音期限は、その放送回の終了時刻が属する放送日の終わり（翌 05:00）に、会員種別の日数（非会員・エリアフリーは 7 日、タイムフリー30・ダブルプランは 30 日）を足した時刻。
+- タイムフリー30 の対象外の放送回（番組表の `tsplus_in_ng` が 0 でない放送回）は、タイムフリー30・ダブルプランでも 7 日。`tsplus_in_ng` をこの意味に読むのは名前からの推測で、確かめていない。
 - タイムフリーの対象外の放送回（[ライブ録音](recording.md#ライブ録音)で録る）の録音期限は、会員種別によらず放送の終了の 5 分後。
 
 保存先の局名（フォルダ名と `album_artist` のタグ）は、radiko の局名がそのまま使われ、設定では変えない（[ADR 0004](adr/0004-station-name-from-radiko.md)）。
 
 ## 秘密
 
-秘密（用語は [GLOSSARY.md](../GLOSSARY.md)）は、`notify.discord_webhook`・`notify.slack_webhook`・`notify.smtp.password`・`jellyfin.api_key` の 4 つ。
+秘密（用語は [GLOSSARY.md](../GLOSSARY.md)）は、`notify.discord_webhook`・`notify.slack_webhook`・`notify.smtp.password`・`jellyfin.api_key`・`radiko.password` の 5 つ。
 
 - DB の中では暗号化し（AES-256-GCM）、鍵はデータのフォルダの `rajikura.key` に置く。
 - Web UI・API は秘密の値を返さず、設定済みかどうかだけを返す。エラーにもログにも出さない。
@@ -94,6 +98,34 @@ rajikura の設定（保存先・通知先・会員種別など、動かし方�
 - 人が秘密を入れ直したときに、鍵のファイルを読み直し、使えればそれを使う（起動の後に鍵のファイルを戻したときは、戻した鍵を使う）。
 - 新しい鍵を作るのは、鍵のファイルが無いときと、中身が鍵として読めないときだけ。権限などで鍵のファイルを読めないときは、新しい鍵を作らず、入れ直しもエラーになる。
 - 使っている通知先や Jellyfin の秘密が復号できないままだと、ほかのキーを変える保存もエラーになる。その秘密も一緒に入れ直す。
+
+## 会員種別と radiko のログイン（`membership`）
+
+会員種別は、radiko と契約している会員種別を人が選ぶ（[ADR 0030](adr/0030-radiko-login-follows-chosen-membership.md)）。rajikura は radiko の応答から会員種別を決めない。
+
+- `free` 以外なら、rajikura は radiko のログイン情報（`radiko.mail` と `radiko.password`）で radiko のログインを行い、会員として録る。
+- エリアフリー（`areafree`・`double`）では、自分のエリアの外の局も録れる。
+- タイムフリー30（`timefree30`・`double`）では、放送から 30 日までの放送回を録れる。
+- `free` 以外なのにログイン情報がそろっていない保存（ログイン情報を消す保存を含む）は、エラーにして何も当てない。ログイン情報を消すときは、`membership` を `free` にして一緒に送る。
+
+radiko のログインは、次のように行う。
+
+- `serve` を起動した後に、初めて radiko の認証が要るとき（録音・番組表）に 1 回行う。得たセッションはメモリにだけ持ち、DB とバックアップには入れない。
+- radiko がセッションを拒んだときだけ、radiko のログインをし直す。radiko からログアウトはしない。
+- 会員種別かログイン情報を保存したら、持っているセッションを捨て、次に認証が要るときに radiko のログインをし直す（`free` にしたら、radiko のログインをしない）。
+
+radiko が radiko のログインを拒んだら、非会員として録り続ける。
+
+- 自分のエリアの 7 日以内の放送回は録れる。エリアの外の局と、放送から 8 日目以降の放送回は、試行の失敗として再試行を待つ。
+- サービスの異常（radiko のログインの失敗）として通知し、Web UI の上部の帯にも出す（[notifications.md](notifications.md)）。radiko のログインの応答のエリアフリーの値が、選んだ会員種別と食い違うときも同じ。
+- 拒まれた後は、会員種別かログイン情報を保存するか、`serve` を再起動するまで、radiko のログインをし直さない。
+- 通信の失敗や radiko の 5xx は、拒まれたとは扱わず、一時的な失敗として、次の認証でもう一度 radiko のログインをする。
+- 拒まれたかは、radiko のログインの応答が 200 でも 5xx でもないか、セッションが空かで決める。本物の radiko が拒むときの応答は、確かめていない。
+
+会員種別を保存したら、再起動しなくてもすぐに効く。
+
+- 録音期限・再試行・番組表の API が答える放送日の範囲は、そのときの会員種別から決める。
+- まだ終わっていないジョブ（`waiting`・`retrying`・`skipped`）の録音期限は、新しい会員種別で付け直す。`done`・`expired` のジョブは付け直さない。
 
 ## m4a への格納（`muxer`）
 
@@ -146,7 +178,7 @@ radiko がタイムフリーの番組に付けるチャプター（用語集の�
 
 - 有効にしている間は、最大 60 秒古い番組表が返りうる。60 秒を過ぎたら radiko に変わったかを尋ね、変わっていれば差し替える。
 - DB には持たない。`serve` を再起動したら空から始める。
-- 持つのは、放送日が今日の 7 日前（`timefree30`・`double` では 30 日前）から 7 日先までの分だけ。
+- 持つのは、放送日が今日の 30 日前から 7 日先までの分だけ（会員種別によらない）。
 - 合計が `radiko.program_cache_mb` を超えたら、最も長く使っていないものから捨てる。
 - 使用量（件数と合計の大きさ）を Info のログ「番組表のキャッシュ」に出す。
 

@@ -159,7 +159,10 @@ func TestApplyErrors(t *testing.T) {
 		{"保存先が相対パス", `{"library": "lib"}`, "絶対パス"},
 		{"バックアップの取る先が相対パス", `{"backup_dir": "bk"}`, "backup_dir"},
 		{"バックアップの残す数が 0", `{"backup_keep": 0}`, "backup_keep は 1 以上"},
-		{"未対応の会員種別", `{"membership": "areafree"}`, "未対応"},
+		{"ログイン情報の無い会員種別", `{"membership": "areafree"}`, "radiko.mail・radiko.password"},
+		{"パスワードの無い会員種別", `{"membership": "double", "radiko": {"mail": "me@example.com"}}`, SecretRadikoPassword},
+		{"メールアドレスの無い会員種別", `{"membership": "timefree30", "radiko": {"password": "TOPSECRET-PASS"}}`, "radiko.mail"},
+		{"radiko.mail が読めない", `{"radiko": {"mail": "me"}}`, "radiko.mail"},
 		{"不明な会員種別", `{"membership": "gold"}`, "不明な会員種別"},
 		{"未対応のプリセット", `{"preset": "plex"}`, "未対応"},
 		{"知らない muxer", `{"muxer": "go"}`, "muxer \"go\" は知らない"},
@@ -247,5 +250,53 @@ func TestFromStored(t *testing.T) {
 	}
 	if got, err := FromStored(Patch{Muxer: ptr(MuxerFFmpeg)}); err != nil || got.Muxer != MuxerFFmpeg {
 		t.Fatalf("muxer ffmpeg: %q, %v", got.Muxer, err)
+	}
+}
+
+// 会員種別は 4 つとも保存できる。free 以外では、ログイン情報（radiko.mail と radiko.password）がそろっていなければ断る
+// （そろっていない秘密を消す保存も断る）。
+func TestApplyMembership(t *testing.T) {
+	for _, m := range []string{"areafree", "timefree30", "double"} {
+		t.Run(m, func(t *testing.T) {
+			c, err := apply(withLibrary(t), `{"membership": "`+m+`", "radiko": {"mail": "me@example.com", "password": "TOPSECRET-PASS"}}`)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(c.Membership) != m || c.RadikoMail != "me@example.com" || c.RadikoPassword != "TOPSECRET-PASS" {
+				t.Fatalf("got %+v", c)
+			}
+			// パスワードを消す保存・メールアドレスを空にする保存は断る。
+			for _, body := range []string{`{"radiko": {"password": ""}}`, `{"radiko": {"mail": ""}}`} {
+				if _, err := apply(c, body); err == nil || !strings.Contains(err.Error(), "ログイン情報") || strings.Contains(err.Error(), "TOPSECRET") {
+					t.Fatalf("%s: err = %v, want ログイン情報が無い", body, err)
+				}
+			}
+			// 非会員に戻せば、ログイン情報を消せる。
+			c, err = apply(c, `{"membership": "free", "radiko": {"mail": "", "password": ""}}`)
+			if err != nil || c.Membership != domain.MembershipFree || c.RadikoMail != "" || c.RadikoPassword != "" {
+				t.Fatalf("free に戻す: %+v, %v", c, err)
+			}
+		})
+	}
+}
+
+// radiko.password は秘密: Secrets で拾い、WithoutSecrets と Values には入れない。radiko.mail は Values に入る。
+func TestRadikoPasswordIsSecret(t *testing.T) {
+	mail, pass := "me@example.com", "TOPSECRET-PASS"
+	p := Patch{Radiko: &RadikoPatch{Mail: &mail, Password: &pass}}
+	if got := p.Secrets(); got[SecretRadikoPassword] != pass || len(got) != 1 {
+		t.Fatalf("Secrets = %v", got)
+	}
+	if w := p.WithoutSecrets(); w.Radiko.Password != nil || *w.Radiko.Mail != mail || p.Radiko.Password == nil {
+		t.Fatalf("WithoutSecrets = %+v（元の Patch は変えない）", w.Radiko)
+	}
+	c := Default()
+	c.RadikoMail, c.RadikoPassword = mail, pass
+	v := Values(c)
+	if *v.Radiko.Mail != mail || v.Radiko.Password != nil {
+		t.Fatalf("Values = %+v", v.Radiko)
+	}
+	if c.Secret(SecretRadikoPassword) != pass {
+		t.Fatal("Secret(radiko.password)")
 	}
 }

@@ -35,6 +35,7 @@ var emailSubjects = map[string]string{
 	KindUnmatchedDay: "当たらない日",
 	KindSync:         "番組表の同期の失敗",
 	KindOutOfArea:    "エリア外",
+	KindLogin:        "radiko のログインの失敗",
 	KindBackup:       "バックアップの失敗",
 	KindWake:         "スリープから起こせない",
 	KindRescan:       "再スキャンの失敗",

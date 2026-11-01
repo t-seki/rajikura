@@ -149,7 +149,7 @@ func (u *UI) readNotification(w http.ResponseWriter, r *http.Request) {
 }
 
 type anomalyView struct {
-	// Kind は異常の種類（notify.KindSync・notify.KindOutOfArea・notify.KindBackup・notify.KindWake・notify.KindRescan）。
+	// Kind は異常の種類（notify.KindSync・notify.KindOutOfArea・notify.KindLogin・notify.KindBackup・notify.KindWake・notify.KindRescan）。
 	// 足したら直す: サービスの異常
 	Kind string `json:"kind"`
 	// Message は異常の始まりの通知の本文。Since はその通知を作った時刻。

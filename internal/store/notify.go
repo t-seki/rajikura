@@ -15,7 +15,7 @@ type Notification struct {
 	ID int64
 	// Kind は通知の種類（notify.Kinds のどれか）。
 	Kind string
-	// Anomaly は、サービスの異常の行（始まりと復旧）なら、どの異常か（notify.KindSync・notify.KindOutOfArea・notify.KindBackup・notify.KindWake・notify.KindRescan）。
+	// Anomaly は、サービスの異常の行（始まりと復旧）なら、どの異常か（notify.KindSync・notify.KindOutOfArea・notify.KindLogin・notify.KindBackup・notify.KindWake・notify.KindRescan）。
 	// ジョブの出来事は空。
 	// 足したら直す: サービスの異常
 	Anomaly string

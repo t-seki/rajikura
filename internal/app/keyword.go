@@ -85,7 +85,7 @@ func (a *App) applyKeywords(ctx context.Context) ([]string, error) {
 	changes, err := a.Store.ApplyKeywords(ctx, today, now, func(st store.KeywordState) store.KeywordChanges {
 		plan := domain.PlanKeywords(domain.KeywordInput{
 			Keywords: st.Keywords, Hits: hits, Shows: st.Shows, Jobs: st.Jobs, Recorded: st.Recorded,
-			Pending: st.Pending, LimitNotified: st.LimitNotified, MaxPending: max, Now: now, Membership: a.Membership,
+			Pending: st.Pending, LimitNotified: st.LimitNotified, MaxPending: max, Now: now, Membership: a.membership(),
 		})
 		var ns []store.Notification
 		for _, add := range plan.Additions {

@@ -1,4 +1,4 @@
-// Package radiko は radiko からの取得（認証・番組表・局情報・タイムフリーの音声・ライブの音声・タイムフリーのチャプター）を担うクライアント。
+// Package radiko は radiko からの取得（radiko のログイン・認証・番組表・局情報・タイムフリーの音声・ライブの音声・タイムフリーのチャプター）を担うクライアント。
 //
 // 取得は標準ライブラリだけで行い、yt-dlp や ffmpeg は使わない（ADR 0001）。
 // 音声は ADTS のまま io.Writer に書く。
@@ -76,9 +76,11 @@ type Client struct {
 	ChapterHost string
 	// RequestTimeout は HTTP の要求 1 回ごとのタイムアウト。1 回の取得全体には ctx でかける。
 	RequestTimeout time.Duration
-	// PlaylistType はタイムフリーのプレイリストの type。空なら "b"。
-	// ログイン（type=c と radiko_session）は未実装で、後から足すときのための口。
-	PlaylistType string
+	// Account は radiko のログインに使うログイン情報を返す（login.go）。nil か、false を返したら非会員として認証する。
+	// 認証のたびに呼ぶので、設定を保存したら次の認証から効く（持っているセッションは ResetLogin で捨てる）。
+	Account func() (Account, bool)
+	// OnLogin は、radiko のログインを試すたびに、その結果を渡して呼ぶ（nil なら呼ばない）。認証の中で呼ぶので、待たせない。
+	OnLogin func(LoginEvent)
 	// Now は現在時刻。テストで差し替える。
 	Now func() time.Time
 	// LivePollInterval はライブの medialist を取り直す間隔、LiveRetryInterval は失敗してから繋ぎ直すまでの待ち。
@@ -87,6 +89,8 @@ type Client struct {
 
 	// progCache は番組表のキャッシュ。EnableProgramCache で有効にする。
 	progCache *programCache
+	// login は radiko のログインのセッション（login.go）。
+	login loginState
 }
 
 // NewClient は既定値の Client を返す。
@@ -97,7 +101,6 @@ func NewClient() *Client {
 		ProgramHost:    DefaultProgramHost,
 		ChapterHost:    DefaultChapterHost,
 		RequestTimeout: DefaultRequestTimeout,
-		PlaylistType:   "b",
 		Now:            time.Now,
 	}
 }
@@ -116,11 +119,20 @@ func (c *Client) httpClient() *http.Client {
 	return http.DefaultClient
 }
 
-func (c *Client) playlistType() string {
-	if c.PlaylistType != "" {
-		return c.PlaylistType
+// playlistType はタイムフリーの再生リストの type。radiko のログインのセッションを付けたトークンなら c、それ以外は b。
+func playlistType(tok Token) string {
+	if tok.Session != "" {
+		return "c"
 	}
 	return "b"
+}
+
+// areaFreeAttr は、トークンで使う再生リストの、ストリーム情報の areafree の値。エリアフリーのトークンなら 1、それ以外は 0。
+func areaFreeAttr(tok Token) string {
+	if tok.AreaFree {
+		return "1"
+	}
+	return "0"
 }
 
 func (c *Client) timeout() time.Duration {

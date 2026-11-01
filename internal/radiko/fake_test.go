@@ -37,6 +37,18 @@ type fakeRadiko struct {
 	gzipPrograms         bool
 	wantFT               string // 空でなければ ft / start_at がこの値であることを検査する
 	wantType             string // プレイリストの type（空なら b）
+
+	// radiko のログイン（login.go）。
+	loginCount    int
+	loginStatus   int    // 0 なら 200
+	loginBody     string // ログインの応答の本文。空なら sessions を順に返す JSON
+	sessions      []string
+	loginAreaFree string // 応答の areafree（JSON の値の表記のまま。空なら "1"）
+	gotMail       string
+	gotPass       string
+	authSessions  []string        // auth2 に付いた radiko_session（付かなければ空）を順に
+	rejectSession map[string]bool // auth2 で 401 にするセッション
+	playlistPaths []string        // マスタの要求のパスを順に
 }
 
 func newFake(t *testing.T) *fakeRadiko {
@@ -48,6 +60,8 @@ func newFake(t *testing.T) *fakeRadiko {
 	mux.HandleFunc("/v3/station/stream/pc_html5/TBS.xml", f.streamXML)
 	mux.HandleFunc("/bad/playlist.m3u8", f.badPlaylist)
 	mux.HandleFunc("/tf/playlist.m3u8", f.playlist)
+	mux.HandleFunc("/areafree/playlist.m3u8", f.playlist)
+	mux.HandleFunc("/v4/api/member/login", f.memberLogin)
 	mux.HandleFunc("/tf/medialist.m3u8", f.medialist)
 	mux.HandleFunc("/seg/", f.segment)
 	mux.HandleFunc("/v3/program/station/date/", f.programs)
@@ -86,10 +100,53 @@ func (f *fakeRadiko) auth2(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad partial key", http.StatusForbidden)
 		return
 	}
+	sess := r.URL.Query().Get("radiko_session")
 	f.mu.Lock()
-	f.validToken = r.Header.Get("X-Radiko-AuthToken")
+	f.authSessions = append(f.authSessions, sess)
+	reject := f.rejectSession[sess]
+	if !reject {
+		f.validToken = r.Header.Get("X-Radiko-AuthToken")
+	}
 	f.mu.Unlock()
+	if reject {
+		http.Error(w, "bad session", http.StatusUnauthorized)
+		return
+	}
 	fmt.Fprint(w, f.areaBody)
+}
+
+// memberLogin は radiko のログイン（POST /v4/api/member/login。本文は mail と pass）。
+func (f *fakeRadiko) memberLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "form", http.StatusBadRequest)
+		return
+	}
+	f.mu.Lock()
+	f.loginCount++
+	f.gotMail, f.gotPass = r.PostForm.Get("mail"), r.PostForm.Get("pass")
+	n := f.loginCount
+	status, body := f.loginStatus, f.loginBody
+	if body == "" {
+		sess := fmt.Sprintf("S%d", n)
+		if n <= len(f.sessions) {
+			sess = f.sessions[n-1]
+		}
+		af := f.loginAreaFree
+		if af == "" {
+			af = `"1"`
+		}
+		body = fmt.Sprintf(`{"radiko_session":%q,"areafree":%s,"member_ukey":"u1"}`, sess, af)
+	}
+	f.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	if status != 0 {
+		w.WriteHeader(status)
+	}
+	fmt.Fprint(w, body)
 }
 
 func (f *fakeRadiko) streamXML(w http.ResponseWriter, r *http.Request) {
@@ -119,6 +176,7 @@ func (f *fakeRadiko) badPlaylist(w http.ResponseWriter, r *http.Request) {
 func (f *fakeRadiko) playlist(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.playlistReq++
+	f.playlistPaths = append(f.playlistPaths, r.URL.Path)
 	if f.expireAtPlaylistReq != 0 && f.playlistReq == f.expireAtPlaylistReq {
 		f.validToken = "expired"
 	}
