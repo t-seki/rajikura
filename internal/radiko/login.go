@@ -102,12 +102,15 @@ func (c *Client) account() (Account, bool) {
 
 // loginSession は認証に付けるセッションを返す。非会員のとき・radiko が radiko のログインを拒んだ後は nil を返す。
 // 持っていなければ radiko のログインをする。ネットワークの失敗・5xx はエラー（ErrTemporary）を返す。
+// ログイン情報（Client.Account）はロックの中で読む。ResetLogin（保存）と重なっても、ResetLogin より前に読んだ古いログイン情報での
+// 結果（拒まれた印やセッション）を、ResetLogin の後に残さないため。
 func (c *Client) loginSession(ctx context.Context) (*session, error) {
+	c.login.mu.Lock()
 	acc, ok := c.account()
 	if !ok {
+		c.login.mu.Unlock()
 		return nil, nil
 	}
-	c.login.mu.Lock()
 	if c.login.sess != nil || c.login.rejected {
 		s := c.login.sess
 		c.login.mu.Unlock()

@@ -44,7 +44,7 @@ import (
 //     復旧（同期が成功した・認証が通った）も通知する。radiko のログインの失敗（LoginResult。radiko が radiko のログインを拒んだ・
 //     radiko のログインの応答のエリアフリーの値が会員種別と食い違う）は、録音のループに限らず、radiko のログインを試した者（録音のループ・
 //     ライブの録音役・番組表の画面の HTTP の goroutine・展開役）が radiko.Client.OnLogin から書き、復旧は次に radiko のログインが通って食い違いも
-//     無いときに書く。バックアップの異常（取れない。BackupIfDue。backup.go）の復旧は、
+//     無いときと、会員種別を非会員にして保存したとき（SettingsApplied。radiko のログインを止めた）に書く。バックアップの異常（取れない。BackupIfDue。backup.go）の復旧は、
 //     次に取れたときと、取る先を空にして自動のバックアップを止めたときに書く。スリープから起こせない見込み（スリープ解除
 //     タイマーの許可が有効でない・この PC はタイマーで起きられない。Windows だけ）の復旧は、次にライブで録るジョブの分の
 //     タイマーを起こせる見込みで掛けられたときに書く（それまでは、タイマーを取り消しても続く）。再スキャンの失敗（頼めなかった・
@@ -369,7 +369,8 @@ func (a *App) authResult(ctx context.Context, log *slog.Logger, err error) {
 
 // LoginResult は radiko のログインの結果（radiko.Client.OnLogin に渡すもの。ADR 0030）を見て、サービスの異常（radiko のログインの
 // 失敗）の始まりか復旧を書く（続いている間は書かない）。radiko が radiko のログインを拒んだとき・radiko のログインの応答のエリアフリーの値が会員種別と
-// 食い違うときに始まりを、radiko のログインが通って食い違いも無いときに復旧を書く。radiko のログインが通ったら、応答の欄の名前と値をログに出す
+// 食い違うときに始まりを、radiko のログインが通って食い違いも無いときに復旧を書く（会員種別を非会員にして保存したときの復旧は
+// SettingsApplied が書く）。radiko のログインが通ったら、応答の欄の名前と値をログに出す
 // （radiko_session の値は伏せてある。タイムフリー30 を表す値を後で見つけるため）。
 // 足したら直す: サービスの異常
 func (a *App) LoginResult(ev radiko.LoginEvent) {

@@ -96,6 +96,61 @@ func TestLoginAreaFreeMismatchNotifies(t *testing.T) {
 	d.expectOne(t, "【復旧】")
 }
 
+// radiko のログインの失敗が続いている間に会員種別を非会員にして保存したら、radiko のログインを止めたことを復旧として閉じる。
+// 非会員のまま、ほかの設定を保存しても書かない。異常が続いていなければ、非会員にしても書かない。
+func TestSettingsAppliedFreeClosesLoginAnomaly(t *testing.T) {
+	e := newFlowEnv(t)
+	d := e.useDiscord()
+	s := &Settings{Store: e.store, Secrets: secret.Load(filepath.Join(t.TempDir(), config.KeyFile)), Log: e.app.log(),
+		Build: func(c config.Config) Runtime {
+			return Runtime{Config: c, Media: e.media, Preset: library.Jellyfin{}, Notifier: e.app.Notifier}
+		}}
+	if err := s.Load(e.ctx); err != nil {
+		t.Fatal(err)
+	}
+	e.app.Live = s.Runtime
+	s.OnApply = e.app.SettingsApplied
+	c := e.app.Fetcher.(*radiko.Client)
+	c.Account = s.RadikoAccount
+	c.OnLogin = e.app.LoginResult
+	e.fake.set(func(f *fakeRadiko) { f.loginReject = true })
+
+	// 異常が続いていないときに非会員を保存しても、復旧は書かない。
+	freeM := string(domain.MembershipFree)
+	if _, err := s.Apply(e.ctx, config.Patch{Membership: &freeM}); err != nil {
+		t.Fatal(err)
+	}
+	e.checkNotifications()
+	d.expectNone(t)
+
+	mail, pass, m := "me@example.com", "pass", string(domain.MembershipAreaFree)
+	if _, err := s.Apply(e.ctx, config.Patch{Membership: &m, Radiko: &config.RadikoPatch{Mail: &mail, Password: &pass}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Authenticate(e.ctx); err != nil {
+		t.Fatal(err)
+	}
+	e.checkNotifications()
+	d.expectOne(t, "【radiko のログインの失敗】")
+
+	// 非会員のまま会員種別を書かずに保存しても閉じない（会員種別は areafree のまま）。
+	keep := 5
+	if _, err := s.Apply(e.ctx, config.Patch{KeywordMaxPending: &keep}); err != nil {
+		t.Fatal(err)
+	}
+	e.checkNotifications()
+	d.expectNone(t)
+
+	if _, err := s.Apply(e.ctx, config.Patch{Membership: &freeM}); err != nil {
+		t.Fatal(err)
+	}
+	e.checkNotifications()
+	d.expectOne(t, "【復旧】", "非会員")
+	if ongoing, err := e.store.AnomalyOngoing(e.ctx, notify.KindLogin); err != nil || ongoing {
+		t.Fatalf("ongoing = %v, %v", ongoing, err)
+	}
+}
+
 // 番組表の tsplus_in_ng を放送回に渡し、0 でなければタイムフリー30・ダブルプランでも録音期限が 7 日になる。
 func TestToAiringsTSPlusInNG(t *testing.T) {
 	as := toAirings([]radiko.Program{
