@@ -59,7 +59,7 @@ function airing(over: Partial<GuideAiring> = {}): GuideAiring {
     description: "",
     descriptionParts: [],
     state: "none",
-    notAvailable: false,
+    notAvailable: false, timeFree30Excluded: false,
     ...over,
   };
 }

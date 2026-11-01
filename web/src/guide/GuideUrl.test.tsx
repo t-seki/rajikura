@@ -29,7 +29,7 @@ function mockApi(routes: Record<string, Handler>) {
 
 const today = broadcastDayOf(new Date());
 const tomorrow = addDays(today, 1);
-const base = { stationId: "TBS", stationName: "TBSラジオ", performer: "", description: "", descriptionParts: [], notAvailable: false };
+const base = { stationId: "TBS", stationName: "TBSラジオ", performer: "", description: "", descriptionParts: [], notAvailable: false, timeFree30Excluded: false };
 const morning: GuideAiring = {
   ...base,
   title: "朝の番組",

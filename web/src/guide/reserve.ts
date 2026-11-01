@@ -28,7 +28,7 @@ import {
 } from "../shows/api";
 import { recordJob, skipJob } from "../jobs/jobsApi";
 import { addOnces, OnceConflict, OnceRefused, type GuideAiring } from "./api";
-import { broadcastClock, broadcastDayOf, clock, hasTrailingMark, liveExpired, titleKey, trimTrailingMark, weekdayOf } from "./format";
+import { broadcastClock, broadcastDayOf, clock, hasTrailingMark, reserveExpired, titleKey, trimTrailingMark, weekdayOf } from "./format";
 
 const message = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
 
@@ -84,7 +84,7 @@ export function groupName(targets: Pick<GuideAiring, "title" | "start">[]): stri
  * 同じ局・同じ放送日で、番組名の末尾の印を落とすと番組名（比べるのは titleKey）が airing と同じになる放送回（タイムフリーの対象外の放送回も含む）を
  * 集め、その中に末尾に印のある放送回が 1 つでもあれば、集めたものを組にする。1 つも無ければ airing だけ（1 日に何度もある
  * 同じ番組名の放送回や、同じ日の再放送を巻き込まないため）。
- * airing のほかのパートのうち、録音期限（放送の終了の 5 分後）を now で過ぎたタイムフリーの対象外の放送回は除く
+ * airing のほかのパートのうち、録音期限を now で過ぎた放送回（タイムフリーの対象外は放送の終了の 5 分後、タイムフリー30 の対象外は放送日の 7 日後）は除く
  * （混ぜると 1 回の予約の API が全体ごと断るため）。予約済みの放送回を除くのは呼ぶ側（番組表の選択）。
  */
 export function autoGroup(airing: GuideAiring, dayAirings: GuideAiring[], now: number = Date.now()): GuideAiring[] {
@@ -95,7 +95,7 @@ export function autoGroup(airing: GuideAiring, dayAirings: GuideAiring[], now: n
   for (const a of dayAirings) {
     if (a.stationId !== airing.stationId || broadcastDayOf(a.start) !== day || titleKey(a.title) !== key) continue;
     if (parts.some((p) => p.start === a.start)) continue;
-    if (a.start !== airing.start && liveExpired(a, now)) continue;
+    if (a.start !== airing.start && reserveExpired(a, now)) continue;
     parts.push(a);
   }
   if (!parts.some(hasMark) && !hasTrailingMark(airing.title)) return [airing];

@@ -119,6 +119,27 @@ export function liveExpired(a: Pick<GuideAiring, "notAvailable" | "end">, now: n
   return a.notAvailable && now >= new Date(a.end).getTime() + LIVE_DEADLINE_AFTER_MS;
 }
 
+/** タイムフリー30 の対象外の表示名。 */
+export const timeFree30ExcludedLabel = "タイムフリー30 の対象外";
+
+/**
+ * タイムフリー30 の対象外の放送回（ライブで録る放送回を除く）が、録音期限（放送日の終わりの 7 日後。domain.AiringDeadline の
+ * 7 日の場合）を now で過ぎたか。過ぎたら録れないので、1 回の予約の API が断る。
+ */
+export function excludedExpired(a: Pick<GuideAiring, "notAvailable" | "timeFree30Excluded" | "end">, now: number = Date.now()): boolean {
+  if (a.notAvailable || !a.timeFree30Excluded) return false;
+  const day = broadcastDayOf(new Date(a.end).getTime() - 1);
+  return now >= dayStart(addDays(day, 8)).getTime();
+}
+
+/** 録音期限を now で過ぎた、1 回の予約で録れない放送回か（ライブで録る放送回の期限切れと、タイムフリー30 の対象外の期限切れ）。 */
+export function reserveExpired(
+  a: Pick<GuideAiring, "notAvailable" | "timeFree30Excluded" | "end">,
+  now: number = Date.now(),
+): boolean {
+  return liveExpired(a, now) || excludedExpired(a, now);
+}
+
 /** 大文字・小文字・全角を問わない `PART`。 */
 const PART = "[PpＰｐ][AaＡａ][RrＲｒ][TtＴｔ]";
 const SP = "[\\s　]";

@@ -172,7 +172,8 @@ type DescriptionPart struct {
 }
 
 // TimeFreeFlags は番組表のタイムフリーの可否のフラグの写し（radiko の ts_in_ng・ts_out_ng・tsplus_in_ng）。
-// 値の解釈はまだ分かっていないので、そのまま持つ（InNG はタイムフリーの対象外、PlusInNG はタイムフリー30 の対象外として読む）。
+// 値はそのまま持つ（InNG はタイムフリーの対象外、PlusInNG はタイムフリー30 の対象外として読む。PlusInNG の読み方は
+// 2026-11-01 に実機で確かめた。ExcludedFromTimeFree30）。
 type TimeFreeFlags struct {
 	InNG  int
 	OutNG int

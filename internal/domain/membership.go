@@ -11,6 +11,11 @@ func (m Membership) AreaFree() bool {
 	return m == MembershipAreaFree || m == MembershipDouble
 }
 
+// HasTimeFree30 は、会員種別がタイムフリー30 を含む（タイムフリー30・ダブルプラン）か。
+func (m Membership) HasTimeFree30() bool {
+	return m == MembershipTimeFree30 || m == MembershipDouble
+}
+
 // Member は、会員種別が非会員でない（radiko のログインが要る）か。
 func (m Membership) Member() bool {
 	return m != MembershipFree

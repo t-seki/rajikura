@@ -35,6 +35,9 @@ package server
 //   - skippable: 「録らない」（POST /api/jobs/{id}/skip）を受け付けるか（ジョブが、試行がまだ 1 度も無い waiting）
 //   - notAvailable: タイムフリーの対象外（ts_in_ng が立っている。domain.Airing.TimeFreeExcluded）。この放送回はライブで録る
 //     （画面は「ライブで録る」と出す）。ほかの放送回と同じく、1 回の予約でも予約できる
+//   - timeFree30Excluded: タイムフリー30 の対象外（tsplus_in_ng が 0 でない。domain.ExcludedFromTimeFree30）で、録音期限が
+//     7 日になる放送回。会員種別がタイムフリー30・ダブルプランのときだけ立つ（非会員・エリアフリーは、もともと 7 日で変わらない）。
+//     画面は「タイムフリー30 の対象外」と出し、7 日を過ぎた放送回には予約の操作を出さない
 
 import (
 	"context"
@@ -210,6 +213,8 @@ type guideAiringJSON struct {
 	SkipBy           string                `json:"skipBy,omitempty"`
 	Skippable        bool                  `json:"skippable"`
 	NotAvailable     bool                  `json:"notAvailable"`
+	// TimeFree30Excluded は、タイムフリー30 の対象外で録音期限が 7 日になる放送回か（会員種別がタイムフリー30・ダブルプランのときだけ）。
+	TimeFree30Excluded bool `json:"timeFree30Excluded"`
 }
 
 type guideStationJSON struct {
@@ -253,6 +258,7 @@ func (r shows) view(a domain.Airing, stationName string) guideAiringJSON {
 		StationID: a.StationID, StationName: stationName, Start: a.Start, End: a.End, Title: a.Title,
 		Performer: a.Performer, Description: a.Description, ImageURL: a.ImageURL,
 		State: stateNone, NotAvailable: a.TimeFreeExcluded(),
+		TimeFree30Excluded: r.membership.HasTimeFree30() && domain.ExcludedFromTimeFree30(a),
 	}
 	out.DescriptionParts = make([]descriptionPartJSON, 0, len(a.DescriptionParts))
 	for _, p := range a.DescriptionParts {

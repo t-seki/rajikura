@@ -34,6 +34,8 @@ export type GuideAiring = {
   skippable?: boolean;
   /** タイムフリーの対象外（ts_in_ng）。ライブで録る（画面は「ライブで録る」と出す）。 */
   notAvailable: boolean;
+  /** タイムフリー30 の対象外（tsplus_in_ng）で、録音期限が 7 日になる放送回か。会員種別がタイムフリー30・ダブルプランのときだけ立つ。 */
+  timeFree30Excluded: boolean;
 };
 
 export type GuideStation = { id: string; name: string; airings: GuideAiring[] };

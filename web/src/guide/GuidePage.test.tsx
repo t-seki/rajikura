@@ -11,6 +11,8 @@ import {
   broadcastDayOf,
   broadcastRange,
   dayLabel,
+  excludedExpired,
+  reserveExpired,
   titleKey,
   trimTrailingMark,
   weekdayOf,
@@ -63,7 +65,7 @@ function airing(over: Partial<GuideAiring> & Pick<GuideAiring, "title" | "start"
     description: "",
     descriptionParts: [],
     state: "none",
-    notAvailable: false,
+    notAvailable: false, timeFree30Excluded: false,
     ...over,
   };
 }
@@ -711,6 +713,47 @@ describe("GuidePage の詳細の出し方", () => {
     expect(dialog).not.toHaveTextContent("放送中にライブで録る");
     expect(within(dialog).queryByRole("button", { name: "この回を録音" })).toBeNull();
     expect(within(dialog).getByRole("button", { name: "毎週録音" })).toBeInTheDocument();
+  });
+
+  it("タイムフリー30 の対象外の放送回には、「タイムフリー30 の対象外」と、7 日を過ぎると録れないことを出す", async () => {
+    const t30 = airing({ title: "番組T", start: at(today, "13:00"), end: at(today, "14:00"), timeFree30Excluded: true });
+    mockApi({ [guideKey(today)]: () => ({ status: 200, body: { day: today, stations: [{ ...stations[0], airings: [t30] }] } }), ...showsRoute });
+    const user = userEvent.setup();
+    renderPage();
+    const dialog = await openDetail(user, /番組T/);
+    expect(within(dialog).getByText("タイムフリー30 の対象外")).toBeInTheDocument();
+    expect(within(dialog).getByText(/放送日から 7 日を過ぎると録れない/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "この回を録音" })).toBeInTheDocument();
+  });
+});
+
+describe("タイムフリー30 の対象外の録音期限", () => {
+  // 29 日前の放送回（日本時間 10/4 01:00〜03:00 は、放送日 10/3 の 25:00〜27:00）の例。放送日 10/3 の 7 日後の終わり（10/11 05:00）が期限
+  const base = { notAvailable: false, timeFree30Excluded: true, end: "2026-10-04T03:00:00+09:00" };
+  const ms = (iso: string) => new Date(iso).getTime();
+
+  it("放送日の終わりの 7 日後（放送日の翌日 05:00 から数えて 7 日目の 05:00）を過ぎたら期限切れ", () => {
+    expect(excludedExpired(base, ms("2026-10-11T04:59:59+09:00"))).toBe(false);
+    expect(excludedExpired(base, ms("2026-10-11T05:00:00+09:00"))).toBe(true);
+  });
+
+  it("05:00 ちょうどに終わる放送回は、前の放送日に属する", () => {
+    const edge = { ...base, end: "2026-10-04T05:00:00+09:00" };
+    expect(excludedExpired(edge, ms("2026-10-11T04:59:59+09:00"))).toBe(false);
+    expect(excludedExpired(edge, ms("2026-10-11T05:00:00+09:00"))).toBe(true);
+  });
+
+  it("対象外でなければ（印が立っていない・ライブで録る）期限切れにしない", () => {
+    const late = ms("2026-11-01T00:00:00+09:00");
+    expect(excludedExpired({ ...base, timeFree30Excluded: false }, late)).toBe(false);
+    expect(excludedExpired({ ...base, notAvailable: true }, late)).toBe(false);
+  });
+
+  it("reserveExpired は、ライブで録る放送回の期限切れも含む", () => {
+    const live = { ...base, notAvailable: true, timeFree30Excluded: false };
+    expect(reserveExpired(live, ms("2026-10-04T03:05:00+09:00"))).toBe(true);
+    expect(reserveExpired(live, ms("2026-10-04T03:04:00+09:00"))).toBe(false);
+    expect(reserveExpired(base, ms("2026-10-11T05:00:00+09:00"))).toBe(true);
   });
 });
 
