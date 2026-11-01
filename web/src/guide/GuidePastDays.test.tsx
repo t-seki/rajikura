@@ -1,7 +1,7 @@
 // 番組表で選べる過去の範囲。会員種別の録音期限（GET /api/guide/areas の pastDays。7 または 30）に合わせる（Shell を通す）。
 
 import { MantineProvider } from "@mantine/core";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Shell } from "../Shell";
@@ -10,11 +10,11 @@ import { addDays, broadcastDayOf } from "./format";
 
 type Handler = () => { status: number; body?: unknown };
 
-function mockApi(pastDays: number) {
+function mockApi(pastDays: number, areasFail = false) {
   const calls: string[] = [];
   const routes: Record<string, Handler> = {
     "GET /api/guide/areas": () => ({
-      status: 200,
+      status: areasFail ? 502 : 200,
       body: { own: "JP13", switchable: false, pastDays, areas: [{ id: "JP13", name: "東京都" }] } satisfies GuideAreas,
     }),
     "GET /api/shows": () => ({ status: 200, body: [] }),
@@ -53,6 +53,14 @@ async function optionCount() {
   return screen.getAllByRole("option", { hidden: true }).length;
 }
 
+/** エリアの一覧の応答が画面に反映されるまで待つ（呼ばれたのを見てから、応答の処理を流す）。 */
+async function areasApplied(calls: string[]) {
+  await vi.waitFor(() => expect(calls).toContain("GET /api/guide/areas"));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+}
+
 beforeEach(() => {
   window.localStorage.clear();
   window.history.replaceState(null, "", "/");
@@ -69,9 +77,10 @@ describe("番組表で選べる過去の範囲", () => {
   });
 
   it("非会員のとき、選べるのは 7 日前まで", async () => {
-    mockApi(7);
+    const calls = mockApi(7);
     renderShell();
     await screen.findByText("この放送日の番組表は空。");
+    await areasApplied(calls);
     expect(await optionCount()).toBe(7 + 7 + 1);
   });
 
@@ -92,5 +101,22 @@ describe("番組表で選べる過去の範囲", () => {
     await screen.findByText("この放送日の番組表は空。");
     expect(calls).toContain(`GET /api/guide?day=${today}`);
     expect(calls).not.toContain(`GET /api/guide?day=${old}`);
+  });
+
+  it("エリアの一覧を読めないときは 7 日前まで。「戻る」などで 7 日より前の放送日に移っても今日にする", async () => {
+    const calls = mockApi(30, true);
+    renderShell();
+    await screen.findByText("この放送日の番組表は空。");
+    await areasApplied(calls);
+    const old = addDays(today, -30);
+    await act(async () => {
+      window.history.pushState(window.history.state, "", `/?day=${old}`);
+      window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(calls).not.toContain(`GET /api/guide?day=${old}`);
+    expect(await optionCount()).toBe(7 + 7 + 1);
   });
 });

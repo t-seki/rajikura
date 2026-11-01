@@ -733,6 +733,8 @@ export function GuidePage({
 } = {}) {
   const today = useMemo(() => broadcastDayOf(new Date()), []);
   const [pastDays, setPastDays] = useState(DEFAULT_PAST_DAYS);
+  // エリアの一覧の読みが終わったか（読めなかったときも true。pastDays が確かな値になったか）
+  const [areasSettled, setAreasSettled] = useState(false);
   const days = useMemo(() => Array.from({ length: pastDays + FUTURE_DAYS + 1 }, (_, i) => addDays(today, i - pastDays)), [today, pastDays]);
   // 開いたときの URL のクエリ（onNavigate が無ければ使わない）。放送日は、会員種別が分かる前なので最大の範囲で見る
   const [initial] = useState(() => parseGuideQuery(onNavigate ? urlSearch : "", widestDays(today)));
@@ -811,6 +813,7 @@ export function GuidePage({
         setAreas(got);
         const past = Math.min(Math.max(got.pastDays || DEFAULT_PAST_DAYS, DEFAULT_PAST_DAYS), MAX_PAST_DAYS);
         setPastDays(past);
+        setAreasSettled(true);
         setDay((d) => (d < addDays(today, -past) ? today : d));
         const a = areaRef.current;
         if (a && (!got.switchable || a === got.own || !got.areas.some((x) => x.id === a))) setArea("");
@@ -819,6 +822,7 @@ export function GuidePage({
       () => {
         if (!live) return;
         setAreas(null);
+        setAreasSettled(true);
         setDay((d) => (d < addDays(today, -DEFAULT_PAST_DAYS) ? today : d));
         if (areaRef.current) setArea("");
         setAreaChecked(true);
@@ -1065,7 +1069,7 @@ export function GuidePage({
     if (!onNavigate) return;
     // 放送日は、会員種別が分かる前（エリアの一覧を読む前）は最大の範囲で見る（読んだ後の範囲の外は、一覧を読んだときに今日にする）
     const u = parseGuideQuery(urlSearch, widestDays(today));
-    const d = u.day && (!areas || u.day >= addDays(today, -pastDays)) ? u.day : today;
+    const d = u.day && (!areasSettled || u.day >= addDays(today, -pastDays)) ? u.day : today;
     if (d !== day) setDay(d);
     // 切り替えられないエリアは自分のエリアにする（エリアの一覧を読む前は、そのまま持っておいて一覧で確かめる）
     const ua = areas && (!areas.switchable || u.area === areas.own || !areas.areas.some((x) => x.id === u.area)) ? "" : u.area;
