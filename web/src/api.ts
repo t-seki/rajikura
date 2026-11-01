@@ -35,11 +35,11 @@ async function stateOf(res: Response): Promise<AuthState | null> {
   return null;
 }
 
-/** /api/me の結果。authenticated のときだけ rajikura の版（version）が付く。 */
 /** GET /api/me の応答の本文（200 のとき）。 */
 export type MeBody = { version: string };
 
-export type Me ={ state: AuthState; version: string };
+/** /api/me の結果。authenticated のときだけ rajikura の版（version）が付く。 */
+export type Me = { state: AuthState; version: string };
 
 export async function fetchMe(): Promise<Me> {
   const res = await fetch("/api/me", { credentials: "same-origin" });

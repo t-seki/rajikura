@@ -1,6 +1,7 @@
 // pnpm dev:mock（vite --mode mock）のときだけ、/api をダミーのデータで答える Vite のプラグイン。
 // rajikura serve にも radiko にもつながらない。読み出し（GET）だけ答え、書き込みは 405 で断る。例外は POST /api/notifications/read（通知の画面が開くたびに呼ぶ）だけで、何もせず本物と同じ形（{"marked": 0}）で答える。
-// 各口の応答は `satisfies <src の *Api.ts の応答の型>` で型を突き合わせる（形が食い違うと pnpm typecheck が落ちる）。口を足すときも同じにする。
+// GET の口の応答は `satisfies <src の *Api.ts の応答の型>` で型を突き合わせる（形が食い違うと pnpm typecheck が落ちる）。GET の口を足すときも同じにする。
+// 型を付けないのは、src が応答の形を読まない POST /api/notifications/read の { marked: 0 } と、エラーの { error }。
 // pnpm build の成果物には入らない（vite.config.ts が mode が mock のときだけ足し、apply も serve に限る）。
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Plugin } from "vite";
