@@ -484,7 +484,7 @@ func TestChapterWaitClearedByRerecord(t *testing.T) {
 	recorded := countKind(e.kinds(), notify.KindRecorded)
 	now := afterBroadcast.Add(10 * time.Minute)
 	e.clock.Set(now)
-	if err := e.store.Rerecord(e.ctx, j.ID, now); err != nil {
+	if err := e.store.Rerecord(e.ctx, j.ID, domain.MembershipFree, now); err != nil {
 		t.Fatal(err)
 	}
 	if got := e.job(flatShow.Name); got.Chapters != domain.ChaptersNotAdded || !got.ChapterCheckAt.IsZero() || len(got.ChapterWaits) != 0 || got.ChapterRefetch {

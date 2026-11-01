@@ -28,9 +28,10 @@ rajikura の設計の決定と、その理由をまとめる。どの ADR も、
 | [0022](0022-live-recording-for-timefree-excluded-airings.md) | タイムフリーの対象外の放送回だけを、別の録音役でライブで録る | ライブ録音の方式・同時に録る数・保存のやり直し |
 | [0023](0023-windows-tray-embedded-and-linked-by-loopback.md) | Windows のトレイは別の exe にして rajikura.exe に埋め込み、ループバックの受け口で連携する | トレイの入れ方と、API トークンの渡し方 |
 | [0024](0024-web-ui-url-per-screen.md) | Web UI は画面ごとに URL を分け、ルーティングに wouter を使う | 画面の URL と、通知から画面を開くリンク |
-| [0025](0025-rerecord-done-job-separately-from-manual-retry.md) | 録音済みのジョブの録り直しは、手動再試行とは別の操作にする | 録り直しの受け付けと、前のファイルの扱い |
+| [0025](0025-rerecord-done-job-separately-from-manual-retry.md) | 録音済みのジョブの録り直しは、手動再試行とは別の操作にする（置き換え済み（→ 0031）） | 録り直しの受け付けと、前のファイルの扱い |
 | [0026](0026-job-id-not-reused.md) | ジョブの id は使い回さない | `jobs.id` を AUTOINCREMENT にする |
 | [0027](0027-chapters-refetched-by-rerecording.md) | チャプターはタイムフリーからの録音の保存のときに取り、取れなければできるのを待って録り直して入れる | チャプターの取り方・形と、チャプターの取り直し |
 | [0028](0028-publish-as-oss-under-radiko-terms.md) | radiko の規約の第 4 条を承知で、ソースを公開した OSS として配る | 公開の立場と、守ること |
 | [0029](0029-weekly-until-over-title-based-handover.md) | 番組の切り替えは毎週の予約の終了日で前もって決め、矛盾を番組名で振り分けない | 毎週の予約の終了日 |
 | [0030](0030-radiko-login-follows-chosen-membership.md) | radiko のログインは人が選んだ会員種別に従い、拒まれたら非会員として録る | 会員種別の決め方、radiko のログインのセッションと、拒まれたときの扱い |
+| [0031](0031-rerecord-deadline-follows-current-membership.md) | 録音済みのジョブの録り直しは手動再試行とは別の操作にし、受け付けるかは今の会員種別の録音期限で決める | 録り直しの受け付けと、前のファイルの扱い、録り直しの録音期限 |

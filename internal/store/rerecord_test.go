@@ -11,7 +11,7 @@ import (
 
 // 録り直しは、done のタイムフリーから録るジョブで録音期限の内側のものを retrying・試行回数 0・次の試行を今にする。保存先・
 // 欠落の印・期限間近を通知した時刻・試行の履歴は変えない。done でない・ライブで録るジョブ・録音期限を過ぎたジョブは、
-// 理由を分けて拒み、状態を変えない（ADR 0025）。
+// 理由を分けて拒み、状態を変えない（ADR 0031）。
 func TestRerecord(t *testing.T) {
 	ctx := context.Background()
 	s, _ := openTemp(t)
@@ -37,7 +37,7 @@ func TestRerecord(t *testing.T) {
 	if _, err := s.db.ExecContext(ctx, `UPDATE jobs SET deadline_notified_at = ? WHERE id = ?`, notified, id); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Rerecord(ctx, id, now); err != nil {
+	if err := s.Rerecord(ctx, id, domain.MembershipFree, now); err != nil {
 		t.Fatal(err)
 	}
 	j, err := s.GetJob(ctx, id)
@@ -72,12 +72,12 @@ func TestRerecord(t *testing.T) {
 		{"expired", insert(t, domain.StateExpired, flat2), now, domain.ErrInvalidTransition, domain.StateExpired},
 		{"waiting", insert(t, domain.StateWaiting, flat2), now, domain.ErrInvalidTransition, domain.StateWaiting},
 		{"ライブで録るジョブ", insert(t, domain.StateDone, liveAiring(flat2)), now, domain.ErrRerecordLive, domain.StateDone},
-		{"録音期限を過ぎた", insert(t, domain.StateDone, flat2), deadline, domain.ErrRerecordPastDeadline, domain.StateDone},
+		{"録音期限を過ぎた", insert(t, domain.StateDone, flat2), jst(2026, 10, 13, 5, 0), domain.ErrRerecordPastDeadline, domain.StateDone},
 		{"無いジョブ", 999, now, ErrNotFound, ""},
 	}
 	for _, tt := range refusals {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := s.Rerecord(ctx, tt.id, tt.now); !errors.Is(err, tt.want) {
+			if err := s.Rerecord(ctx, tt.id, domain.MembershipFree, tt.now); !errors.Is(err, tt.want) {
 				t.Fatalf("Rerecord = %v, want %v", err, tt.want)
 			}
 			if tt.state == "" {
@@ -114,4 +114,45 @@ func TestManualRetryStillRefusesDone(t *testing.T) {
 func liveAiring(a domain.Airing) domain.Airing {
 	a.TimeFree.InNG = 2
 	return a
+}
+
+// 録り直しを受け付けるかと、書き換える録音期限は、今の会員種別で決める（ADR 0031）。DB の録音期限が非会員のころの
+// 7 日のままでも、タイムフリー30 なら 30 日の録音期限になり、非会員なら断る。
+func TestRerecordUsesCurrentMembership(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openTemp(t)
+	now := jst(2026, 10, 20, 12, 0)  // flat2（10/5）から 15 日後
+	stale := jst(2026, 10, 13, 5, 0) // 非会員のころの録音期限（7 日）
+	insert := func(t *testing.T, a domain.Airing) int64 {
+		t.Helper()
+		id, err := s.InsertJob(ctx, domain.Job{ShowName: "x", Day: day, State: domain.StateDone, Airings: []domain.Airing{a},
+			Attempts: 1, NextAttemptAt: jst(2026, 10, 5, 11, 5), Deadline: stale, OutputPath: "/lib/x.m4a"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	excluded := flat2
+	excluded.TimeFree.PlusInNG = 1
+
+	if err := s.Rerecord(ctx, insert(t, flat2), domain.MembershipFree, now); !errors.Is(err, domain.ErrRerecordPastDeadline) {
+		t.Errorf("非会員 = %v, want ErrRerecordPastDeadline", err)
+	}
+	if err := s.Rerecord(ctx, insert(t, excluded), domain.MembershipTimeFree30, now); !errors.Is(err, domain.ErrRerecordPastDeadline) {
+		t.Errorf("タイムフリー30・対象外の放送回 = %v, want ErrRerecordPastDeadline", err)
+	}
+	for _, m := range []domain.Membership{domain.MembershipTimeFree30, domain.MembershipDouble} {
+		id := insert(t, flat2)
+		if err := s.Rerecord(ctx, id, m, now); err != nil {
+			t.Fatalf("%s: %v", m, err)
+		}
+		j, err := s.GetJob(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := jst(2026, 11, 5, 5, 0) // 放送日 10/5 の終わりに 30 日
+		if j.State != domain.StateRetrying || !j.Deadline.Equal(want) {
+			t.Errorf("%s: state=%s deadline=%v, want retrying %v", m, j.State, j.Deadline, want)
+		}
+	}
 }

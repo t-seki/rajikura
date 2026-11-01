@@ -170,19 +170,35 @@ var (
 	ErrRerecordPastDeadline = errors.New("録音期限を過ぎているので録り直せない")
 )
 
-// CheckRerecord は、録り直し（ADR 0025）を受け付けるかを確かめ、受け付けなければ理由のエラーを返す。受け付けるのは、done の
-// タイムフリーから録るジョブ（Job.Live が false）で、録音期限の内側（Deadline が now より後）のものだけ。done でなければ
-// ErrInvalidTransition、ライブで録るジョブなら ErrRerecordLive、録音期限を過ぎていれば ErrRerecordPastDeadline を包む。
+// RerecordDeadline は、録り直しを受け付けるときの録音期限。ジョブの放送回と今の会員種別 m から求める（JobDeadline）。
+// DB の録音期限（Job.Deadline）は、ジョブを作った時点か、終わっていないうちに会員種別を保存した時点の会員種別のもので、
+// done のジョブは会員種別を保存しても付け直さない（ADR 0030）ので、録り直しはこちらで決める。放送回が無ければ Job.Deadline。
+func RerecordDeadline(j Job, m Membership) time.Time {
+	if d := JobDeadline(j.Airings, m); !d.IsZero() {
+		return d
+	}
+	return j.Deadline
+}
+
+// CheckRerecord は、録り直し（ADR 0031）を受け付けるかを確かめ、受け付けなければ理由のエラーを返す。受け付けるのは、done の
+// タイムフリーから録るジョブ（Job.Live が false）で、録音期限（RerecordDeadline。今の会員種別 m で求める）の内側のものだけ。
+// done でなければ ErrInvalidTransition、ライブで録るジョブなら ErrRerecordLive、録音期限を過ぎていれば ErrRerecordPastDeadline を包む。
 // ライブ録音で録れた分を残している間の例外（ManualRetryInTime）は当てない。internal/store の Rerecord と internal/server の
 // Rerecordable が、食い違わないようにこれを使う。
 // 足したら直す: ジョブの状態の移り方
-func CheckRerecord(j Job, now time.Time) error {
+func CheckRerecord(j Job, m Membership, now time.Time) error {
+	return CheckRerecordUntil(j, RerecordDeadline(j, m), now)
+}
+
+// CheckRerecordUntil は CheckRerecord の、録音期限 deadline を呼び出し側が決める版。
+// 足したら直す: ジョブの状態の移り方
+func CheckRerecordUntil(j Job, deadline, now time.Time) error {
 	switch {
 	case j.State != StateDone:
 		return fmt.Errorf("%w: %s は録り直せない", ErrInvalidTransition, j.State)
 	case j.Live():
 		return ErrRerecordLive
-	case !j.Deadline.After(now):
+	case !deadline.After(now):
 		return ErrRerecordPastDeadline
 	}
 	return nil

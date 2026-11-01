@@ -61,7 +61,7 @@ func TestRerecordOverwritesPrev(t *testing.T) {
 	for i := 1; i <= 2; i++ {
 		now := afterBroadcast.Add(time.Duration(i) * time.Hour)
 		e.clock.Set(now)
-		if err := e.store.Rerecord(e.ctx, j.ID, now); err != nil {
+		if err := e.store.Rerecord(e.ctx, j.ID, domain.MembershipFree, now); err != nil {
 			t.Fatal(err)
 		}
 		if !e.runDue() {
@@ -117,7 +117,7 @@ func TestRerecordPartialAtDeadlineKeepsPrev(t *testing.T) {
 	kinds := e.kinds()
 	now := afterBroadcast.Add(time.Hour)
 	e.clock.Set(now)
-	if err := e.store.Rerecord(e.ctx, j.ID, now); err != nil {
+	if err := e.store.Rerecord(e.ctx, j.ID, domain.MembershipFree, now); err != nil {
 		t.Fatal(err)
 	}
 	// 2 つ目の放送回だけ取れない。
@@ -160,7 +160,7 @@ func TestRerecordExpiredKeepsPrev(t *testing.T) {
 	expired := countKind(e.kinds(), notify.KindExpired)
 	now := afterBroadcast.Add(time.Hour)
 	e.clock.Set(now)
-	if err := e.store.Rerecord(e.ctx, j.ID, now); err != nil {
+	if err := e.store.Rerecord(e.ctx, j.ID, domain.MembershipFree, now); err != nil {
 		t.Fatal(err)
 	}
 	e.fake.set(func(f *fakeRadiko) { f.noTimefree = true })
