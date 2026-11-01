@@ -99,6 +99,7 @@ groups:
   - ジョブごとに保存先 `outputPath`、欠落の放送回の数 `missingCount`、直近の試行が失敗していればその段階 `lastFailedStage` とエラー `lastError`、局と時刻の組 `stations`（`stationId`・`start`・`end`）を付ける。
   - 組は局ごとに 1 つで、その局の最初の放送回の開始から最後の放送回の終わりまで、開始の順。
   - 並べ替えは画面でする。
+  - ジョブが済んだ時刻を `finishedAt`（RFC 3339）で付け、画面の既定の並びが使う。`done` と `expired` は最後の試行の終わり（`expired` で試行が無ければ録音期限 `deadline`）、確定した `skipped`（録らなかった）は録りにいく時刻 `nextAttemptAt`（確定した時刻そのものではない。人が録らないにした・録音期限で確定したときなどは、実際の確定より前の時刻になりうる）。「これから」のジョブ（`waiting`・`running`・`retrying`・確定の前の `skipped`）と、試行が無い `done` は空文字。
   - 状態は `state` で、`skipped` には確定したか `settled`（`false` なら録らない予定、`true` なら録らなかった）を、人が録る・録らないを決めたジョブには `byPerson` を付ける。
   - [ライブ録音](recording.md#ライブ録音)のジョブか（放送回の 1 つでもタイムフリーの対象外か）は `live` で、全状態のジョブに常に付ける（録る前（`waiting`・確定の前の `skipped`）のジョブの値は、その時点の番組表での見込みで、番組表の同期で変わりうる。拾った後は、その方式で録ったことを表す）。
   - いま受け付ける操作に `retryable`（手動再試行）・`skippable`（録らない）・`recordable`（録る）・`rerecordable`（録り直し）を付ける。

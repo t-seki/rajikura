@@ -61,6 +61,8 @@ export interface JobSummary {
   attempts: number;
   nextAttemptAt: string;
   deadline: string;
+  /** ジョブが済んだ時刻（RFC 3339）。「これから」のジョブと、試行が無い録音済みでは空文字（無い場合もある）。 */
+  finishedAt?: string;
   retryable: boolean;
   /** ライブ録音の録れた分の保存を自動でやり直している間だけ、その打ち切り（放送の終了から 24 時間）。 */
   saveRetryUntil?: string;
