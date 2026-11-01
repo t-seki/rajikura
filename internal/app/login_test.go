@@ -21,6 +21,11 @@ func (e *env) useMember(areaFree bool) *radiko.Client {
 		return radiko.Account{Mail: "me@example.com", Password: "pass", AreaFree: areaFree}, true
 	}
 	c.OnLogin = e.app.LoginResult
+	// LoginResult は、結果が届いた時点の会員種別が非会員なら始まりを書かないので、会員にしておく。
+	e.app.Membership = domain.MembershipTimeFree30
+	if areaFree {
+		e.app.Membership = domain.MembershipAreaFree
+	}
 	return c
 }
 
@@ -97,7 +102,7 @@ func TestLoginAreaFreeMismatchNotifies(t *testing.T) {
 }
 
 // radiko のログインの失敗が続いている間に会員種別を非会員にして保存したら、radiko のログインを止めたことを復旧として閉じる。
-// 非会員のまま、ほかの設定を保存しても書かない。異常が続いていなければ、非会員にしても書かない。
+// 会員（areafree）のまま、会員種別を書かずにほかの設定を保存しても閉じない。異常が続いていなければ、非会員にしても書かない。
 func TestSettingsAppliedFreeClosesLoginAnomaly(t *testing.T) {
 	e := newFlowEnv(t)
 	d := e.useDiscord()
@@ -133,7 +138,7 @@ func TestSettingsAppliedFreeClosesLoginAnomaly(t *testing.T) {
 	e.checkNotifications()
 	d.expectOne(t, "【radiko のログインの失敗】")
 
-	// 非会員のまま会員種別を書かずに保存しても閉じない（会員種別は areafree のまま）。
+	// 会員種別を書かずに、ほかの設定だけを保存しても閉じない（会員種別は areafree のまま）。
 	keep := 5
 	if _, err := s.Apply(e.ctx, config.Patch{KeywordMaxPending: &keep}); err != nil {
 		t.Fatal(err)
@@ -149,6 +154,28 @@ func TestSettingsAppliedFreeClosesLoginAnomaly(t *testing.T) {
 	if ongoing, err := e.store.AnomalyOngoing(e.ctx, notify.KindLogin); err != nil || ongoing {
 		t.Fatalf("ongoing = %v, %v", ongoing, err)
 	}
+}
+
+// radiko のログインの要求の間に会員種別を非会員にして保存したら、後から届いた拒否・食い違いの結果では始まりを書かない。
+// 会員のままなら書く。
+func TestLoginResultAfterSwitchingToFree(t *testing.T) {
+	e := newFlowEnv(t)
+	d := e.useDiscord()
+	m := domain.MembershipFree
+	e.app.Live = func() Runtime { return Runtime{Config: config.Config{Membership: m}, Notifier: e.app.Notifier} }
+	rejected := radiko.LoginEvent{Err: radiko.ErrLoginRejected}
+	mismatch := radiko.LoginEvent{Mismatch: true, AreaFreeValue: "0"}
+	e.app.LoginResult(rejected)
+	e.app.LoginResult(mismatch)
+	e.checkNotifications()
+	d.expectNone(t)
+	if ongoing, err := e.store.AnomalyOngoing(e.ctx, notify.KindLogin); err != nil || ongoing {
+		t.Fatalf("ongoing = %v, %v; want no anomaly for free", ongoing, err)
+	}
+	m = domain.MembershipAreaFree
+	e.app.LoginResult(rejected)
+	e.checkNotifications()
+	d.expectOne(t, "【radiko のログインの失敗】")
 }
 
 // 番組表の tsplus_in_ng を放送回に渡し、0 でなければタイムフリー30・ダブルプランでも録音期限が 7 日になる。
