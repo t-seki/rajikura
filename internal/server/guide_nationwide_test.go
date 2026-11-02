@@ -114,6 +114,30 @@ func TestGuideSearchNationwide(t *testing.T) {
 	}
 }
 
+// stationAreaId は全国の検索だけに付く。自分のエリアの検索と、選んだエリアの検索の放送回には付かない。
+func TestGuideSearchNoStationAreaIDOutsideNationwide(t *testing.T) {
+	e, _, _ := newNationwideUI(t)
+	e.area.others = map[string]map[string][]app.AreaStation{"JP27": {"2026-10-07": {
+		{ID: "ABC", Name: "ABCラジオ", Airings: []domain.Airing{
+			{StationID: "ABC", Start: jst(2026, 10, 7, 20, 0), End: jst(2026, 10, 7, 21, 0), Title: "ネットの番組"},
+		}},
+	}}}
+	for _, path := range []string{"/api/guide/search?q=" + urlQuery("単発"), "/api/guide/search?q=" + urlQuery("ネット") + "&area=JP27"} {
+		var raw struct {
+			Airings []map[string]any `json:"airings"`
+		}
+		e.call("GET", path, "", 200, &raw)
+		if len(raw.Airings) == 0 {
+			t.Fatalf("%s: 放送回が無い", path)
+		}
+		for _, a := range raw.Airings {
+			if _, ok := a["stationAreaId"]; ok {
+				t.Errorf("%s: stationAreaId が付いている: %v", path, a)
+			}
+		}
+	}
+}
+
 // 取れなかった局があっても取れた分を返し、取れなかった局の数を返す。全部取れなかったとき・局の一覧が分からないときは 502。
 func TestGuideSearchNationwideFailures(t *testing.T) {
 	e, nw, _ := newNationwideUI(t)
