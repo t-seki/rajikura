@@ -77,7 +77,7 @@ type Client struct {
 	// RequestTimeout は HTTP の要求 1 回ごとのタイムアウト。1 回の取得全体には ctx でかける。
 	RequestTimeout time.Duration
 	// Account は radiko のログインに使うログイン情報を返す（login.go）。nil か、false を返したら非会員として認証する。
-	// 認証のたびに呼ぶので、設定を保存したら次の認証から効く（持っているセッションは ResetLogin で捨てる）。
+	// 認証のたびに呼ぶので、設定を保存したら次の認証から効く（持っているセッションは ResetLogin で捨てるか、AdoptLogin で保存の時点のセッションに替える）。
 	Account func() (Account, bool)
 	// OnLogin は、radiko のログインを試すたびに、その結果を渡して呼ぶ（nil なら呼ばない）。認証の中で呼ぶので、待たせない。
 	OnLogin func(LoginEvent)

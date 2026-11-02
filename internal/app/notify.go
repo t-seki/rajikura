@@ -47,8 +47,10 @@ import (
 //   - サービスの異常: 番組表の同期が 2 回続けて失敗した（syncLogged）・radiko がエリア外と判定した（authResult）。
 //     復旧（同期が成功した・認証が通った）も通知する。radiko のログインの失敗（LoginResult。radiko が radiko のログインを拒んだ・
 //     radiko のログインの応答のエリアフリーの値が会員種別と食い違う）は、録音のループに限らず、radiko のログインを試した者（録音のループ・
-//     ライブの録音役・番組表の画面の HTTP の goroutine・展開役）が radiko.Client.OnLogin から書き、復旧は次に radiko のログインが通って食い違いも
-//     無いときと、会員種別を非会員にして保存したとき（SettingsApplied。radiko のログインを止めた）に書く。結果が届いた時点で
+//     ライブの録音役・番組表の画面の HTTP の goroutine・展開役・設定の保存の HTTP の goroutine）が radiko.Client.OnLogin から書き、復旧は次に
+//     radiko のログインが通って食い違いも無いとき（会員種別かログイン情報を保存するときに試した radiko のログインが通ったときを含む。
+//     SettingsApplied が radiko.Client.AdoptLogin で渡す）と、会員種別を非会員にして保存したとき（SettingsApplied。radiko のログインを止めた）に
+//     書く。保存するときに試した radiko のログインが拒まれたら、保存を断り、始まりは書かない（Settings.Save。ADR 0034）。結果が届いた時点で
 //     会員種別が非会員なら、始まりは書かない。バックアップの異常（取れない。BackupIfDue。backup.go）の復旧は、
 //     次に取れたときと、取る先を空にして自動のバックアップを止めたときに書く。スリープから起こせない見込み（スリープ解除
 //     タイマーの許可が有効でない・この PC はタイマーで起きられない。Windows だけ）の復旧は、次にライブで録るジョブの分の
@@ -372,9 +374,10 @@ func (a *App) authResult(ctx context.Context, log *slog.Logger, err error) {
 		"【エリア外】radiko がエリア外と判定した。録音できないので、ジョブは再試行を待つ。外向きの通信の経路を確かめる。\nエラー: "+oneLine(err.Error()))
 }
 
-// LoginResult は radiko のログインの結果（radiko.Client.OnLogin に渡すもの。ADR 0030）を見て、サービスの異常（radiko のログインの
+// LoginResult は radiko のログインの結果（radiko.Client.OnLogin に渡すもの。ADR 0034）を見て、サービスの異常（radiko のログインの
 // 失敗）の始まりか復旧を書く（続いている間は書かない）。radiko が radiko のログインを拒んだとき・radiko のログインの応答のエリアフリーの値が会員種別と
-// 食い違うときに始まりを、radiko のログインが通って食い違いも無いときに復旧を書く（会員種別を非会員にして保存したときの復旧は
+// 食い違うときに始まりを、radiko のログインが通って食い違いも無いときに復旧を書く（会員種別かログイン情報を保存するときに試して通った結果も、
+// 保存した後に radiko.Client.AdoptLogin から届く。保存するときに拒まれた結果は届かない。会員種別を非会員にして保存したときの復旧は
 // SettingsApplied が書く）。結果が届いた時点の会員種別が非会員なら、始まりを書かない（要求の間に非会員にして保存したとき）。radiko のログインが通ったら、応答の欄の名前と値をログに出す
 // （radiko_session の値は伏せてある。タイムフリー30 を表す値を後で見つけるため）。
 // 足したら直す: サービスの異常

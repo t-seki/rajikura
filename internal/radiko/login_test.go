@@ -269,6 +269,115 @@ func TestTokenRejectedDuringFetchLogsInAgain(t *testing.T) {
 	}
 }
 
+// TryLogin は持っているセッションも拒まれた印も変えず、OnLogin も呼ばない。通った結果を AdoptLogin で持たせると、OnLogin に渡り、
+// 次の認証ではログインし直さない（ADR 0034）。
+func TestTryLoginAndAdopt(t *testing.T) {
+	f, c, events := loginEnv(t, true)
+	if _, err := c.Authenticate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	newAcc := Account{Mail: "new@example.com", Password: "new-pass", AreaFree: true}
+	a, err := c.TryLogin(context.Background(), newAcc)
+	if err != nil || a.Event.Err != nil || a.Event.Mismatch {
+		t.Fatalf("attempt = %+v, %v", a.Event, err)
+	}
+	if f.gotMail != "new@example.com" || f.gotPass != "new-pass" {
+		t.Fatalf("login form = %q / %q", f.gotMail, f.gotPass)
+	}
+	if len(*events) != 1 {
+		t.Fatalf("events = %+v; TryLogin must not call OnLogin", *events)
+	}
+	// 持たせる前は、前のセッション（S1）のまま。
+	if tok, err := c.Authenticate(context.Background()); err != nil || tok.Session != "S1" {
+		t.Fatalf("token = %+v, %v; want the old session before adopting", tok, err)
+	}
+	c.Account = func() (Account, bool) { return newAcc, true }
+	c.AdoptLogin(a)
+	if len(*events) != 2 || (*events)[1].Err != nil {
+		t.Fatalf("events = %+v, want the adopted result", *events)
+	}
+	tok, err := c.Authenticate(context.Background())
+	if err != nil || tok.Session != "S2" || f.loginCount != 2 {
+		t.Fatalf("token = %+v, err = %v, logins = %d; want the adopted session without a new login", tok, err, f.loginCount)
+	}
+}
+
+// TryLogin が拒まれても、持っているセッションと拒まれた印は変わらない。5xx は ErrTemporary。
+func TestTryLoginRejectedAndTemporary(t *testing.T) {
+	f, c, events := loginEnv(t, true)
+	if _, err := c.Authenticate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	f.loginStatus, f.loginBody = http.StatusUnauthorized, `{"message":"invalid"}`
+	a, err := c.TryLogin(context.Background(), Account{Mail: "me@example.com", Password: "wrong"})
+	if err != nil || !errors.Is(a.Event.Err, ErrLoginRejected) {
+		t.Fatalf("attempt = %+v, %v; want rejected", a.Event, err)
+	}
+	if tok, err := c.Authenticate(context.Background()); err != nil || tok.Session != "S1" || f.loginCount != 2 || len(*events) != 1 {
+		t.Fatalf("token = %+v, err = %v, logins = %d, events = %d; want the session kept", tok, err, f.loginCount, len(*events))
+	}
+	f.loginStatus, f.loginBody = http.StatusServiceUnavailable, "busy"
+	if _, err := c.TryLogin(context.Background(), Account{Mail: "me@example.com", Password: "secret-pass"}); !errors.Is(err, ErrTemporary) {
+		t.Fatalf("err = %v, want ErrTemporary", err)
+	}
+
+	// 拒まれた印も残る。
+	f2, c2, _ := loginEnv(t, true)
+	f2.loginStatus, f2.loginBody = http.StatusUnauthorized, `{"message":"invalid"}`
+	if _, err := c2.Authenticate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c2.TryLogin(context.Background(), Account{Mail: "me@example.com", Password: "wrong"}); err != nil {
+		t.Fatal(err)
+	}
+	f2.loginStatus, f2.loginBody = 0, ""
+	if tok, err := c2.Authenticate(context.Background()); err != nil || tok.Session != "" || f2.loginCount != 2 {
+		t.Fatalf("token = %+v, err = %v, logins = %d; want the rejected mark kept", tok, err, f2.loginCount)
+	}
+}
+
+// TryLogin はロックを持たないので、その要求の間もほかの認証は待たされない。その認証が古いログイン情報で得たセッションは、
+// AdoptLogin が新しいセッションで上書きする（ADR 0034 の決定 7）。
+func TestTryLoginDoesNotBlockAuthenticate(t *testing.T) {
+	f, c, events := loginEnv(t, true)
+	started, release := make(chan struct{}), make(chan struct{})
+	f.loginHook = func(mail string) {
+		if mail == "new@example.com" {
+			close(started)
+			<-release
+		}
+	}
+	newAcc := Account{Mail: "new@example.com", Password: "new-pass", AreaFree: true}
+	type result struct {
+		a   LoginAttempt
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		a, err := c.TryLogin(context.Background(), newAcc)
+		done <- result{a, err}
+	}()
+	<-started
+	// 保存の途中に、古いログイン情報で認証する（待たされない）。
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	tok, err := c.Authenticate(ctx)
+	close(release)
+	if err != nil || tok.Session != "S1" {
+		t.Fatalf("token = %+v, %v; want a login with the old account while TryLogin waits", tok, err)
+	}
+	r := <-done
+	if r.err != nil || r.a.Event.Err != nil {
+		t.Fatalf("attempt = %+v, %v", r.a.Event, r.err)
+	}
+	c.Account = func() (Account, bool) { return newAcc, true }
+	c.AdoptLogin(r.a)
+	tok, err = c.Authenticate(context.Background())
+	if err != nil || tok.Session != "S2" || f.loginCount != 2 || len(*events) != 2 {
+		t.Fatalf("token = %+v, err = %v, logins = %d, events = %d; want the adopted session", tok, err, f.loginCount, len(*events))
+	}
+}
+
 func TestParseLiveCandidatesAreaFree(t *testing.T) {
 	data := []byte(`<urls>
 <url areafree="0" timefree="0"><playlist_create_url>live</playlist_create_url></url>

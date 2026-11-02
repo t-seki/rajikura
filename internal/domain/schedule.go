@@ -173,7 +173,7 @@ var (
 // RerecordDeadline は、録り直しを受け付けるときの録音期限。ジョブの放送回と今の会員種別 m から、録音期限の付け直しと同じ
 // 関数（ReviseJobDeadline）で求める。自分のエリアの局一覧は渡さないので、エリアの外から録るかは、ジョブの放送回が持つ印を使う。
 // DB の録音期限（Job.Deadline）は、ジョブを作った時点か、終わっていないうちに付け直した時点のもので、
-// done のジョブは付け直さない（ADR 0030・0032）ので、録り直しはこちらで決める。放送回が無ければ Job.Deadline。
+// done のジョブは付け直さない（ADR 0032・0034）ので、録り直しはこちらで決める。放送回が無ければ Job.Deadline。
 func RerecordDeadline(j Job, m Membership) time.Time {
 	if d := ReviseJobDeadline(j, m, nil); !d.IsZero() {
 		return d

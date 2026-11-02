@@ -41,7 +41,15 @@ export interface SettingsView {
   unreadable_secrets: string[];
   /** 最後に自動のバックアップを取れた時刻（ISO 8601）。まだ取れていないなら null。 */
   last_backup_at: string | null;
+  /**
+   * PATCH の保存の時点で試した radiko のログインの結果（ADR 0034）。ok は通った、unchecked は radiko に届かず確かめられなかった
+   * （保存はした）、mismatch は通ったがエリアフリーの値が会員種別と食い違う（保存はした）。試さなかった保存と GET では null
+   * （call が null に揃える。画面の中で作る写しでは省いてよい）。
+   */
+  radiko_login?: RadikoLogin | null;
 }
+
+export type RadikoLogin = "ok" | "unchecked" | "mismatch";
 
 export const secretLabels: Record<string, string> = {
   "notify.discord_webhook": "Discord の Webhook の URL",
@@ -76,10 +84,14 @@ async function call(method: string, body?: unknown): Promise<SettingsView> {
     library_set: v.library_set ?? false,
     unreadable_secrets: v.unreadable_secrets ?? [],
     last_backup_at: v.last_backup_at ?? null,
+    radiko_login: v.radiko_login ?? null,
   };
 }
 
 export const fetchSettings = () => call("GET");
 
-/** 書いた項目だけを変える。誤りがあれば 400 の理由を SettingsApiError で投げ、何も当たらない。 */
+/**
+ * 書いた項目だけを変える。誤りがあれば 400 の理由を SettingsApiError で投げ、何も当たらない（会員種別かログイン情報を変える保存で、
+ * radiko がログインを拒んだときも 400）。
+ */
 export const patchSettings = (patch: SettingsValues) => call("PATCH", patch);

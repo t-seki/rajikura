@@ -70,7 +70,7 @@ const (
 	SecretSlackWebhook   = "notify.slack_webhook"
 	SecretSMTPPassword   = "notify.smtp.password"
 	SecretJellyfinAPIKey = "jellyfin.api_key"
-	// SecretRadikoPassword は radiko のログインに使うパスワード（ログイン情報。ADR 0030）。
+	// SecretRadikoPassword は radiko のログインに使うパスワード（ログイン情報。ADR 0034）。
 	SecretRadikoPassword = "radiko.password"
 )
 
@@ -130,7 +130,7 @@ type Config struct {
 	Preset string
 	// TruncateArtist は、artist タグに書く出演者を 250 バイトに切り詰めるか。既定は true。
 	TruncateArtist bool
-	// Membership は会員種別。free 以外なら、ログイン情報（RadikoMail と RadikoPassword）が要る（Validate。ADR 0030）。
+	// Membership は会員種別。free 以外なら、ログイン情報（RadikoMail と RadikoPassword）が要る（Validate。ADR 0034）。
 	Membership domain.Membership
 	// MaxAttemptsFree は非会員の試行回数の上限。
 	MaxAttemptsFree int
@@ -530,7 +530,7 @@ func setStr(dst *string, v *string) {
 //
 //   - jellyfin.url と jellyfin.library は、両方書くか両方省く。url があれば API キー（jellyfin.api_key）が要る
 //   - notify.channel に選んだ通知先の設定（Webhook の URL・[notify.smtp] とパスワード）が無ければ、エラーにする
-//   - membership が free でなければ、radiko のログインに使うログイン情報（radiko.mail と radiko.password）が要る（ADR 0030）
+//   - membership が free でなければ、radiko のログインに使うログイン情報（radiko.mail と radiko.password）が要る（ADR 0034）
 func (c Config) Validate() error {
 	if c.Membership.Member() && (c.RadikoMail == "" || c.RadikoPassword == "") {
 		var missing []string

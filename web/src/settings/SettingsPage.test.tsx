@@ -35,6 +35,7 @@ const base: SettingsView = {
   library_set: true,
   unreadable_secrets: [],
   last_backup_at: null,
+  radiko_login: null,
 };
 
 interface Call {
@@ -156,6 +157,58 @@ describe("SettingsPage", () => {
     await userEvent.click(await screen.findByRole("option", { name: "エリアフリー（radiko プレミアム）", hidden: true }));
     await userEvent.click(within(region).getByRole("button", { name: "保存" }));
     expect(await within(region).findByRole("alert")).toHaveTextContent("radiko.password");
+  });
+
+  // 会員種別とログイン情報を入れて保存する（保存の時点のログインの結果の試験の準備）。
+  async function saveMembership() {
+    const region = await screen.findByRole("region", { name: "radiko の会員種別" });
+    await userEvent.click(within(region).getByRole("combobox", { name: "会員種別" }));
+    await userEvent.click(await screen.findByRole("option", { name: "エリアフリー（radiko プレミアム）", hidden: true }));
+    await userEvent.type(within(region).getByLabelText("radiko のメールアドレス"), "me@example.com");
+    await userEvent.type(within(region).getByLabelText("radiko のパスワード"), "wrong-pass");
+    await userEvent.click(within(region).getByRole("button", { name: "保存" }));
+    return region;
+  }
+
+  it("radiko がログインを拒んで保存を断られたら、エラーを会員種別の区切りに出し、入れたパスワードは残す", async () => {
+    mockApi(base, () => ({
+      status: 400,
+      body: { error: "radiko がログインを拒んだので、保存しなかった。radiko のメールアドレスとパスワードを確かめる" },
+    }));
+    renderPage();
+    const region = await saveMembership();
+    expect(await within(region).findByRole("alert")).toHaveTextContent("radiko がログインを拒んだので、保存しなかった");
+    expect(within(region).getByLabelText("radiko のパスワード")).toHaveValue("wrong-pass");
+    expect(within(region).queryByRole("status")).toBeNull();
+  });
+
+  it("radiko に届かずログインを確かめられなかったら（unchecked）、保存したうえでオレンジの警告を出す", async () => {
+    mockApi(base, () => ({ status: 200, body: { ...base, radiko_login: "unchecked" } }));
+    renderPage();
+    const region = await saveMembership();
+    expect(await screen.findByText("radiko の会員種別を保存した")).toBeInTheDocument();
+    const warning = await within(region).findByRole("status");
+    expect(warning).toHaveTextContent("radiko に届かず");
+    expect(warning).toHaveTextContent("次に録音・番組表で radiko の認証が要るとき");
+    expect(within(region).queryByRole("alert")).toBeNull();
+  });
+
+  it("ログインは通ったがエリアフリーの値が食い違うなら（mismatch）、保存したうえでオレンジの警告を出す", async () => {
+    mockApi(base, () => ({ status: 200, body: { ...base, radiko_login: "mismatch" } }));
+    renderPage();
+    const region = await saveMembership();
+    const warning = await within(region).findByRole("status");
+    expect(warning).toHaveTextContent("食い違う");
+    expect(warning).toHaveTextContent("会員種別と radiko の契約を確かめる");
+  });
+
+  it("ログインが通ったら（ok）、警告は出さない", async () => {
+    mockApi(base, () => ({ status: 200, body: { ...base, radiko_login: "ok" } }));
+    renderPage();
+    const region = await saveMembership();
+    expect(await screen.findByText("radiko の会員種別を保存した")).toBeInTheDocument();
+    expect(within(region).queryByRole("status")).toBeNull();
+    expect(within(region).queryByRole("alert")).toBeNull();
   });
 
   it("保存先を変えて保存すると、library だけを送る", async () => {

@@ -2,10 +2,13 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -15,6 +18,7 @@ import (
 	"github.com/t-seki/rajikura/internal/app"
 	"github.com/t-seki/rajikura/internal/config"
 	"github.com/t-seki/rajikura/internal/domain"
+	"github.com/t-seki/rajikura/internal/radiko"
 	"github.com/t-seki/rajikura/internal/secret"
 	"github.com/t-seki/rajikura/internal/store"
 )
@@ -167,5 +171,86 @@ func TestSettingsPatchMembership(t *testing.T) {
 	// パスワードだけを消す保存は 400 で断る。
 	if rec := do(h, "PATCH", "/api/settings", `{"radiko":{"password":""}}`, cookie); rec.Code != 400 || s.Current().RadikoPassword != "TOPSECRET" {
 		t.Fatalf("PATCH（パスワードを消す） = %d %s", rec.Code, rec.Body)
+	}
+}
+
+// 会員種別かログイン情報を変える PATCH は、保存の前に radiko のログインを試す（ADR 0034）。拒まれたら 400 にして何も当てず、
+// 通ったら radiko_login が "ok"、食い違いなら "mismatch"、5xx・通信の失敗なら保存して "unchecked"。試さない保存と GET は null。
+func TestSettingsPatchTriesRadikoLogin(t *testing.T) {
+	h, s, cookie := newSettingsUI(t)
+	var mode atomic.Value
+	mode.Store("ok")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch mode.Load().(string) {
+		case "reject":
+			http.Error(w, `{"message":"invalid"}`, http.StatusUnauthorized)
+		case "5xx":
+			http.Error(w, "busy", http.StatusServiceUnavailable)
+		case "mismatch":
+			fmt.Fprint(w, `{"radiko_session":"S","areafree":"0"}`)
+		default:
+			fmt.Fprint(w, `{"radiko_session":"S","areafree":"1"}`)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	c := radiko.NewClient()
+	c.AuthHost = srv.URL
+	s.Login = c
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closed.Close()
+
+	radikoLogin := func(rec *httptest.ResponseRecorder) any {
+		t.Helper()
+		var v map[string]any
+		decode(t, rec.Body.Bytes(), &v)
+		got, ok := v["radiko_login"]
+		if !ok {
+			t.Fatalf("radiko_login が無い: %s", rec.Body)
+		}
+		return got
+	}
+	patch := func(body string) *httptest.ResponseRecorder {
+		t.Helper()
+		return do(h, "PATCH", "/api/settings", body, cookie)
+	}
+
+	rec := patch(`{"membership":"areafree","radiko":{"mail":"me@example.com","password":"pass"}}`)
+	if rec.Code != 200 || radikoLogin(rec) != "ok" {
+		t.Fatalf("PATCH（通る） = %d %s", rec.Code, rec.Body)
+	}
+	if got := radikoLogin(do(h, "GET", "/api/settings", "", cookie)); got != nil {
+		t.Fatalf("GET の radiko_login = %v, want null", got)
+	}
+	if rec := patch(`{"keyword_max_pending":4}`); rec.Code != 200 || radikoLogin(rec) != nil {
+		t.Fatalf("PATCH（試さない） = %d %s", rec.Code, rec.Body)
+	}
+
+	mode.Store("reject")
+	rec = patch(`{"keyword_max_pending":5,"radiko":{"password":"wrong"}}`)
+	if rec.Code != 400 || !strings.Contains(rec.Body.String(), "拒んだ") {
+		t.Fatalf("PATCH（拒まれる） = %d %s", rec.Code, rec.Body)
+	}
+	if cur := s.Current(); cur.RadikoPassword != "pass" || cur.KeywordMaxPending != 4 {
+		t.Fatalf("拒まれたのに当てた: keyword_max_pending = %d", cur.KeywordMaxPending)
+	}
+
+	mode.Store("mismatch")
+	if rec := patch(`{"radiko":{"password":"pass2"}}`); rec.Code != 200 || radikoLogin(rec) != "mismatch" {
+		t.Fatalf("PATCH（食い違い） = %d %s", rec.Code, rec.Body)
+	}
+
+	mode.Store("5xx")
+	if rec := patch(`{"radiko":{"password":"pass3"}}`); rec.Code != 200 || radikoLogin(rec) != "unchecked" || s.Current().RadikoPassword != "pass3" {
+		t.Fatalf("PATCH（5xx） = %d %s", rec.Code, rec.Body)
+	}
+
+	c.AuthHost = closed.URL // つながらない
+	if rec := patch(`{"radiko":{"password":"pass4"}}`); rec.Code != 200 || radikoLogin(rec) != "unchecked" || s.Current().RadikoPassword != "pass4" {
+		t.Fatalf("PATCH（通信の失敗） = %d %s", rec.Code, rec.Body)
+	}
+
+	// 非会員にする保存では試さない（radiko に届かなくても null）。
+	if rec := patch(`{"membership":"free"}`); rec.Code != 200 || radikoLogin(rec) != nil {
+		t.Fatalf("PATCH（非会員） = %d %s", rec.Code, rec.Body)
 	}
 }

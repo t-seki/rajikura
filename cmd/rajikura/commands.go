@@ -37,7 +37,7 @@ type serveOptions struct {
 
 // serve は常駐する。ctx が取り消されたら終わる。boot は起動の設定（データのフォルダと待ち受けるアドレスと許すホスト名）。
 // Web UI のパスワードが無ければ、起動のたびにセットアップコードを作り、データのフォルダの setup-code.txt とログに出す。
-// 設定は DB から読み（app.Settings）、Web UI・API で保存したら、再起動しなくてもすぐに効く（会員種別も。ADR 0030）。
+// 設定は DB から読み（app.Settings）、Web UI・API で保存したら、再起動しなくてもすぐに効く（会員種別も。ADR 0034）。
 // ただし番組表のキャッシュの大きさ（radiko.program_cache_mb）は、起動したときの値で番組表のキャッシュを作る。
 func serve(ctx context.Context, boot config.Boot, opts serveOptions, stdout, stderr io.Writer) error {
 	log := slog.New(slog.NewTextHandler(stderr, nil))
@@ -72,8 +72,10 @@ func serve(ctx context.Context, boot config.Boot, opts serveOptions, stdout, std
 	}
 	// 番組表のキャッシュは、会員種別によらず、会員種別の最大の録音期限（30 日）の前から持つ（会員種別を保存したらすぐ効くように）。
 	client.EnableProgramCache(domain.MaxAvailableDays(domain.MembershipDouble), int64(cfg.RadikoProgramCacheMB)<<20, log)
-	// radiko のログインは、認証のたびに設定の最新の写しからログイン情報を読む（ADR 0030）。
+	// radiko のログインは、認証のたびに設定の最新の写しからログイン情報を読む。会員種別かログイン情報を保存するときは、
+	// 保存の前に radiko のログインを試す（ADR 0034）。
 	client.Account = settings.RadikoAccount
+	settings.Login = client
 	mt := metrics.New()
 	mt.InitNotifyKinds(app.NotifyKinds...)
 	// エリアの日別番組表は、Web UI の番組表とキーワードの照合（展開役）で共有する（エリア ID と取得中のものを 1 つにまとめる）。
@@ -90,7 +92,7 @@ func serve(ctx context.Context, boot config.Boot, opts serveOptions, stdout, std
 		Live: settings.Runtime,
 	}
 	// radiko のログインの結果からサービスの異常（radiko のログインの失敗）を書き、会員種別かログイン情報を保存したら
-	// セッションを捨てる。会員種別を保存したときと、番組表の認証で自分のエリアが変わったと分かったときは、録音期限を付け直す
+	// 保存の時点で通ったセッションを持たせる（通らなかった・試さなかったならセッションを捨てる）。会員種別を保存したときと、番組表の認証で自分のエリアが変わったと分かったときは、録音期限を付け直す
 	// （タイムフリー・ライブの試行の認証は App が自分で見る）。
 	client.OnLogin = a.LoginResult
 	settings.OnApply = a.SettingsApplied

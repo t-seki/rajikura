@@ -92,8 +92,10 @@ type fakeRadiko struct {
 	onLiveMedia func()
 
 	// 以下は radiko のログイン（login_test.go）。loginReject が true ならログインを 401 で拒む。loginAreaFree は応答の areafree
-	// （空なら "1"）。logins はログインの回数、authSessions は auth2 に付いた radiko_session（付かなければ空）。
+	// （空なら "1"）。loginStatus が 0 でなければ、ログインをその状態コードで返す（5xx の試験）。
+	// logins はログインの回数、authSessions は auth2 に付いた radiko_session（付かなければ空）。
 	loginReject   bool
+	loginStatus   int
 	loginAreaFree string
 	logins        int
 	authSessions  []string
@@ -130,10 +132,14 @@ func newFakeRadiko(t *testing.T) *fakeRadiko {
 	mux.HandleFunc("/v4/api/member/login", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		f.logins++
-		n, reject, af := f.logins, f.loginReject, f.loginAreaFree
+		n, reject, status, af := f.logins, f.loginReject, f.loginStatus, f.loginAreaFree
 		f.mu.Unlock()
 		if r.Method != http.MethodPost || r.FormValue("mail") == "" || r.FormValue("pass") == "" {
 			http.Error(w, "bad login", http.StatusBadRequest)
+			return
+		}
+		if status != 0 {
+			http.Error(w, "busy", status)
 			return
 		}
 		if reject {

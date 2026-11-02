@@ -25,7 +25,7 @@ radiko の放送を、録れるまで再試行して録り、ライブラリへ�
 
 **やること** <!-- 足したら直す: 録音の方式 -->
 
-- radiko タイムフリーの録音（録音は Go の自前実装。[ADR 0001](adr/0001-native-go-fetcher-over-yt-dlp.md)。会員種別は非会員・エリアフリー・タイムフリー30・ダブルプランの 4 種に対応する。会員種別は人が設定で選び、非会員でなければ radiko のログインで会員として録る。[ADR 0030](adr/0030-radiko-login-follows-chosen-membership.md)）
+- radiko タイムフリーの録音（録音は Go の自前実装。[ADR 0001](adr/0001-native-go-fetcher-over-yt-dlp.md)。会員種別は非会員・エリアフリー・タイムフリー30・ダブルプランの 4 種に対応する。会員種別は人が設定で選び、非会員でなければ radiko のログインで会員として録る。[ADR 0034](adr/0034-radiko-login-tried-when-saving.md)）
 - radiko のライブ録音（タイムフリーの対象外の放送回だけ）
 - 毎週の放送を毎週の予約で指定した自動録音（録るものは番組 × 放送日のジョブ単位。ジョブの単位と分割番組の連結は [ADR 0003](adr/0003-job-per-show-and-broadcast-day.md)）
 - Web UI の番組表から放送回を選んで予約（1 回・毎週）
@@ -137,7 +137,7 @@ radiko の放送を、録れるまで再試行して録り、ライブラリへ�
 | 外部ツールの管理 | ffmpeg / ffprobe のパスは設定で指定できる。初回起動時に自動で取ってくる機能は作らず、builtin で ffmpeg を要らなくする（[ADR 0013](adr/0013-builtin-m4a-muxer.md)） |
 | Web UI | Go の HTTP サーバーが JSON API を提供し、TypeScript + React の SPA をビルドして go:embed でバイナリに同梱する。PC とスマホのブラウザで使える |
 | CLI | `rajikura` の `jobs`・`retry`・`skip`・`record`・`rerecord`・`chapters`・`backup` は DB を開かず、`serve` の HTTP API を API トークンで呼ぶ（手元のマシンや AI からリモートで使える）。DB に書くのは `serve` だけ。`version` と `licenses`（埋め込んだ依存のライセンスの一覧を出す）は手元で動く（[ADR 0009](adr/0009-cli-over-http.md)）。`service`（Windows だけ）も API を呼ばず、手元の PC に `serve` を Windows のサービスとして入れる・消す（[ADR 0020](adr/0020-windows-service-with-virtual-account.md)）。あわせて、`rajikura.exe` に埋め込んだトレイを入れる・消す（`install` は最後にトレイを起動する。[ADR 0023](adr/0023-windows-tray-embedded-and-linked-by-loopback.md)）。`tray`（Windows だけ）も API を呼ばず、`serve` を Windows のサービスにしていない PC（`serve` をコンテナなどで動かしている人）に、トレイだけを入れる・消す（`tray install -url` でリモートの `serve` に向ける）。Web UI のパスワードは、初めて Web UI を開いた人がセットアップコードを入れて決める（[ADR 0016](adr/0016-first-password-by-setup-code.md)）。設定は DB に置き、Web UI か `serve` の API で変える（TOML による設定・番組の受け渡しは無い。[ADR 0017](adr/0017-backup-by-db-copy.md)）。`serve` の起動の設定はフラグ `-data`（データのフォルダ）と `-listen` と `-allowed-hosts`（Web UI・API を名前で開くときの名前。[ADR 0021](adr/0021-web-ui-origin-host-and-login-limit.md)）だけで、設定ファイルは無い（[ADR 0015](adr/0015-settings-and-secrets-in-db.md)） <!-- 足したら直す: CLI のサブコマンド --> <!-- 足したら直す: service の操作 --> |
-| 認証 | Web UI にログイン認証を付ける。radiko のログインに使うログイン情報のうち、パスワードは秘密として DB の中で暗号化して保存する（メールアドレスは設定）。radiko のログインのセッションはメモリにだけ持つ（[ADR 0030](adr/0030-radiko-login-follows-chosen-membership.md)） |
+| 認証 | Web UI にログイン認証を付ける。radiko のログインに使うログイン情報のうち、パスワードは秘密として DB の中で暗号化して保存する（メールアドレスは設定）。radiko のログインのセッションはメモリにだけ持つ（[ADR 0034](adr/0034-radiko-login-tried-when-saving.md)） |
 | アクセス | LAN と、Tailscale などの VPN の内側だけで使う。インターネットには公開しない |
 | ネットワーク | radiko のエリア判定のため、使う人自身のエリアの回線から接続する。VPN の出口ノードは使わない |
 | 時刻 | 番組表はすべて日本時間で扱う（タイムゾーンは Asia/Tokyo を明示） |
@@ -167,8 +167,8 @@ flowchart LR
 ## 未確認の事項
 
 - タイムフリー30 で 8 日目以降の放送回が録れるか（会員として録音するときに確かめる）
-- radiko のログインの手順と応答の形（公開されている第三者のスクリプトに書かれている範囲で作った。本物の radiko のアカウントでは確かめていない。[ADR 0030](adr/0030-radiko-login-follows-chosen-membership.md)）
-  - radiko が radiko のログインを拒むときの応答の形（今は、応答が 200 でも 5xx でもないか、セッションが空なら拒まれたとみなす）と、radiko がセッションを拒むときの応答の形（今は、セッションを付けた認証か、そのトークンで音声を取る要求が 401・403 なら拒まれたとみなす）
+- radiko のログインの手順と応答の形（公開されている第三者のスクリプトに書かれている範囲で作った。本物の radiko のアカウントでは確かめていない。[ADR 0034](adr/0034-radiko-login-tried-when-saving.md)）
+  - radiko が radiko のログインを拒むときの応答の形（今は、応答が 200 でも 5xx でもないか、セッションが空なら拒まれたとみなす。この判定は、会員種別かログイン情報を保存するときに保存を断る判定にも使うので、外れると正しいログイン情報でも保存できない）と、radiko がセッションを拒むときの応答の形（今は、セッションを付けた認証か、そのトークンで音声を取る要求が 401・403 なら拒まれたとみなす）
   - radiko のログインの応答の中で、タイムフリー30 を表す値（radiko のログインが通ったら、応答の欄の名前と値をログに出す）
   - エリアフリーのライブ録音で、ストリーム情報の `areafree` が 1 の url を使えばよいか（タイムフリーに揃えた）
   - radiko の同時ログインの扱い（ほかの端末の radiko のログインに影響するか）

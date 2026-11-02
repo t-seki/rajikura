@@ -13,7 +13,7 @@ import (
 	"sync"
 )
 
-// radiko のログイン（ADR 0030）。
+// radiko のログイン（ADR 0034）。
 //
 // 会員種別が非会員でないとき、Client.Account が返すログイン情報で radiko のログイン（POST /v4/api/member/login。本文は
 // mail と pass）を行い、応答の JSON の radiko_session を auth2 に付けて認証する。手順は、公開されている第三者のスクリプト
@@ -23,10 +23,13 @@ import (
 //   - radiko のログインは、起動の後に初めて認証が要るとき（Authenticate）に行う。得たセッションはメモリにだけ持ち、録音と
 //     番組表で使い回す。radiko がセッションを拒んだとき（セッションを付けた認証か、そのトークンでの取得が 401・403 だったとき。
 //     本物の radiko で拒まれる応答は確かめていない）だけ、radiko のログインをし直す。ResetLogin で捨てる。ログアウトの API は呼ばない。
+//   - 会員種別かログイン情報を保存するときは、保存の前に TryLogin で 1 回だけ radiko のログインを試す（ロックを持たず、OnLogin も
+//     呼ばない）。通ったら、保存した後に AdoptLogin でそのセッションを持たせ、結果を OnLogin に渡す（次の認証ではログインし直さない）。
 //   - radiko が radiko のログインを拒んだら（応答が 200 でも 5xx でもない、または radiko_session が空。拒む応答の形は確かめていない）、
-//     非会員として認証する。ResetLogin が呼ばれるまで、radiko のログインをし直さない。
+//     非会員として認証する。ResetLogin か AdoptLogin が呼ばれるまで、radiko のログインをし直さない。
 //   - ネットワークの失敗と 5xx は、今までの一時的な失敗（ErrTemporary）として返す。次の認証で、もう一度 radiko のログインをする。
-//   - radiko のログインを試すたびに、結果を Client.OnLogin に渡す（呼び出し側が、サービスの異常の始まりと復旧を書く）。
+//   - radiko のログインを試すたびに、結果を Client.OnLogin に渡す（呼び出し側が、サービスの異常の始まりと復旧を書く）。TryLogin は
+//     渡さず、AdoptLogin が渡す（保存を断ったときは渡さない）。
 
 // ErrLoginRejected は、radiko が radiko のログインを拒んだこと（LoginEvent.Err）を表す。
 var ErrLoginRejected = errors.New("radiko: login rejected")
@@ -80,16 +83,52 @@ type loginState struct {
 	mu sync.Mutex
 	// sess は持っているセッション。nil ならまだ持っていない。
 	sess *session
-	// rejected は、radiko が radiko のログインを拒んだこと。ResetLogin まで、radiko のログインをし直さない。
+	// rejected は、radiko が radiko のログインを拒んだこと。ResetLogin か AdoptLogin まで、radiko のログインをし直さない。
 	rejected bool
 }
 
-// ResetLogin は、持っている radiko のログインのセッションを捨てる（会員種別かログイン情報を保存したとき）。
+// ResetLogin は、持っている radiko のログインのセッションを捨てる（会員種別かログイン情報を保存し、保存の時点の radiko のログインが
+// 通らなかった・試さなかったとき。通ったときは AdoptLogin）。
 // 次に認証が要るときに、その時点のログイン情報で radiko のログインをし直す（非会員なら、radiko のログインをしない）。
 func (c *Client) ResetLogin() {
 	c.login.mu.Lock()
 	defer c.login.mu.Unlock()
 	c.login.sess, c.login.rejected = nil, false
+}
+
+// LoginAttempt は、TryLogin で radiko のログインを 1 回試した結果。通ったら、AdoptLogin でそのセッションを持たせる。
+type LoginAttempt struct {
+	// Event は試した結果（拒まれたら Err に ErrLoginRejected を包んだもの。通ったら Mismatch などを読む）。
+	Event LoginEvent
+	// sess は通ったときに得たセッション。拒まれたら nil。
+	sess *session
+}
+
+// TryLogin は、ログイン情報 acc で radiko のログインを 1 回だけ試す（会員種別かログイン情報を保存する前。ADR 0034）。
+// 持っているセッションと拒まれた印は変えず、ロックを持たず（録音や番組表の認証を待たせない）、OnLogin も呼ばない。
+// 拒まれたら、Event.Err に ErrLoginRejected を包んだ結果を返す（エラーは nil）。ネットワークの失敗・5xx・時間切れは
+// ErrTemporary を包んだエラーを返す。
+func (c *Client) TryLogin(ctx context.Context, acc Account) (LoginAttempt, error) {
+	ev, s, err := c.doLogin(ctx, acc)
+	if err != nil {
+		return LoginAttempt{}, err
+	}
+	return LoginAttempt{Event: ev, sess: s}, nil
+}
+
+// AdoptLogin は、TryLogin で通った結果 a のセッションを持たせ（拒まれた印を下ろす。ResetLogin の代わり）、結果を OnLogin に渡す。
+// 次の認証では radiko のログインをし直さない。保存の途中にほかの認証が古いログイン情報で radiko のログインをしていても、上書きする。
+// a が拒まれた結果なら、ResetLogin と同じく捨てるだけにする（OnLogin は呼ばない）。
+func (c *Client) AdoptLogin(a LoginAttempt) {
+	c.login.mu.Lock()
+	c.login.sess, c.login.rejected = a.sess, false
+	c.login.mu.Unlock()
+	if a.sess == nil {
+		return
+	}
+	if c.OnLogin != nil {
+		c.OnLogin(a.Event)
+	}
 }
 
 // account は今のログイン情報。Account が nil か、false を返したら非会員。
@@ -102,8 +141,8 @@ func (c *Client) account() (Account, bool) {
 
 // loginSession は認証に付けるセッションを返す。非会員のとき・radiko が radiko のログインを拒んだ後は nil を返す。
 // 持っていなければ radiko のログインをする。ネットワークの失敗・5xx はエラー（ErrTemporary）を返す。
-// ログイン情報（Client.Account）はロックの中で読む。ResetLogin（保存）と重なっても、ResetLogin より前に読んだ古いログイン情報での
-// 結果（拒まれた印やセッション）を、ResetLogin の後に残さないため。
+// ログイン情報（Client.Account）はロックの中で読む。ResetLogin（保存）か AdoptLogin（保存の時点で通ったセッションを持たせる）と
+// 重なっても、それより前に読んだ古いログイン情報での結果（拒まれた印やセッション）を、ResetLogin・AdoptLogin の後に残さないため。
 func (c *Client) loginSession(ctx context.Context) (*session, error) {
 	c.login.mu.Lock()
 	acc, ok := c.account()
