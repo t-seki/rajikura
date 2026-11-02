@@ -180,6 +180,41 @@ describe("番組表の全国の検索", () => {
     expect(screen.getByRole("button", { name: "検索" })).not.toHaveAttribute("data-loading");
   });
 
+  it("検索中に「検索をやめる」を押したら、遅い応答が後から返っても結果を出さない", async () => {
+    let release = () => {};
+    const waiting = new Promise<void>((r) => (release = r));
+    let allDone = false;
+    mockApi({
+      ...common,
+      "GET /api/guide/areas": areasOf(true),
+      [allSearch]: async () => {
+        await waiting;
+        allDone = true;
+        return { status: 200, body: allResult() };
+      },
+    });
+    const user = userEvent.setup();
+    renderShell();
+    await within(await screen.findByTestId("guide-list")).findByRole("button", { name: /東京の番組/ });
+    // 自分のエリアで探した後、全国に切り替えて流し直す（全国の応答は待たせる）
+    await user.type(screen.getByRole("textbox", { name: "番組名・出演者・説明で探す" }), "番組");
+    await user.click(screen.getByRole("button", { name: "検索" }));
+    await waitFor(() => expect(screen.getByLabelText("検索結果")).toHaveTextContent("東京の番組"));
+    await user.click(screen.getByText("全国"));
+    expect(await screen.findByText(NATIONWIDE_LOADING)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "検索をやめる" }));
+    expect(screen.queryByLabelText("検索結果")).not.toBeInTheDocument();
+    expect(screen.queryByText(NATIONWIDE_LOADING)).not.toBeInTheDocument();
+
+    release();
+    await waitFor(() => expect(allDone).toBe(true));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByLabelText("検索結果")).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "番組名・出演者・説明で探す" })).toHaveValue("");
+    await within(await screen.findByTestId("guide-list")).findByRole("button", { name: /東京の番組/ });
+  });
+
   it("番組表を一部取れなかった局があれば、その数を出す", async () => {
     window.history.replaceState(null, "", `/?${new URLSearchParams({ q: "番組", scope: "all" })}`);
     mockApi({ ...common, "GET /api/guide/areas": areasOf(true), [allSearch]: () => ({ status: 200, body: allResult(2) }) });

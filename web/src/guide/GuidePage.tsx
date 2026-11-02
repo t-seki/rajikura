@@ -1116,6 +1116,9 @@ export function GuidePage({
         setQuery(u.q);
         void runSearch(u.q);
       } else {
+        // 走っている検索の遅い応答は捨てる
+        searchToken.current++;
+        setSearching(false);
         setSearch(null);
         setQuery("");
         setActiveQ("");
@@ -1254,6 +1257,9 @@ export function GuidePage({
             <Button
               variant="default"
               onClick={() => {
+                // 走っている検索の遅い応答は捨てる
+                searchToken.current++;
+                setSearching(false);
                 setSearch(null);
                 setQuery("");
                 setActiveQ("");
