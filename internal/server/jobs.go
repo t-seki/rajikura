@@ -28,7 +28,7 @@ type Jobs interface {
 	ManualRetry(ctx context.Context, id int64, now time.Time) error
 	SkipByPerson(ctx context.Context, id int64, now time.Time) error
 	RecordByPerson(ctx context.Context, id int64, now time.Time) error
-	Rerecord(ctx context.Context, id int64, m domain.Membership, now time.Time) error
+	Rerecord(ctx context.Context, id int64, m domain.Membership, own map[string]bool, now time.Time) error
 	// RequestChapterRedo と RequestChapterRedoAll は、チャプターの入れ直しの頼みを DB に書く（ADR 0033。書き込みは録音のループ）。
 	RequestChapterRedo(ctx context.Context, id int64, now time.Time) error
 	RequestChapterRedoAll(ctx context.Context, now time.Time) (int, error)
@@ -95,7 +95,8 @@ type jobSummary struct {
 	// 足したら直す: ジョブの状態の移り方
 	Retryable bool `json:"retryable"`
 	// Rerecordable は、いま録り直し（POST /api/jobs/{id}/rerecord）を受け付けるか（done のタイムフリーから録るジョブで、録音期限を
-	// 過ぎていないこと。store.Rerecord と同じく domain.CheckRerecord で決める。ADR 0031）。
+	// 過ぎていないこと。録音期限は今の会員種別と今の自分のエリアの局一覧で求める。store.Rerecord と同じく domain.CheckRerecord で決める。
+	// エリアフリー・ダブルプランで自分のエリアの局一覧を取れないときは、done のタイムフリーから録るジョブを false にする。ADR 0036）。
 	// 足したら直す: ジョブの状態の移り方
 	Rerecordable bool `json:"rerecordable"`
 	// ChaptersRedoable は、いまチャプターの入れ直し（POST /api/jobs/{id}/chapters）を受け付けるか（タイムフリーから録った done の
@@ -228,9 +229,58 @@ type jobDetail struct {
 	DurationSeconds float64 `json:"durationSeconds"`
 }
 
-// summarize はジョブの一覧の 1 行にする。last はそのジョブの直近の試行（無ければ nil）で、失敗の段階とエラー（LastFailedStage・LastError）、済んだ時刻（finishedAt）、
+// rerecordArea は、録り直しを受け付けるかを決めるための、今の自分のエリアの局一覧（ADR 0036）。
+// Own は局 ID の集合（nil なら放送回の印のまま。局一覧を使わないときと、取れないとき）、Unknown は局一覧が要るのに取れなかったこと。
+type rerecordArea struct {
+	Own     map[string]bool
+	Unknown bool
+}
+
+// rerecordOwn は、録り直しの録音期限を求める、今の自分のエリアの局一覧（今日の放送日の、AreaGuide.AreaAirings の局の集合）を返す。
+// 会員種別がエリアフリー・ダブルプランでないときと、AreaGuide が無いとき（テストの組み立て）は、局一覧を使わないので取らずに nil。
+// 取れない・空ならエラー。
+func (u *UI) rerecordOwn(ctx context.Context) (map[string]bool, error) {
+	if !u.membership().AreaFree() || u.AreaGuide == nil {
+		return nil, nil
+	}
+	ss, err := u.AreaGuide.AreaAirings(ctx, domain.BroadcastDayOf(u.now()))
+	if err != nil {
+		return nil, fmt.Errorf("自分のエリアの局一覧を取れない: %w", err)
+	}
+	if len(ss) == 0 {
+		return nil, errors.New("自分のエリアの局一覧が空")
+	}
+	own := make(map[string]bool, len(ss))
+	for _, s := range ss {
+		own[s.ID] = true
+	}
+	return own, nil
+}
+
+// rerecordAreaFor は、応答に載せるジョブ jobs の録り直しの可否に使う局一覧を、リクエストごとに 1 回だけ取る。取るのは、会員種別が
+// エリアフリー・ダブルプランで、jobs に done のタイムフリーから録るジョブがあるときだけ。取れなければ Unknown にして、Warn を 1 行出す。
+func (u *UI) rerecordAreaFor(ctx context.Context, jobs ...domain.Job) rerecordArea {
+	need := false
+	for _, j := range jobs {
+		if j.State == domain.StateDone && !j.Live() {
+			need = true
+			break
+		}
+	}
+	if !need {
+		return rerecordArea{}
+	}
+	own, err := u.rerecordOwn(ctx)
+	if err != nil {
+		u.log().Warn("自分のエリアの局一覧を取れないので、録音済みのジョブを録り直せないことにする", "err", err)
+		return rerecordArea{Unknown: true}
+	}
+	return rerecordArea{Own: own}
+}
+
+// summarize はジョブの一覧の 1 行にする。area は録り直しの可否に使う局一覧（rerecordAreaFor）。last はそのジョブの直近の試行（無ければ nil）で、失敗の段階とエラー（LastFailedStage・LastError）、済んだ時刻（finishedAt）、
 // 手動再試行の可否（domain.ManualRetryInTime）、録れた分を残す期限（domain.LiveKeepUntil）に使う。
-func summarize(j domain.Job, last *domain.Attempt, m domain.Membership, now time.Time) jobSummary {
+func summarize(j domain.Job, last *domain.Attempt, m domain.Membership, area rerecordArea, now time.Time) jobSummary {
 	settled := j.State == domain.StateSkipped && j.Settled
 	s := jobSummary{
 		ID: j.ID, ShowName: j.ShowName, Day: j.Day.String(), Part: j.Part, State: string(j.State),
@@ -240,7 +290,7 @@ func summarize(j domain.Job, last *domain.Attempt, m domain.Membership, now time
 		Attempts:   j.Attempts, NextAttemptAt: j.NextAttemptAt, Deadline: j.Deadline,
 		FinishedAt:            finishedAt(j, last),
 		Retryable:             (j.State == domain.StateRetrying || j.State == domain.StateExpired || settled) && domain.ManualRetryInTime(j, last, now),
-		Rerecordable:          domain.CheckRerecord(j, m, now) == nil,
+		Rerecordable:          !area.Unknown && domain.CheckRerecord(j, m, area.Own, now) == nil,
 		ChaptersRedoable:      domain.CheckChapterRedo(j) == nil,
 		ChaptersRedoRequested: !j.ChapterRedoAt.IsZero() && domain.CheckChapterRedo(j) == nil,
 		OutputPath:            j.OutputPath,
@@ -300,7 +350,7 @@ func (u *UI) summarizeJob(ctx context.Context, j domain.Job) (jobSummary, error)
 	if err != nil {
 		return jobSummary{}, err
 	}
-	s := summarize(j, lastOf(as), u.membership(), u.now())
+	s := summarize(j, lastOf(as), u.membership(), u.rerecordAreaFor(ctx, j), u.now())
 	u.withProgress(&s, j)
 	return s, nil
 }
@@ -332,13 +382,14 @@ func (u *UI) listJobs(w http.ResponseWriter, r *http.Request) {
 		u.internalError(w, "試行の履歴を読めない", err)
 		return
 	}
+	area := u.rerecordAreaFor(r.Context(), jobs...)
 	out := make([]jobSummary, 0, len(jobs))
 	for _, j := range jobs {
 		var last *domain.Attempt
 		if a, ok := latest[j.ID]; ok {
 			last = &a
 		}
-		s := summarize(j, last, u.membership(), u.now())
+		s := summarize(j, last, u.membership(), area, u.now())
 		u.withProgress(&s, j)
 		out = append(out, s)
 	}
@@ -387,7 +438,7 @@ func (u *UI) getJob(w http.ResponseWriter, r *http.Request) {
 		u.internalError(w, "チャプターの書き込みの履歴を読めない", err)
 		return
 	}
-	d := jobDetail{jobSummary: summarize(j, lastOf(as), u.membership(), u.now()), Airings: []airingView{}, AttemptLog: []attemptView{},
+	d := jobDetail{jobSummary: summarize(j, lastOf(as), u.membership(), u.rerecordAreaFor(r.Context(), j), u.now()), Airings: []airingView{}, AttemptLog: []attemptView{},
 		ChapterWrites: []chapterWriteView{}}
 	for _, c := range cws {
 		d.ChapterWrites = append(d.ChapterWrites, chapterWriteView{At: c.At, By: string(c.By), Result: string(c.Result), Count: c.Count, Error: c.Error})
@@ -462,12 +513,19 @@ func (u *UI) recordJob(w http.ResponseWriter, r *http.Request) {
 	u.act(w, r, func(ctx context.Context, id int64) error { return u.wakeAfter(u.Jobs.RecordByPerson(ctx, id, u.now())) }, nil)
 }
 
-// rerecordJob は録り直し（ADR 0031）。done のタイムフリーから録るジョブで録音期限の内側のものを、手動再試行と同じく retrying にして
-// 録音のループを起こす。拒むときは、done でない・ライブ録音・録音期限を過ぎた、で文言を分けて 409 にする。受け付けたことは通知しない。
+// rerecordJob は録り直し（ADR 0036）。done のタイムフリーから録るジョブで録音期限の内側のものを、手動再試行と同じく retrying にして
+// 録音のループを起こす。録音期限は今の会員種別と今の自分のエリアの局一覧で求め、局一覧は DB のトランザクションの前に取る
+// （エリアフリー・ダブルプランで取れなければ、store を呼ばずに ErrRerecordAreaUnknown で断る）。
+// 拒むときは、done でない・ライブ録音・録音期限を過ぎた・局一覧を取れない、で文言を分けて 409 にする。受け付けたことは通知しない。
 // 足したら直す: ジョブの状態の移り方
 func (u *UI) rerecordJob(w http.ResponseWriter, r *http.Request) {
 	u.act(w, r, func(ctx context.Context, id int64) error {
-		return u.wakeAfter(u.Jobs.Rerecord(ctx, id, u.membership(), u.now()))
+		own, err := u.rerecordOwn(ctx)
+		if err != nil {
+			u.log().Warn("自分のエリアの局一覧を取れないので、録り直しを断る", "job", id, "err", err)
+			return domain.ErrRerecordAreaUnknown
+		}
+		return u.wakeAfter(u.Jobs.Rerecord(ctx, id, u.membership(), own, u.now()))
 	}, rerecordRefusal)
 }
 
@@ -478,6 +536,8 @@ func rerecordRefusal(err error) string {
 		return "ライブ録音は録り直せない"
 	case errors.Is(err, domain.ErrRerecordPastDeadline):
 		return "録音期限を過ぎているので録り直せない"
+	case errors.Is(err, domain.ErrRerecordAreaUnknown):
+		return "自分のエリアの局一覧を取れないので、いまは録り直せない（後でやり直す）"
 	case errors.Is(err, domain.ErrInvalidTransition):
 		return "この状態では録り直せない（録り直せるのは録音済みのジョブだけ）"
 	}

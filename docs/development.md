@@ -168,7 +168,7 @@ pnpm screenshots
 | 録音予定 | DB には持たず、読むときに決める。番組表の API とキーワードの API の `state` は `planned`（決め方は `internal/server/guide.go` の冒頭と store の `recordState`。キーワードの側の定数は `KeywordAiringPlanned`） |
 | 録らない予定 | 状態は `StateSkipped`（DB と JSON は `skipped`）で、確定の前（`Job.Settled` が false。DB は `jobs.settled` が 0、JSON は `settled` が `false`、番組表の API の `state` は `skip_planned`）。放送回をそうするかは `Show.Hit`（`HitSkip`）。人が決めたものは `Job.ByPerson`（DB は `jobs.by_person`、JSON は `byPerson`。操作は `Store.SkipByPerson`・`Store.RecordByPerson`、API は `POST /api/jobs/{id}/skip`・`record`）。通知の種類は `skip_planned`・`unskipped` |
 | 録らなかった | 「録らない予定」と同じ状態で、確定した後（`Job.Settled` が true。DB は `jobs.settled` が 1、JSON は `settled` が `true`）。確定させるのは domain の `Expand`（最初の試行の時刻を過ぎた展開）と `Store.SettleSkipped` |
-| 録り直し | 受け付けるかは domain の `domain.CheckRerecord`、操作は `Store.Rerecord`、前の保存先の上書きは library の `StoreOver`。API は `/api/jobs/{id}/rerecord`、JSON は `rerecordable`、CLI は `rerecord` |
+| 録り直し | 受け付けるかは domain の `domain.CheckRerecord`、操作は `Store.Rerecord`、前の保存先の上書きは library の `StoreOver`。API は `/api/jobs/{id}/rerecord`、JSON は `rerecordable`、CLI は `rerecord`（[ADR 0036](adr/0036-rerecord-deadline-follows-current-membership-and-own-area.md)） |
 | 試行 | `Attempt` |
 | 進捗 | app の `app.Progress`（serve のメモリにジョブごとに持ち、読むのは `App.JobProgress`。DB には持たない）。server が読む口は `server.Progresses`（`UI.Recorder` が満たせば使う）。ジョブの API の JSON は `progress`（`stage`・`fetchedSeconds`・`totalSeconds`）。タイムフリーの入手でチャンクを書くたびに呼ぶ口は、radiko の `Client.FetchTimefree` の引数 `onChunk` |
 | 録音期限 | `Deadline` |

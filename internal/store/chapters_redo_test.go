@@ -134,7 +134,7 @@ func TestFinishChapterRedo(t *testing.T) {
 	if err := s.RequestChapterRedo(ctx, id, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Rerecord(ctx, id, domain.MembershipFree, now); err != nil {
+	if err := s.Rerecord(ctx, id, domain.MembershipFree, nil, now); err != nil {
 		t.Fatal(err)
 	}
 	if j, err := s.GetJob(ctx, id); err != nil || !j.ChapterRedoAt.IsZero() || j.State != domain.StateRetrying {

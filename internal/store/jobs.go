@@ -705,25 +705,26 @@ func manualRetry(ctx context.Context, tx *sql.Tx, j domain.Job, now time.Time) e
 	return err
 }
 
-// Rerecord は、人が録り直しを選んだ done のジョブを retrying にして、次の試行を now にする（ADR 0031）。戻し方は手動再試行と
+// Rerecord は、人が録り直しを選んだ done のジョブを retrying にして、次の試行を now にする（ADR 0036）。戻し方は手動再試行と
 // 同じで、試行回数を 0 に戻し、試行の履歴は消さない。保存先（output_path）・欠落の印（job_airings.missing）・期限間近を
 // 通知した時刻（deadline_notified_at）は変えない（録れなければ前の値のまま残し、期限間近は 1 度だけ通知する）。
 // 作業用フォルダは done にしたときに消えているので、次の試行はどの放送回も radiko から取り直す。
 // チャプターを待っていれば待ちを消して入らなかったにする（保存のたびに待つかを決め直す。ADR 0027）。チャプターの入れ直しの頼みも
 // 消す（録り直しの保存でチャプターを取り直すため。ADR 0033）。
-// 受け付けるかは domain.CheckRerecord で、今の会員種別 m の録音期限で、読み出しと同じトランザクションの中で決める。
-// 受け付けたら録音期限の列（deadline）も m の録音期限に書き換える（そのままだと、retrying に戻ったジョブが古い期限で
-// すぐに期限の判定に掛かるため。ADR 0031）。done でないジョブは
+// 受け付けるかは domain.CheckRerecord で、今の会員種別 m と今の自分のエリアの局一覧 own（nil なら放送回の印のまま）の録音期限で、
+// 読み出しと同じトランザクションの中で決める。
+// 受け付けたら録音期限の列（deadline）も、判定と同じ m と own の録音期限に書き換える（そのままだと、retrying に戻ったジョブが
+// 古い期限ですぐに期限の判定に掛かるため。ADR 0036）。done でないジョブは
 // domain.ErrInvalidTransition、ライブで録るジョブは domain.ErrRerecordLive、録音期限を過ぎたジョブは
 // domain.ErrRerecordPastDeadline、無いジョブは ErrNotFound を包んだエラーにする。通知はしない（人の操作）。
 // 足したら直す: ジョブの状態の移り方
-func (s *Store) Rerecord(ctx context.Context, id int64, m domain.Membership, now time.Time) error {
+func (s *Store) Rerecord(ctx context.Context, id int64, m domain.Membership, own map[string]bool, now time.Time) error {
 	return s.tx(ctx, func(tx *sql.Tx) error {
 		j, err := getJob(ctx, tx, id)
 		if err != nil {
 			return err
 		}
-		if err := domain.CheckRerecord(j, m, now); err != nil {
+		if err := domain.CheckRerecord(j, m, own, now); err != nil {
 			return fmt.Errorf("ジョブ %d: %w", id, err)
 		}
 		if err := domain.Transition(j.State, domain.StateRetrying); err != nil {
@@ -734,7 +735,7 @@ func (s *Store) Rerecord(ctx context.Context, id int64, m domain.Membership, now
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE jobs SET state = 'retrying', attempts = 0, next_attempt_at = ?, chapters_check_at = '',
 			chapters_redo_at = '', chapters = CASE chapters WHEN 'waiting' THEN 'not_added' ELSE chapters END, deadline = ? WHERE id = ?`,
-			formatTime(now), formatTime(domain.RerecordDeadline(j, m)), id)
+			formatTime(now), formatTime(domain.RerecordDeadline(j, m, own)), id)
 		return err
 	})
 }
