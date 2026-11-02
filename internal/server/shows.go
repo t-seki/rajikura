@@ -16,7 +16,9 @@ package server
 //     1 回の予約は body に書かず、今の番組のものを残す（名前の変更なら引き継ぐ）
 //   - DELETE /api/shows/{name}: 番組を 1 回の予約ごと消す。ジョブは消さない
 //   - PUT /api/shows/{name}/enabled: 有効／無効を切り替える（{"enabled": bool}）
-//   - GET /api/stations: radiko の局の一覧
+//   - GET /api/stations: radiko の局の一覧（full.xml の全局）。局ごとに {id, name, areaName, outOfArea}。areaName は局のエリアの
+//     名前（full.xml の局の area_id から radiko.AreaName で引いた都道府県名）、outOfArea は自分のエリアの外の局か（今日の放送日の、
+//     自分のエリアの番組表の局一覧に無いか）。どちらも分からない（AreaGuide が無い・取れない・空）ときは付けない（一覧は 502 にしない）
 //   - GET /api/show-name?station=&weekday=&start=: 新しい番組の補助。曜日 weekday（0 = 日曜）の、今日から
 //     6 日先までの放送日の番組表から、開始時刻 start（HH:MM）が一致する放送回を探し、番組名から番組名の末尾の
 //     印を落とした名前を返す。見つからなければ found が false
@@ -45,6 +47,7 @@ import (
 
 	"github.com/t-seki/rajikura/internal/app"
 	"github.com/t-seki/rajikura/internal/domain"
+	"github.com/t-seki/rajikura/internal/radiko"
 	"github.com/t-seki/rajikura/internal/store"
 )
 
@@ -401,12 +404,61 @@ func (u *UI) stations(w http.ResponseWriter, r *http.Request) {
 	type stationJSON struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
+		// AreaName は局のエリアの名前（都道府県名）。分からなければ付けない。
+		AreaName string `json:"areaName,omitempty"`
+		// OutOfArea は自分のエリアの外の局か。自分のエリアの局一覧を取れなければ付けない。
+		OutOfArea *bool `json:"outOfArea,omitempty"`
 	}
+	areas := u.stationAreas(r.Context())
+	own := u.ownStations(r.Context())
 	out := make([]stationJSON, len(ss))
 	for i, s := range ss {
 		out[i] = stationJSON{ID: s.ID, Name: s.Name}
+		if a := areas[s.ID]; a != "" {
+			out[i].AreaName = radiko.AreaName(a)
+		}
+		if own != nil {
+			v := !own[s.ID]
+			out[i].OutOfArea = &v
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// stationAreas は、局 ID → その局のエリア ID（full.xml の area_id。AreaGuide.Areas）を返す。AreaGuide が無い・取れないときは nil
+// （取れないときはログに出す）。
+func (u *UI) stationAreas(ctx context.Context) map[string]string {
+	if u.AreaGuide == nil {
+		return nil
+	}
+	info, err := u.AreaGuide.Areas(ctx)
+	if err != nil {
+		u.log().Warn("局のエリアを取れないので、局のエリアの名前を付けない", "err", err)
+		return nil
+	}
+	return info.StationArea
+}
+
+// ownStations は、今日の放送日の、自分のエリアの番組表の局一覧（局 ID の集合）を返す。自分のエリアの外の局かは、局の本拠地の
+// エリアではなく、これに入っているかで決める（展開の app.App.markOutOfArea と同じ）。AreaGuide が無い・取れない・空なら nil
+// （取れない・空のときはログに出す）。
+func (u *UI) ownStations(ctx context.Context) map[string]bool {
+	if u.AreaGuide == nil {
+		return nil
+	}
+	ss, err := u.AreaGuide.AreaAirings(ctx, domain.BroadcastDayOf(u.now()))
+	if err == nil && len(ss) == 0 {
+		err = errors.New("自分のエリアの局一覧が空")
+	}
+	if err != nil {
+		u.log().Warn("自分のエリアの局一覧を取れないので、自分のエリアの外の局かを付けない", "err", err)
+		return nil
+	}
+	out := make(map[string]bool, len(ss))
+	for _, s := range ss {
+		out[s.ID] = true
+	}
+	return out
 }
 
 // showNameJSON は新しい番組の補助の答え。

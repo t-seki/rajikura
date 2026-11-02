@@ -14,9 +14,10 @@ import (
 )
 
 // fakeAreaGuide は、偽の radiko（fakeRadiko）の局ごとの番組表を、エリアの日別番組表として返す（展開の番組表と同じ放送回）。
-// failDays の放送日はエラーにする。
+// failDays の放送日はエラーにする。own が nil でなければ、自分のエリアの局一覧を own にする（無ければ QRR と TBS）。
 type fakeAreaGuide struct {
-	f *fakeRadiko
+	f   *fakeRadiko
+	own []string
 
 	mu       sync.Mutex
 	failDays map[string]bool
@@ -35,7 +36,11 @@ func (g *fakeAreaGuide) AreaAirings(ctx context.Context, day domain.BroadcastDay
 	defer g.f.mu.Unlock()
 	prefix := fmt.Sprintf("%04d%02d%02d/", day.Year, int(day.Month), day.Day)
 	var out []AreaStation
-	for _, st := range []string{"QRR", "TBS"} {
+	own := g.own
+	if own == nil {
+		own = []string{"QRR", "TBS"}
+	}
+	for _, st := range own {
 		ps, ok := g.f.programs[prefix+st]
 		if !ok {
 			continue
@@ -332,5 +337,100 @@ func TestRequestKeywordsExpands(t *testing.T) {
 	e.expandPending()
 	if !e.hasJob(suppin.title) {
 		t.Fatalf("依頼の後にジョブができていない: %+v", e.jobs())
+	}
+}
+
+// imotoQRR は、自分のエリアの局 QRR の、イモトアヤコの出る放送回（名指しの外の局の当て方のテスト用）。
+var imotoQRR = prog{id: "Q1", start: jst(2026, 10, 7, 13, 0), end: jst(2026, 10, 7, 13, 30), title: "イモトの昼", pfm: "イモトアヤコ"}
+
+// newOutOfAreaKeywordEnv は、自分のエリアの局一覧が QRR だけで（TBS は自分のエリアの外の局）、QRR に imotoQRR、TBS に suppin が
+// ある環境を作る。MBS の番組表は無い（取れない）。
+func newOutOfAreaKeywordEnv(t *testing.T, m domain.Membership) *env {
+	t.Helper()
+	e, g := newKeywordEnv(t)
+	g.own = []string{"QRR"}
+	e.fake.setPrograms("QRR", day, imotoQRR)
+	e.app.Membership = m
+	return e
+}
+
+// エリアフリー・ダブルプランでは、キーワードが名指しした自分のエリアの外の局（TBS）の番組表も引いて当て、その放送回には
+// エリアの外から録る印（domain.Airing.OutOfArea）が立つ。番組表を取れない名指しの局（MBS）は、その局のその放送日だけ飛ばし、
+// ほかの局（TBS・QRR）には当てる（#49）。
+func TestKeywordNamedOutOfAreaStation(t *testing.T) {
+	for _, m := range []domain.Membership{domain.MembershipAreaFree, domain.MembershipDouble} {
+		t.Run(string(m), func(t *testing.T) {
+			e := newOutOfAreaKeywordEnv(t, m)
+			id := e.createKeyword(domain.Keyword{Words: "イモトアヤコ", Stations: []string{"MBS", "TBS", "QRR"}})
+			e.sync()
+
+			sj := e.job(suppin.title)
+			if len(sj.Airings) != 1 || sj.Airings[0].StationID != "TBS" || !sj.Airings[0].OutOfArea {
+				t.Fatalf("名指しした自分のエリアの外の局の放送回に、印を立てて当てる: %+v", sj)
+			}
+			qj := e.job(imotoQRR.title)
+			if len(qj.Airings) != 1 || qj.Airings[0].StationID != "QRR" || qj.Airings[0].OutOfArea {
+				t.Fatalf("自分のエリアの局の放送回には印を立てずに当てる: %+v", qj)
+			}
+			recs := e.keywordRecords(id)
+			if len(recs) != 2 {
+				t.Fatalf("記録 = %+v", recs)
+			}
+			if r, err := e.store.GetShow(e.ctx, suppin.title); err != nil || len(r.Onces) != 1 || r.Onces[0].StationID != "TBS" {
+				t.Fatalf("番組 = %+v, %v", r, err)
+			}
+		})
+	}
+}
+
+// 非会員・タイムフリー30 では、名指しした自分のエリアの外の局（TBS）には当てない（番組表も引かない）。自分のエリアの局（QRR）には
+// 当てる。キーワードは消さず、stations も書き換えない（#49）。
+func TestKeywordNamedOutOfAreaStationNotAreaFree(t *testing.T) {
+	for _, m := range []domain.Membership{domain.MembershipFree, domain.MembershipTimeFree30} {
+		t.Run(string(m), func(t *testing.T) {
+			e := newOutOfAreaKeywordEnv(t, m)
+			id := e.createKeyword(domain.Keyword{Words: "イモトアヤコ", Stations: []string{"TBS", "QRR"}})
+			e.sync()
+
+			if _, err := e.store.GetShow(e.ctx, suppin.title); !errors.Is(err, store.ErrNotFound) {
+				t.Fatalf("エリアフリーでないのに、自分のエリアの外の局に当てた: %v", err)
+			}
+			if recs := e.keywordRecords(id); len(recs) != 1 || recs[0].StationID != "QRR" {
+				t.Fatalf("記録 = %+v（自分のエリアの局にだけ当てる）", recs)
+			}
+			k, err := e.store.GetKeyword(e.ctx, id)
+			if err != nil || len(k.Stations) != 2 || k.Stations[0] != "TBS" {
+				t.Fatalf("キーワード = %+v, %v（消さず、stations も書き換えない）", k, err)
+			}
+
+			// エリアフリーに戻せば、次に当てるときからまた当たる。
+			e.app.Membership = domain.MembershipAreaFree
+			e.sync()
+			if sj := e.job(suppin.title); len(sj.Airings) != 1 || !sj.Airings[0].OutOfArea {
+				t.Fatalf("エリアフリーに戻した後 = %+v", sj)
+			}
+		})
+	}
+}
+
+// OutOfAreaKeywordStations は、有効なキーワードの名指しのうち、自分のエリアの局一覧に無い局だけを、重ねずに引く（#49）。
+func TestOutOfAreaKeywordStations(t *testing.T) {
+	e := newOutOfAreaKeywordEnv(t, domain.MembershipAreaFree)
+	own := []AreaStation{{ID: "QRR", Name: "文化放送"}}
+	ks := []domain.Keyword{{Words: "a", Stations: []string{"QRR", "TBS"}}, {Words: "b", Stations: []string{"TBS", "MBS"}}, {Words: "c"}}
+	extra, failed := OutOfAreaKeywordStations(e.ctx, e.app.Guide, own, ks, domain.MembershipAreaFree, day, func(id string) string { return id + "!" })
+	if len(extra) != 1 || extra[0].ID != "TBS" || extra[0].Name != "TBS!" || len(extra[0].Airings) == 0 {
+		t.Fatalf("extra = %+v", extra)
+	}
+	for _, a := range extra[0].Airings {
+		if !a.OutOfArea {
+			t.Fatalf("印が立っていない: %+v", a)
+		}
+	}
+	if len(failed) != 1 || failed[0].Station != "MBS" || failed[0].Err == nil {
+		t.Fatalf("failed = %+v", failed)
+	}
+	if extra, failed := OutOfAreaKeywordStations(e.ctx, e.app.Guide, own, ks, domain.MembershipTimeFree30, day, func(id string) string { return id }); extra != nil || failed != nil {
+		t.Fatalf("エリアフリーでないのに引いた: %+v, %+v", extra, failed)
 	}
 }

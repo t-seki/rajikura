@@ -11,10 +11,11 @@ export const MOCK_NOW = "2026-04-15T10:30:00+09:00";
 const nowMs = new Date(MOCK_NOW).getTime();
 const at = (offsetMinutes: number) => new Date(nowMs + offsetMinutes * 60_000).toISOString();
 
+// 3 局とも自分のエリア（東京都。GET /api/guide/areas の own）の局（GET /api/stations の areaName・outOfArea）。
 export const stations: Station[] = [
-  { id: "HOSHIZORA", name: "ほしぞらFM" },
-  { id: "MINATO", name: "みなとラジオ" },
-  { id: "TSUMUGI", name: "つむぎ放送" },
+  { id: "HOSHIZORA", name: "ほしぞらFM", areaName: "東京都", outOfArea: false },
+  { id: "MINATO", name: "みなとラジオ", areaName: "東京都", outOfArea: false },
+  { id: "TSUMUGI", name: "つむぎ放送", areaName: "東京都", outOfArea: false },
 ];
 
 type Slot = { minutes: number; title: string; performer: string; description: string };

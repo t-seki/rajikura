@@ -7,7 +7,12 @@ package app
 //     展開に入る）と、キーワードを作った・変えた直後（Web UI・API が RequestKeywords で展開役に頼む。足した番組の局・放送日を
 //     続けて展開する）
 //   - どこに: エリアの日別番組表（AreaGuide。番組表の検索と同じ口で、radiko.Client の番組表のキャッシュを共有する）を、今日から
-//     7 日先までの放送日について引き、局の絞り込みはその結果から選ぶ。番組表を取れない・空の放送日には当てない
+//     7 日先までの放送日について引き、局の絞り込みはその結果から選ぶ。番組表を取れない・空の放送日には当てない。
+//     会員種別がエリアフリー・ダブルプランなら、有効なキーワードが名指しした自分のエリアの外の局（その放送日の自分のエリアの
+//     局一覧に無い局）も、局ごとの日別の番組表（Guide.Airings。展開と同じ口で、番組表の同期と同じ鮮度で読む）で足して引き、
+//     エリアの外から録る印（domain.Airing.OutOfArea）を立てて当てる（OutOfAreaKeywordStations）。全国は引かない。
+//     足して引いた局のある放送日を取れない・空なら、その局のその放送日だけ飛ばす。非会員・タイムフリー30 では足さない
+//     （キーワードは消さず、stations も書き換えない。当てるたびに、その時点の会員種別で決める）
 //   - 何に: まだ始まっていない放送回のうち、キーワードの局の内側で、語に当たり除外する語に当たらないもの（domain.KeywordMatcher）
 //   - 足し方・飛ばし方・上限・キーワードどうしの重なり: domain.PlanKeywords。判定と、1 回の予約・番組・記録・通知の書き込みは
 //     1 つのトランザクションで行う（store.ApplyKeywords。HTTP のハンドラが同じ時に番組や 1 回の予約を書くため）
@@ -21,6 +26,7 @@ package app
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -121,7 +127,8 @@ func (a *App) applyKeywords(ctx context.Context) ([]string, error) {
 }
 
 // keywordHits は、今日から 7 日先までの放送日のエリアの番組表から、キーワード keywords が当たる、まだ始まっていない放送回を
-// キーワードの ID ごとに開始の順で返す。番組表を取れない・空の放送日は飛ばす（ログに出す）。
+// キーワードの ID ごとに開始の順で返す。番組表を取れない・空の放送日は飛ばす（ログに出す）。名指しされた自分のエリアの外の局は
+// OutOfAreaKeywordStations で足して引く（取れない局は、その放送日だけ飛ばす。ログに出す）。
 func (a *App) keywordHits(ctx context.Context, keywords []domain.Keyword, now time.Time, today domain.BroadcastDay) map[int64][]domain.KeywordHit {
 	matchers := make([]domain.KeywordMatcher, len(keywords))
 	for i, k := range keywords {
@@ -143,6 +150,19 @@ func (a *App) keywordHits(ctx context.Context, keywords []domain.Keyword, now ti
 		if !slices.ContainsFunc(stations, func(s AreaStation) bool { return len(s.Airings) > 0 }) {
 			a.log().Warn("エリアの番組表が空なので、この放送日にはキーワードを当てない", "day", day)
 			continue
+		}
+		if a.Guide != nil {
+			extra, failed := OutOfAreaKeywordStations(ctx, a.Guide, stations, keywords, a.membership(), day, func(id string) string {
+				return cmp.Or(a.station(ctx, id).Name, id)
+			})
+			if ctx.Err() != nil {
+				return nil
+			}
+			for _, f := range failed {
+				a.log().Warn("名指しされた自分のエリアの外の局の番組表を取れないので、この局のこの放送日にはキーワードを当てない",
+					"station", f.Station, "day", day, "err", f.Err)
+			}
+			stations = append(slices.Clip(stations), extra...)
 		}
 		for _, st := range stations {
 			for _, ar := range st.Airings {
@@ -167,6 +187,57 @@ func (a *App) keywordHits(ctx context.Context, keywords []domain.Keyword, now ti
 		})
 	}
 	return hits
+}
+
+// OutOfAreaFailure は、名指しされた自分のエリアの外の局の、ある放送日の番組表を取れなかったこと（OutOfAreaKeywordStations）。
+type OutOfAreaFailure struct {
+	Station string
+	Err     error
+}
+
+// OutOfAreaKeywordStations は、キーワード keywords を放送日 day の番組表に当てるときに、自分のエリアの番組表 own に足して引く局
+// （キーワードが名指しした自分のエリアの外の局）の放送回を返す（キーワードの照合 App.keywordHits と、キーワードのプレビュー
+// internal/server/keywords.go が使う）。
+//
+//   - 足すのは、会員種別 m がエリアフリー・ダブルプランのときだけ（ほかでは何も返さない）
+//   - 自分のエリアの外の局かは、局の本拠地のエリアではなく、own の局一覧（stationSet）に無いかで決める（App.markOutOfArea と同じ）
+//   - 番組表は局ごとの日別の番組表（g.Airings。展開と同じ口）で引き、放送回にはエリアの外から録る印（domain.Airing.OutOfArea）を立てる
+//   - 局の名前は name で決める
+//   - 取れない・空の局は返さず、failed に入れる（呼び出し側が、その局のその放送日だけ飛ばすか、まとめて断るかを決める）
+//
+// 返す局は、キーワードの順・名指しの順（重ねない）。
+func OutOfAreaKeywordStations(ctx context.Context, g Guide, own []AreaStation, keywords []domain.Keyword, m domain.Membership,
+	day domain.BroadcastDay, name func(id string) string) (extra []AreaStation, failed []OutOfAreaFailure) {
+	if !m.AreaFree() {
+		return nil, nil
+	}
+	inOwn := stationSet(own)
+	seen := map[string]bool{}
+	for _, k := range keywords {
+		for _, id := range k.Stations {
+			if inOwn[id] || seen[id] {
+				continue
+			}
+			seen[id] = true
+			airings, err := g.Airings(ctx, id, day)
+			if err == nil && len(airings) == 0 {
+				err = errors.New("番組表が空")
+			}
+			if err != nil {
+				if ctx.Err() != nil {
+					return extra, failed
+				}
+				failed = append(failed, OutOfAreaFailure{Station: id, Err: err})
+				continue
+			}
+			marked := slices.Clone(airings)
+			for i := range marked {
+				marked[i].OutOfArea = true
+			}
+			extra = append(extra, AreaStation{ID: id, Name: name(id), Airings: marked})
+		}
+	}
+	return extra, failed
 }
 
 // broadcastClock は時刻 t を、放送日 day の時刻（05:00〜28:59）で書く。

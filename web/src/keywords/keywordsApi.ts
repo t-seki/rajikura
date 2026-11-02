@@ -2,6 +2,7 @@
 
 import { ApiError } from "../api";
 import type { GuideAiring } from "../guide/api";
+import type { Station } from "../shows/api";
 
 export type Keyword = {
   id: number;
@@ -78,6 +79,30 @@ export async function previewKeyword(words: string, exclude: string, stations: s
   );
   return { airings: p.airings ?? [], truncated: p.truncated ?? false };
 }
+
+/**
+ * キーワードの画面の局の名前。自分のエリアの外の局（outOfArea）には局のエリアの名前を添える（例: 「MBS（大阪府）」）。
+ * 自分のエリアの局と、自分のエリアの外の局か分からない局には添えない。
+ */
+export function stationLabel(s: Station): string {
+  return s.outOfArea && s.areaName ? `${s.name}（${s.areaName}）` : s.name;
+}
+
+/**
+ * ids のうち、自分のエリアの外の局（outOfArea）の名前（stationLabel）。stations に無い局と、自分のエリアの外の局か分からない局は入れない。
+ */
+export function outOfAreaLabels(ids: string[], stations: Station[] | null): string[] {
+  const out: string[] = [];
+  for (const id of ids) {
+    const s = stations?.find((x) => x.id === id);
+    if (s?.outOfArea) out.push(stationLabel(s));
+  }
+  return out;
+}
+
+/** 会員種別がエリアフリー・ダブルプランでないときに、自分のエリアの外の局を名指ししたキーワードに出す文。 */
+export const notAreaFreeMessage = (labels: string[]) =>
+  `エリアフリー・ダブルプランでないので、自分のエリアの外の局（${labels.join("・")}）には当てない。`;
 
 export const stateLabels: Record<KeywordAiringState, string> = {
   planned: "録音予定",

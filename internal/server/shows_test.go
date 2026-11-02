@@ -427,6 +427,68 @@ func TestStations(t *testing.T) {
 	e.call("GET", "/api/stations", "", 502, nil)
 }
 
+// GET /api/stations は、局ごとに局のエリアの名前（areaName）と、自分のエリアの外の局か（outOfArea。今日の放送日の自分のエリアの
+// 番組表の局一覧に無いか）を返す。自分のエリアの局一覧を取れない・空なら outOfArea を付けない（一覧は 502 にしない）（#49）。
+func TestStationsAreaFields(t *testing.T) {
+	e := newShowsUI(t)
+	e.guide.stations = []app.Station{{ID: "TBS", Name: "TBSラジオ"}, {ID: "ABC", Name: "ABCラジオ"}, {ID: "QRR", Name: "文化放送"}, {ID: "X", Name: "X"}}
+	type station struct {
+		ID        string  `json:"id"`
+		Name      string  `json:"name"`
+		AreaName  *string `json:"areaName"`
+		OutOfArea *bool   `json:"outOfArea"`
+	}
+	var got []station
+	// AreaGuide が無ければ、どちらも付けない。
+	e.call("GET", "/api/stations", "", 200, &got)
+	for _, s := range got {
+		if s.AreaName != nil || s.OutOfArea != nil {
+			t.Fatalf("AreaGuide が無いのに付けた: %+v", s)
+		}
+	}
+
+	area := &fakeAreaGuide{stations: map[string][]app.AreaStation{"2026-10-07": {{ID: "TBS", Name: "TBSラジオ"}}}}
+	e.ui.AreaGuide = area
+	got = nil
+	e.call("GET", "/api/stations", "", 200, &got)
+	want := map[string]struct {
+		area string
+		out  bool
+	}{"TBS": {"東京都", false}, "ABC": {"大阪府", true}, "QRR": {"東京都", true}}
+	if len(got) != 4 {
+		t.Fatalf("stations = %+v", got)
+	}
+	for _, s := range got {
+		if s.ID == "X" {
+			// full.xml にエリアの無い局は、エリアの名前を付けない。自分のエリアの外の局かは付ける。
+			if s.AreaName != nil || s.OutOfArea == nil || !*s.OutOfArea {
+				t.Errorf("X = %+v", s)
+			}
+			continue
+		}
+		w := want[s.ID]
+		// QRR は本拠地が東京都でも、自分のエリアの局一覧に無いので、自分のエリアの外の局。
+		if s.AreaName == nil || *s.AreaName != w.area || s.OutOfArea == nil || *s.OutOfArea != w.out {
+			t.Errorf("%s = %+v, want %+v", s.ID, s, w)
+		}
+	}
+
+	// 自分のエリアの局一覧が空なら、outOfArea を付けない。
+	area.stations = map[string][]app.AreaStation{}
+	got = nil
+	e.call("GET", "/api/stations", "", 200, &got)
+	if len(got) != 4 || got[0].OutOfArea != nil || got[0].AreaName == nil {
+		t.Fatalf("局一覧が空 = %+v", got)
+	}
+	// 取れなければ、どちらも付けない。
+	area.fail = true
+	got = nil
+	e.call("GET", "/api/stations", "", 200, &got)
+	if len(got) != 4 || got[0].OutOfArea != nil || got[0].AreaName != nil {
+		t.Fatalf("取れない = %+v", got)
+	}
+}
+
 // 局・曜日・開始時刻から、その放送日の番組表で開始時刻が一致する放送回を探し、番組名の末尾の印を落とした名前を返す。
 func TestSuggestShowName(t *testing.T) {
 	e := newShowsUI(t)
