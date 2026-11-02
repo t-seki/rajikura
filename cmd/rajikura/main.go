@@ -2,6 +2,7 @@
 //
 //	rajikura [-data <フォルダ>] [-listen <アドレス>] [-allowed-hosts <名前,...>] serve [-reset-password] 常駐して番組表の同期と録音を回す。DB を開くのは serve だけ
 //	rajikura [-url <URL>] [-token <トークン>] jobs [-state <状態>]   ジョブを一覧する
+//	rajikura [-url <URL>] [-token <トークン>] jobs <ID>              ジョブ 1 件の詳細（放送回・試行の履歴・チャプターの書き込みの履歴）を出す
 //	rajikura [-url <URL>] [-token <トークン>] retry <ID>...          retrying / expired / skipped（録らなかった）のジョブの次の試行をすぐに行わせる
 //	rajikura [-url <URL>] [-token <トークン>] skip <ID>...           試行がまだ無い waiting のジョブを録らないにする
 //	rajikura [-url <URL>] [-token <トークン>] record <ID>...         skipped のジョブを録るに戻す
@@ -325,6 +326,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  serve                 常駐して番組表の同期と録音を回す（DB を開くのは serve だけ）")
 	fmt.Fprintln(w, "                        -reset-password: Web UI のパスワード・ログインのセッション・API トークンを消して、セットアップコードからやり直す")
 	fmt.Fprintln(w, "  jobs [-state 状態]    ジョブを一覧する（状態はカンマ区切りで複数指定できる）")
+	fmt.Fprintln(w, "  jobs ID               ジョブ 1 件の詳細（放送回・試行の履歴・チャプターの書き込みの履歴を含む）を出す")
 	fmt.Fprintln(w, "  retry ID...           retrying / expired / skipped（録らなかった）のジョブの次の試行をすぐに行わせる（serve がすぐ拾う）")
 	fmt.Fprintln(w, "  skip ID...            試行がまだ無い waiting のジョブを録らないにする（放送の前なら録らない予定、後なら録らなかった）")
 	fmt.Fprintln(w, "  record ID...          skipped のジョブを録るに戻す（録らない予定は録音予定に、録らなかったは手動再試行と同じく retrying に）")
