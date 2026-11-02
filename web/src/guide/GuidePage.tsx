@@ -784,6 +784,8 @@ export function GuidePage({
   // 流している（流した）検索の語。URL の `q` に載せる。「検索をやめる」で空にする
   const [activeQ, setActiveQ] = useState(initial.q);
   const [opened, setOpened] = useState<GuideAiring | null>(null);
+  // 開いた詳細の番組表のエリア（開いた時点で決める）。null は選んでいるエリア。openPlain が決め、パート探しと詳細の loadDay の両方が使う
+  const [detailArea, setDetailArea] = useState<string | null>(null);
   // URL の `airing` が指す、まだ開いていない放送回（番組表か検索の結果を読んでから開く）
   const [pendingAiring, setPendingAiring] = useState<string | null>(initial.airing);
   const [sel, setSel] = useState<Selection | null>(null);
@@ -889,8 +891,9 @@ export function GuidePage({
     }
   }, []);
 
-  // 詳細が分割番組のパートを探すための、その放送日の番組表。a はパートを探すエリア（空なら自分のエリア）で、既定は選んでいるエリア。
-  // 全国の検索の結果から開いた詳細は、選んでいるエリアでなく局のエリア（stationAreaId。無ければ自分のエリア）を渡す。
+  // 詳細が使う、その放送日の番組表。分割番組のパートを探すのと、詳細が足す先の番組のもう当てている放送回を数えるのに使う。
+  // a は番組表のエリア（空なら自分のエリア）で、既定は選んでいるエリア。
+  // 全国の検索の結果から開いた詳細は、選んでいるエリアでなく局のエリア（stationAreaId。無ければ自分のエリア）を渡す（detailArea）。
   // いま開いている日の番組表は、日もエリアも同じときだけそのまま使う。
   const stationsRef = useRef<{ day: string; area: string; stations: GuideStation[] } | null>(null);
   useEffect(() => {
@@ -901,6 +904,8 @@ export function GuidePage({
     if (cur && cur.day === d && cur.area === a) return cur.stations;
     return (await getGuide(d, a)).stations;
   }, []);
+  // 詳細の loadDay。開いた時点のエリア（detailArea）の番組表を引く。詳細は開いたときに 1 回だけ読む
+  const detailLoadDay = useCallback((d: string) => dayForParts(d, detailArea ?? areaRef.current), [dayForParts, detailArea]);
 
   // 開いたときの URL に検索の語があれば、検索を流す
   useEffect(() => {
@@ -928,6 +933,9 @@ export function GuidePage({
     const my = ++groupToken.current;
     setPendingAiring(null);
     setOpened(a);
+    // 詳細の番組表のエリアを決める式はここの 1 か所だけ（パート探しと詳細の loadDay が同じ値を使う）
+    const partsArea = fromSearch && search?.scope === "all" ? (a.stationAreaId ?? "") : areaRef.current;
+    setDetailArea(partsArea);
     if (!selectable(a)) {
       setSel(null);
       setTouchSelect(false);
@@ -935,7 +943,6 @@ export function GuidePage({
     }
     const d = broadcastDayOf(a.start);
     setSel({ stationId: a.stationId, day: d, rows: [a], picked: [a.start], anchor: a.start, auto: false, pending: true, fromSearch });
-    const partsArea = fromSearch && search?.scope === "all" ? (a.stationAreaId ?? "") : areaRef.current;
     dayForParts(d, partsArea).then(
       (st) => {
         if (my !== groupToken.current) return;
@@ -960,7 +967,10 @@ export function GuidePage({
       return;
     }
     setSel(next);
-    if (opened && !next.rows.some((a) => sameAiring(a, opened))) setOpened(pressed);
+    if (opened && !next.rows.some((a) => sameAiring(a, opened))) {
+      setOpened(pressed);
+      setDetailArea(null);
+    }
   }
 
   /** Ctrl+Click（toggle）・Shift+Click（range）・タッチの選択の状態のタップ。 */
@@ -1488,6 +1498,7 @@ export function GuidePage({
                 // 選んだ放送回の詳細を開く
                 setSel({ ...sel, rows: pickedAirings, auto: false });
                 setOpened(pickedAirings[0]);
+                setDetailArea(null);
               }}
             >
               この {pickedAirings.length} 件を予約
@@ -1503,7 +1514,7 @@ export function GuidePage({
         airing={current}
         wide={wide}
         stations={(stations ?? []).map(({ id, name }) => ({ id, name }))}
-        loadDay={dayForParts}
+        loadDay={detailLoadDay}
         selection={panelSelection}
         onToggle={togglePicked}
         onOnly={onlyOpened}

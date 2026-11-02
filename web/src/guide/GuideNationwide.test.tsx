@@ -308,4 +308,91 @@ describe("番組表の全国の検索", () => {
       expect(calls).not.toContain(`GET /api/guide?day=${today}`);
     });
   });
+
+  // 詳細のパネルが「もう当てている放送回」を数える番組表も、パート探しと同じエリアにする（#57）。
+  describe("詳細のパネルの番組表のエリア", () => {
+    const mbsAt = (hour: number, extra: Partial<GuideAiring>): GuideAiring => ({
+      ...base,
+      stationId: "MBS",
+      stationName: "MBSラジオ",
+      title: "ネットの番組",
+      stationAreaId: "JP27",
+      start: `${today}T${hour}:00:00+09:00`,
+      end: `${today}T${hour + 1}:00:00+09:00`,
+      ...extra,
+    });
+    const mbsGuide = `GET /api/guide?${new URLSearchParams({ day: today, area: "JP27" })}`;
+    const guideOf = (airings: GuideAiring[]): Handler => () => ({
+      status: 200,
+      body: { day: today, stations: [{ id: "MBS", name: "MBSラジオ", airings }] },
+    });
+    const morningShow = { name: "朝の番組", enabled: true, split: "none", check_title: true, weekly: [] };
+    const join = "パートを 1 つのファイルにつなぐ";
+
+    it("全国の検索の結果から開いたら、足す先の番組がもう当てている放送回も局のエリアの番組表で数えてつなぐを出す", async () => {
+      window.history.replaceState(null, "", `/?${new URLSearchParams({ q: "番組", scope: "all" })}`);
+      const target = mbsAt(14, {});
+      // 局のエリアの番組表で、同じ放送日の別の放送回に番組「朝の番組」が当たっている（選んでいるエリアの番組表に MBS は無い）
+      const other = mbsAt(10, { title: "別の題", showName: "朝の番組" });
+      const calls = mockApi({
+        ...common,
+        "GET /api/guide/areas": areasOf(true),
+        "GET /api/shows": () => ({ status: 200, body: [morningShow] }),
+        [allSearch]: () => ({ status: 200, body: { ...allResult(), airings: [target] } }),
+        [mbsGuide]: guideOf([other, target]),
+      });
+      const user = userEvent.setup();
+      renderShell();
+      await user.click(await within(await screen.findByLabelText("検索結果")).findByRole("button", { name: /ネットの番組/ }));
+      const dialog = await screen.findByRole("dialog");
+      await user.click(await within(dialog).findByRole("button", { name: "設定を変えて予約" }));
+      const settings = await within(dialog).findByLabelText("設定を変えて予約");
+      await user.click(within(settings).getByRole("combobox", { name: "どの番組に足すか" }));
+      await user.click(await screen.findByRole("option", { name: "朝の番組", hidden: true }));
+      expect(await within(dialog).findByRole("checkbox", { name: join })).toBeInTheDocument();
+      expect(calls).toContain(mbsGuide);
+    });
+
+    it("全国の検索以外から開いたら、選んでいるエリアの番組表で数える（局のエリアの番組表は引かない）", async () => {
+      window.history.replaceState(null, "", `/?${new URLSearchParams({ q: "番組", area: "JP27" })}`);
+      const target = mbsAt(14, { stationAreaId: undefined });
+      const calls = mockApi({
+        ...common,
+        "GET /api/guide/areas": areasOf(true),
+        "GET /api/shows": () => ({ status: 200, body: [morningShow] }),
+        [mbsGuide]: guideOf([mbsAt(10, { stationAreaId: undefined, title: "別の題", showName: "朝の番組" }), target]),
+        [`GET /api/guide/search?${new URLSearchParams({ q: "番組", area: "JP27" })}`]: () => ({
+          status: 200,
+          body: { q: "番組", airings: [target], truncated: false },
+        }),
+      });
+      const user = userEvent.setup();
+      renderShell();
+      await user.click(await within(await screen.findByLabelText("検索結果")).findByRole("button", { name: /ネットの番組/ }));
+      const dialog = await screen.findByRole("dialog");
+      await user.click(await within(dialog).findByRole("button", { name: "設定を変えて予約" }));
+      const settings = await within(dialog).findByLabelText("設定を変えて予約");
+      await user.click(within(settings).getByRole("combobox", { name: "どの番組に足すか" }));
+      await user.click(await screen.findByRole("option", { name: "朝の番組", hidden: true }));
+      expect(await within(dialog).findByRole("checkbox", { name: join })).toBeInTheDocument();
+      expect(calls).not.toContain(`GET /api/guide?day=${today}`);
+    });
+
+    it("全国の検索の結果から選べない放送回（録音済み）を開いても、パネルは局のエリアの番組表を引く", async () => {
+      window.history.replaceState(null, "", `/?${new URLSearchParams({ q: "番組", scope: "all" })}`);
+      const done = mbsAt(14, { state: "done" });
+      const calls = mockApi({
+        ...common,
+        "GET /api/guide/areas": areasOf(true),
+        [allSearch]: () => ({ status: 200, body: { ...allResult(), airings: [done] } }),
+        [mbsGuide]: guideOf([done]),
+      });
+      const user = userEvent.setup();
+      renderShell();
+      await user.click(await within(await screen.findByLabelText("検索結果")).findByRole("button", { name: /ネットの番組/ }));
+      await screen.findByRole("dialog");
+      await waitFor(() => expect(calls).toContain(mbsGuide));
+      expect(calls).not.toContain(`GET /api/guide?day=${today}&area=JP13`);
+    });
+  });
 });
