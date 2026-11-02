@@ -303,8 +303,8 @@ func TestFetchTimefreeFallsBackToNextCandidate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.badHits != 1 {
-		t.Errorf("bad candidate hits = %d, want 1 (the next candidate is kept for later chunks)", f.badHits)
+	if f.badHits != 3 {
+		t.Errorf("bad candidate hits = %d, want 3 (every chunk starts from the first candidate)", f.badHits)
 	}
 	if out.String() != expectedAudio(start, end) || res.Segments != 150 {
 		t.Errorf("audio mismatch (segments=%d)", res.Segments)
@@ -391,6 +391,74 @@ func TestFetchTimefreeSeamFallsBackToNextCandidate(t *testing.T) {
 	}
 	if !strings.HasSuffix(res.PlaylistCreateURL, "/tf/playlist.m3u8") {
 		t.Errorf("PlaylistCreateURL = %q, want the second candidate", res.PlaylistCreateURL)
+	}
+}
+
+// 継ぎ目の直前の切れ目を 1 つ目の候補が落としても、同じ候補で seek=B-5s・l=10 の小さなチャンクを差し込んで埋める（#36）。
+func TestFetchTimefreeSeamBridged(t *testing.T) {
+	f, c, tok, start, end := fetchEnv(t)
+	f.dropSeam = start.Add(300 * time.Second)
+	var out bytes.Buffer
+	res, err := c.FetchTimefree(context.Background(), tok, "TBS", start, end, &out, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != expectedAudio(start, end) {
+		t.Errorf("audio mismatch: %q", out.String())
+	}
+	if res.Segments != 150 || res.DurationSeconds != 750 {
+		t.Errorf("result = %+v", res)
+	}
+	if res.PlaylistCreateURL != f.srv.URL+"/tf/playlist.m3u8?cand=first" {
+		t.Errorf("url = %q", res.PlaylistCreateURL)
+	}
+	want := f.dropSeam.Add(-5 * time.Second).Format(timeLayout)
+	var bridges int
+	for _, r := range f.medialistReqs {
+		if strings.HasPrefix(r, "second ") {
+			t.Errorf("second candidate was requested: %q", r)
+		}
+		if r == "first "+want+" 10" {
+			bridges++
+		}
+	}
+	if bridges != 1 {
+		t.Errorf("bridge requests = %d, want 1 (%v)", bridges, f.medialistReqs)
+	}
+}
+
+// 揃った継ぎ目では、差し込みの要求を出さない。
+func TestFetchTimefreeAlignedSeamNoBridge(t *testing.T) {
+	f, c, tok, start, end := fetchEnv(t)
+	f.dropSeam = end.Add(time.Hour) // 候補を見分ける印だけ付ける。どの継ぎ目でも落とさない
+	var out bytes.Buffer
+	if _, err := c.FetchTimefree(context.Background(), tok, "TBS", start, end, &out, nil); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != expectedAudio(start, end) {
+		t.Errorf("audio mismatch")
+	}
+	for _, r := range f.medialistReqs {
+		if strings.HasSuffix(r, " 10") {
+			t.Errorf("unexpected bridge request %q", r)
+		}
+	}
+}
+
+// あるチャンクで次の候補に進んでも、次のチャンクは 1 つ目の候補から取る。
+func TestFetchTimefreeNextChunkStartsFromFirstCandidate(t *testing.T) {
+	f, c, tok, start, end := fetchEnv(t)
+	f.gapFromSeek = start.Add(300 * time.Second)
+	f.gap = 5 * time.Second
+	f.gapFirstOnly = true
+	var out bytes.Buffer
+	if _, err := c.FetchTimefree(context.Background(), tok, "TBS", start, end, &out, nil); err != nil {
+		t.Fatal(err)
+	}
+	// 2 チャンク目は first が欠けて second に進む。3 チャンク目（最後。l=150）は first から取る。
+	third := start.Add(600 * time.Second).Format(timeLayout)
+	if !slices.Contains(f.medialistReqs, "first "+third+" 150") {
+		t.Errorf("third chunk did not start from the first candidate: %v", f.medialistReqs)
 	}
 }
 
