@@ -35,7 +35,11 @@ export type UnmatchedAiring = { title: string; start: string; end: string };
  */
 export type UnmatchedDay = { day: string; station: string; start: string; covering: UnmatchedAiring | null; titled: UnmatchedAiring[] };
 
-export type Station = { id: string; name: string };
+/**
+ * radiko の局（GET /api/stations）。areaName は局のエリアの名前（都道府県名）、outOfArea は自分のエリアの外の局か（今日の放送日の、
+ * 自分のエリアの番組表の局一覧に無いか）。どちらも、サーバーが分からないときは付かない。
+ */
+export type Station = { id: string; name: string; areaName?: string; outOfArea?: boolean };
 
 export type ShowName = { found: boolean; day: string; name?: string; title?: string };
 

@@ -1,5 +1,6 @@
 import { Alert, Badge, Button, Card, Group, Loader, Modal, Stack, Switch, Text, Title } from "@mantine/core";
 import { useCallback, useEffect, useState } from "react";
+import { getGuideAreas } from "../guide/api";
 import { broadcastDayOf, broadcastRange, dayLabel } from "../guide/format";
 import { listStations, type Station } from "../shows/api";
 import { notifySuccess } from "../ui/toast";
@@ -9,7 +10,10 @@ import {
   deleteKeyword,
   listKeywordAirings,
   listKeywords,
+  notAreaFreeMessage,
+  outOfAreaLabels,
   stateColors,
+  stationLabel,
   stateLabels,
   updateKeyword,
   type Keyword,
@@ -80,6 +84,8 @@ export function KeywordsPage({
 } = {}) {
   const [keywords, setKeywords] = useState<Keyword[] | null>(null);
   const [stations, setStations] = useState<Station[] | null>(null);
+  // 会員種別がエリアフリー・ダブルプランか（番組表のエリアの一覧の switchable。読めなければ null で、当てない旨を出さない）。
+  const [areaFree, setAreaFree] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   // editing は、変える途中のキーワード（undefined なら作る、null ならダイアログを閉じている）。
   const [editing, setEditing] = useState<Keyword | undefined | null>(null);
@@ -100,6 +106,10 @@ export function KeywordsPage({
   useEffect(() => {
     void reload();
     listStations().then(setStations, () => setStations([]));
+    getGuideAreas().then(
+      (a) => setAreaFree(a.switchable),
+      () => setAreaFree(null),
+    );
   }, [reload]);
 
   useEffect(() => {
@@ -109,7 +119,10 @@ export function KeywordsPage({
     onDraftHandled?.();
   }, [draftWords, onDraftHandled]);
 
-  const stationName = (id: string) => stations?.find((s) => s.id === id)?.name ?? id;
+  const stationName = (id: string) => {
+    const s = stations?.find((x) => x.id === id);
+    return s ? stationLabel(s) : id;
+  };
 
   async function save(input: KeywordInput) {
     const creating = editing === undefined;
@@ -195,6 +208,11 @@ export function KeywordsPage({
                   <Text size="sm" c="dimmed">
                     局: {k.stations.length === 0 ? "エリアの全局" : k.stations.map(stationName).join("・")}
                   </Text>
+                  {areaFree === false && outOfAreaLabels(k.stations, stations).length > 0 && (
+                    <Text size="sm" c="yellow.8" data-testid="not-area-free">
+                      {notAreaFreeMessage(outOfAreaLabels(k.stations, stations))}
+                    </Text>
+                  )}
                   <Text size="sm" c="dimmed">
                     録音を終えていない足した放送回: {k.pending} 件
                   </Text>
@@ -225,6 +243,7 @@ export function KeywordsPage({
             initial={editing}
             initialWords={initialWords}
             stations={stations}
+            areaFree={areaFree}
             onSubmit={save}
             onCancel={() => setEditing(null)}
           />

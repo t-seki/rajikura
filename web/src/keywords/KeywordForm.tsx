@@ -2,7 +2,15 @@ import { Alert, Button, Group, Loader, MultiSelect, ScrollArea, Stack, Switch, T
 import { useEffect, useRef, useState } from "react";
 import { broadcastDayOf, broadcastRange, dayLabel } from "../guide/format";
 import type { Station } from "../shows/api";
-import { previewKeyword, type Keyword, type KeywordInput, type KeywordPreview } from "./keywordsApi";
+import {
+  notAreaFreeMessage,
+  outOfAreaLabels,
+  previewKeyword,
+  stationLabel,
+  type Keyword,
+  type KeywordInput,
+  type KeywordPreview,
+} from "./keywordsApi";
 
 // 入力が止まってから当たる放送回を調べるまでの間。
 const previewDelay = 400;
@@ -33,7 +41,8 @@ function Preview({ preview, error, loading, empty }: { preview: KeywordPreview |
               <Stack gap={4}>
                 {preview.airings.map((a) => (
                   <Text key={`${a.stationId}${a.start}`} size="sm" data-testid="preview-airing">
-                    {dayLabel(broadcastDayOf(a.start))} {broadcastRange(a)} {a.stationName} {a.title}
+                    {dayLabel(broadcastDayOf(a.start))} {broadcastRange(a)} {a.stationName}
+                    {a.stationAreaName ? `（${a.stationAreaName}）` : ""} {a.title}
                   </Text>
                 ))}
               </Stack>
@@ -45,17 +54,23 @@ function Preview({ preview, error, loading, empty }: { preview: KeywordPreview |
   );
 }
 
-/** キーワードを作る・変えるフォーム。initial があれば変える。initialWords は作るときの語の初期値（番組表の検索から来たとき）。 */
+/**
+ * キーワードを作る・変えるフォーム。initial があれば変える。initialWords は作るときの語の初期値（番組表の検索から来たとき）。
+ * areaFree は会員種別がエリアフリー・ダブルプランか（null なら分からない）。false のとき、選んだ局に自分のエリアの外の局があれば、
+ * そこには当てない旨を出す。
+ */
 export function KeywordForm({
   initial,
   initialWords = "",
   stations,
+  areaFree = null,
   onSubmit,
   onCancel,
 }: {
   initial?: Keyword;
   initialWords?: string;
   stations: Station[] | null;
+  areaFree?: boolean | null;
   onSubmit: (input: KeywordInput) => Promise<void>;
   onCancel: () => void;
 }) {
@@ -102,7 +117,8 @@ export function KeywordForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [words, exclude, stationKey]);
 
-  const stationData = (stations ?? []).map((s) => ({ value: s.id, label: s.name }));
+  const stationData = (stations ?? []).map((s) => ({ value: s.id, label: stationLabel(s) }));
+  const outOfArea = areaFree === false ? outOfAreaLabels(picked, stations) : [];
   for (const id of picked) if (!stationData.some((d) => d.value === id)) stationData.push({ value: id, label: id });
 
   async function submit(e: React.FormEvent) {
@@ -148,6 +164,11 @@ export function KeywordForm({
           searchable
           clearable
         />
+        {outOfArea.length > 0 && (
+          <Alert color="yellow" role="status" data-testid="not-area-free">
+            {notAreaFreeMessage(outOfArea)}
+          </Alert>
+        )}
         <Switch label="有効" checked={enabled} onChange={(e) => setEnabled(e.currentTarget.checked)} />
         <Preview preview={preview} error={previewError} loading={previewing} empty={words.trim() === ""} />
         <Group justify="flex-end">

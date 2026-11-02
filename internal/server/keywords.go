@@ -17,19 +17,23 @@ package server
 //     removed（録音を終える前に、1 回の予約が外された）
 //   - GET /api/keywords/preview?words=&exclude=&stations=<局 ID をカンマ区切り>: 今キーワードを作ったら当たる、まだ始まっていない
 //     放送回（今日から 7 日先までの放送日）。{"airings": [...], "truncated": bool}。放送回の形は GET /api/guide/search と同じ
-//     （guide.go）。一致が多すぎるときは先頭の searchLimit 件にして truncated を true にする
+//     （guide.go）。一致が多すぎるときは先頭の searchLimit 件にして truncated を true にする。当てる範囲はキーワードを番組表に
+//     当てるとき（internal/app/keyword.go）と同じで、会員種別がエリアフリー・ダブルプランなら、stations で名指しした自分のエリアの
+//     外の局の番組表も足して引き（app.OutOfAreaKeywordStations）、エリアの外から録る印（domain.Airing.OutOfArea）を立てて当てる。
+//     その放送回には stationAreaName（局のエリアの都道府県名。分かるときだけ）を付ける
 //
 // 作った・変えた直後に、キーワードを番組表に当てることを展開役に頼み（Expander.RequestKeywords）、待たずに応答を返す。
 //
 // 断るとき: JSON が読めない・words が正規化して空・局の ID が空のものがある（preview では words が空）なら 400。
 // {id} が整数でなければ 400、そのキーワードが無ければ 404。語の形（domain.KeywordKey）が同じほかのキーワードがあれば 409。
-// preview で radiko から番組表を取れなければ 502。
+// preview で radiko から番組表を取れなければ 502（名指しした自分のエリアの外の局の番組表を取れないときも）。
 
 import (
 	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"slices"
@@ -40,6 +44,7 @@ import (
 
 	"github.com/t-seki/rajikura/internal/app"
 	"github.com/t-seki/rajikura/internal/domain"
+	"github.com/t-seki/rajikura/internal/radiko"
 	"github.com/t-seki/rajikura/internal/store"
 )
 
@@ -266,6 +271,7 @@ func (u *UI) keywordAirings(w http.ResponseWriter, r *http.Request) {
 
 // previewKeyword は、今キーワードを作ったら当たる、まだ始まっていない放送回を返す（今日から 7 日先までの放送日。キーワードを
 // 番組表に当てる範囲と同じ。internal/app/keyword.go）。照合は domain.Keyword の Matcher と InStations で、キーワードを当てるときと同じ。
+// 名指しした自分のエリアの外の局も、キーワードを当てるときと同じく app.OutOfAreaKeywordStations で足して引く（取れなければ 502）。
 func (u *UI) previewKeyword(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	k := domain.Keyword{Words: q.Get("words"), Exclude: q.Get("exclude")}
@@ -285,6 +291,22 @@ func (u *UI) previewKeyword(w http.ResponseWriter, r *http.Request) {
 	for i := 0; i <= guideFutureDays; i++ {
 		days = append(days, today.AddDays(i))
 	}
+	membership := u.membership()
+	// 名指しした自分のエリアの外の局を足して引くときの、局の名前と、局のエリア（どちらも分からなければ局 ID・付けない）。
+	outOfArea := membership.AreaFree() && len(k.Stations) > 0 && u.Guide != nil
+	names := map[string]string{}
+	var areas map[string]string
+	if outOfArea {
+		if ss, err := u.Guide.Stations(r.Context()); err == nil {
+			for _, s := range ss {
+				names[s.ID] = s.Name
+			}
+		} else {
+			u.log().Warn("局の一覧を取れないので、自分のエリアの外の局の名前を局 ID にする", "err", err)
+		}
+		areas = u.stationAreas(r.Context())
+	}
+	keywords := []domain.Keyword{k}
 	// 放送日ごとの番組表を並列に引く（番組表の検索と同じ）。
 	results := make([][]app.AreaStation, len(days))
 	errs := make([]error, len(days))
@@ -294,6 +316,17 @@ func (u *UI) previewKeyword(w http.ResponseWriter, r *http.Request) {
 		go func() {
 			defer wg.Done()
 			results[i], errs[i] = u.AreaGuide.AreaAirings(r.Context(), d)
+			// 自分のエリアの番組表が空の放送日は、局一覧が分からないので、エリアの外の局も当てない（キーワードを当てるときと同じ）。
+			if errs[i] != nil || !outOfArea || !slices.ContainsFunc(results[i], func(s app.AreaStation) bool { return len(s.Airings) > 0 }) {
+				return
+			}
+			extra, failed := app.OutOfAreaKeywordStations(r.Context(), u.Guide, results[i], keywords, membership, d,
+				func(id string) string { return cmp.Or(names[id], id) })
+			if len(failed) > 0 {
+				errs[i] = fmt.Errorf("名指しした自分のエリアの外の局 %s の番組表を取れない: %w", failed[0].Station, failed[0].Err)
+				return
+			}
+			results[i] = append(slices.Clip(results[i]), extra...)
 		}()
 	}
 	wg.Wait()
@@ -318,7 +351,11 @@ func (u *UI) previewKeyword(w http.ResponseWriter, r *http.Request) {
 				}
 				seen[a.Key()] = true
 				if a.Start.After(now) && k.InStations(st.ID) && matcher.Match(a) {
-					hits = append(hits, res.view(a, st.Name))
+					v := res.view(a, st.Name)
+					if a.OutOfArea && areas[st.ID] != "" {
+						v.StationAreaName = radiko.AreaName(areas[st.ID])
+					}
+					hits = append(hits, v)
 				}
 			}
 		}

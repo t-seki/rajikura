@@ -173,7 +173,7 @@ groups:
 - `PUT /api/shows/{name}`: 丸ごと置き換え。body の `name` が違えば名前の変更。
 - `DELETE /api/shows/{name}`
 - `PUT /api/shows/{name}/enabled`: JSON `{"enabled": true}` で有効／無効の切り替え。
-- `GET /api/stations`: radiko の局の一覧。
+- `GET /api/stations`: radiko の局の一覧（`full.xml` の全局）。`[{id, name, areaName, outOfArea}]`。`areaName` は局のエリアの名前（`full.xml` の局の `area_id` から引いた都道府県名）、`outOfArea` は自分のエリアの外の局か（今日の放送日の、自分のエリアの番組表の局一覧に無ければ `true`。局の本拠地のエリアでは決めない）。`areaName` は局のエリアが分からないとき、`outOfArea` は自分のエリアの局一覧を取れない・空のときは付かない（一覧そのものは返す）。
 - `GET /api/show-name?station=<局>&weekday=<0〜6、0 = 日曜>&start=<HH:MM>`: 新しい番組の補助。
 - `{name}` は番組の名前を URL エンコードしたもの。
 - 作成と置き換えで `enabled`・`check_title` を省けば `true`、`split` を省けば `"none"`（分割番組でない）。
@@ -217,7 +217,7 @@ groups:
 - `GET /api/guide/search?q=<語>&area=<エリア ID>&scope=all`: 表示する範囲の全部の放送日から、番組名・出演者・説明に当たる放送回を開始時刻の順に返す。`q` は空白（全角も）で区切った語の AND で、どの語も 3 つの欄のどれかに含まれれば当たる（語が別々の欄に当たってもよい）。語と欄を正規化（全角 → 半角、空白を除く、大文字にそろえる）してから部分一致を見るので、全角・半角、大文字・小文字の違いを無視する。照合は、[キーワード](shows.md#キーワード)を番組表に当てるときと、下のキーワードの API の `GET /api/keywords/preview` と同じ（除外する語と局の絞り込みはキーワード（キーワードの API）だけで、検索の入力は `q` のまま）。500 件を超えたら `truncated` が `true`。
 - 放送日は今日の 7 日前（会員種別がタイムフリー30・ダブルプランなら 30 日前。会員種別の録音期限）から 7 日先までで、範囲の外の `day`・読めない `day`・空の `q` は 400。
 - 局は、`area` を省くと認証（auth2）で radiko が判定したエリアの全局で、エリアが分からない・radiko から番組表を取れなければ 502。
-- `area`（`GET /api/guide`・`GET /api/guide/search`）は、会員種別がエリアフリー・ダブルプランのときだけ自分のエリア以外を指せる。そうでない会員種別（非会員・タイムフリー30）が自分のエリア以外を指す、または radiko の局の一覧（`full.xml`）に無いエリア ID を指すと 400。自分のエリアの ID を指すのは、どの会員種別でも省いたのと同じ。キーワードの `stations` が空のときの対象は、今までどおり自分のエリアの全局（`area` では変わらない）。
+- `area`（`GET /api/guide`・`GET /api/guide/search`）は、会員種別がエリアフリー・ダブルプランのときだけ自分のエリア以外を指せる。そうでない会員種別（非会員・タイムフリー30）が自分のエリア以外を指す、または radiko の局の一覧（`full.xml`）に無いエリア ID を指すと 400。自分のエリアの ID を指すのは、どの会員種別でも省いたのと同じ。キーワードの `stations` が空のときの対象は、今までどおり自分のエリアの全局（`area` では変わらない）。`stations` で名指しした自分のエリアの外の局は、会員種別がエリアフリー・ダブルプランのときだけ当たる（`area` では変わらない）。
 - `scope=all` は[全国の検索](../GLOSSARY.md)で、`area` のエリアではなく、radiko の全局（`full.xml` の局の一覧）の局ごとの日別の番組表（`/v3/program/station/date/<YYYYMMDD>/<局>.xml`）から探す（[ADR 0035](adr/0035-nationwide-search-from-prefetched-station-guides.md)）。
   - `scope` は `all` だけを受け付ける（省くか空なら自分のエリア、または `area` のエリアの検索）。ほかの値は 400。会員種別がエリアフリー・ダブルプランでないのに `scope=all` を指すと 400。`scope=all` と `area` を一緒に指すと 400。
   - 応答に `"scope": "all"` と `failedStations`（番組表を、ある放送日を 1 つでも取れなかった局の数）を足す。取れなかった局があっても、取れた分の放送回を返す。全部の局を取れなかったとき、局の一覧か自分のエリアが分からないときだけ 502。
@@ -238,11 +238,11 @@ groups:
 
 要ログイン。API トークンでも叩ける。[キーワード](shows.md#キーワード)。JSON のキーは `onces` の 1 件と同じ camelCase。
 
-- `GET /api/keywords`: 一覧。作った順。`{"keywords": [{id, words, exclude, stations, enabled, pending}]}`。`stations` は局 ID の配列で、空ならエリアの全局。`pending` は、そのキーワードが足した放送回のうち、まだ録音を終えていない放送回の数（上限 `keyword_max_pending` と比べる数）。
+- `GET /api/keywords`: 一覧。作った順。`{"keywords": [{id, words, exclude, stations, enabled, pending}]}`。`stations` は局 ID の配列で、空なら自分のエリアの全局。名指しした自分のエリアの外の局（その放送日の自分のエリアの局一覧に無い局）は、会員種別がエリアフリー・ダブルプランのときだけ当たり（その局の番組表を足して引く）、ほかの会員種別では当たらない（`stations` はそのまま残す）。`pending` は、そのキーワードが足した放送回のうち、まだ録音を終えていない放送回の数（上限 `keyword_max_pending` と比べる数）。
 - `POST /api/keywords`: 作る。body は `{"words": "<語>", "exclude": "<除外する語>", "stations": ["<局 ID>", ...], "enabled": <true か false>}`。`exclude`・`stations` は省ける。`enabled` を省けば `true`。201 とキーワード 1 つ。
 - `PUT /api/keywords/{id}`: 置き換える。body は作るときと同じ。200 とキーワード 1 つ。足した 1 回の予約と、足した放送回の記録は残す。
 - `DELETE /api/keywords/{id}`: 消す。204。足した 1 回の予約と作った番組は残し、1 回の予約の `keywordId` は付かなくなる。足した放送回の記録は消える。
 - `GET /api/keywords/{id}/airings`: 足した放送回の記録を、開始時刻の新しい順に。`{"airings": [{stationId, stationName, start, end, title, showName, state}]}`。`stationName`・`end`・`title`・`showName` は足したときのもの。`state` は `planned`（録音予定）・`done`（録音済み。その放送回のジョブが `done`）・`missed`（録音できなかった。ジョブが `expired`）・`skip_planned`（録らない予定。ジョブが確定の前の `skipped`。録音予定には数えない）・`skipped`（録らなかった。ジョブが確定した `skipped`。録音予定には数えない）・`removed`（録音を終える前に 1 回の予約が外された。記録にあるのに、その放送回の 1 回の予約もジョブも無い）。
-- `GET /api/keywords/preview?words=<語>&exclude=<除外する語>&stations=<局 ID をカンマ区切り>`: 今キーワードを作ったら当たる、まだ始まっていない放送回。今日から 7 日先までの放送日の番組表から探す。`{"airings": [...], "truncated": <true か false>}`。放送回の形と `state` の付け方は `GET /api/guide/search` と同じで、500 件を超えたら `truncated` が `true`。
+- `GET /api/keywords/preview?words=<語>&exclude=<除外する語>&stations=<局 ID をカンマ区切り>`: 今キーワードを作ったら当たる、まだ始まっていない放送回。今日から 7 日先までの放送日の番組表から探す。`{"airings": [...], "truncated": <true か false>}`。放送回の形と `state` の付け方は `GET /api/guide/search` と同じで、500 件を超えたら `truncated` が `true`。当てる範囲はキーワードを番組表に当てるときと同じで、名指しした自分のエリアの外の局の放送回には、エリアの外から録る印で `notAvailable`・`timeFree30Excluded` を決め、`stationAreaName`（局のエリアの都道府県名。分かるときだけ）を付ける。その局の番組表を取れない放送日があれば 502。
 - 断るとき: JSON が読めない、`words` が正規化して空（`preview` では `words` が空）、`stations` に空の局がある、`{id}` が整数でないときは 400。無いキーワードは 404。語の形が同じほかのキーワードがあれば 409。`preview` で radiko から番組表を取れなければ 502。
 - 作った・置き換えた直後に、次の番組表の同期を待たずに、キーワードを番組表に当てることを展開役に頼む（API は待たずに応答を返す。当たった放送回の 1 回の予約と、そのジョブは少し後にできる）。

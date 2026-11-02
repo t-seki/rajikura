@@ -153,3 +153,65 @@ func TestKeywordPreview(t *testing.T) {
 		t.Errorf("セッションなし = %d", rec.Code)
 	}
 }
+
+// プレビューは、キーワードを番組表に当てるときと同じ範囲で当てる。エリアフリー・ダブルプランでは、stations で名指しした自分のエリアの
+// 外の局（ABC）の番組表も引いて当て、エリアの外から録る印で notAvailable を決め、stationAreaName を付ける。非会員・タイムフリー30 では
+// 当てない（番組表も引かない）。名指しした自分のエリアの外の局の番組表を取れない放送日があれば 502（#49）。
+func TestKeywordPreviewOutOfAreaStation(t *testing.T) {
+	e := newKeywordUI(t)
+	e.guide.stations = []app.Station{{ID: "TBS", Name: "TBSラジオ"}, {ID: "ABC", Name: "ABCラジオ"}}
+	// 自分のエリアの番組表があるのは 10-07 と 10-08 だけ（ほかの放送日は空なので、エリアの外の局も当てない）。
+	for i := range 8 {
+		d := jst(2026, 10, 7+i, 15, 0)
+		e.guide.airings["ABC/"+domain.BroadcastDayOf(d).String()] = []domain.Airing{
+			{StationID: "ABC", Start: d, End: d.Add(time.Hour), Title: "大阪の向井", Performer: "向井",
+				TimeFree: domain.TimeFreeFlags{OutNG: 1}},
+		}
+	}
+	var res struct {
+		Airings []guideAiringJSON `json:"airings"`
+	}
+	path := "/api/keywords/preview?words=" + url.QueryEscape("向井") + "&stations=ABC,TBS"
+	for _, m := range []domain.Membership{domain.MembershipAreaFree, domain.MembershipDouble} {
+		e.ui.Membership = m
+		e.call("GET", path, "", 200, &res)
+		var abc []guideAiringJSON
+		for _, a := range res.Airings {
+			if a.StationID == "ABC" {
+				abc = append(abc, a)
+			}
+		}
+		if len(res.Airings) != 3+2 || len(abc) != 2 {
+			t.Fatalf("%s: preview = %+v", m, res.Airings)
+		}
+		if a := abc[0]; a.StationName != "ABCラジオ" || a.StationAreaName != "大阪府" || !a.NotAvailable || a.State != "none" {
+			t.Fatalf("%s: エリアの外の局の放送回 = %+v（印を立てて ts_out_ng で決める）", m, a)
+		}
+		for _, a := range res.Airings {
+			if a.StationID == "TBS" && (a.StationAreaName != "" || a.NotAvailable) {
+				t.Fatalf("%s: 自分のエリアの局の放送回 = %+v", m, a)
+			}
+		}
+	}
+
+	for _, m := range []domain.Membership{domain.MembershipFree, domain.MembershipTimeFree30} {
+		e.ui.Membership = m
+		e.guide.asked = nil
+		e.call("GET", path, "", 200, &res)
+		if len(res.Airings) != 3 {
+			t.Fatalf("%s: エリアフリーでないのに、自分のエリアの外の局に当てた: %+v", m, res.Airings)
+		}
+		if len(e.guide.asked) != 0 {
+			t.Errorf("%s: エリアフリーでないのに番組表を引いた: %v", m, e.guide.asked)
+		}
+	}
+
+	e.ui.Membership = domain.MembershipAreaFree
+	delete(e.guide.airings, "ABC/2026-10-08")
+	e.call("GET", path, "", 502, nil)
+	// 名指ししていなければ、エリアの外の局の番組表は引かない（502 にならない）。
+	e.call("GET", "/api/keywords/preview?words="+url.QueryEscape("向井"), "", 200, &res)
+	if len(res.Airings) != 3 {
+		t.Fatalf("名指し無し = %+v", res.Airings)
+	}
+}

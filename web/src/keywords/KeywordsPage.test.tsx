@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GuideAiring } from "../guide/api";
 import { KeywordsPage } from "./KeywordsPage";
+import type { Station } from "../shows/api";
 import type { Keyword } from "./keywordsApi";
 
 type Handler = (init?: RequestInit) => { status: number; body?: unknown };
@@ -45,7 +46,10 @@ const stations = [
 const mukai: Keyword = { id: 1, words: "向井 ゲスト", exclude: "再放送", stations: ["TBS"], enabled: true, pending: 3 };
 const other: Keyword = { id: 2, words: "朝", exclude: "", stations: [], enabled: false, pending: 0 };
 
-const baseRoutes: Record<string, Handler> = { "GET /api/stations": () => ({ status: 200, body: stations }) };
+const areasRoute = (switchable: boolean): Record<string, Handler> => ({
+  "GET /api/guide/areas": () => ({ status: 200, body: { own: "JP13", switchable, pastDays: 7, areas: [] } }),
+});
+const baseRoutes: Record<string, Handler> = { "GET /api/stations": () => ({ status: 200, body: stations }), ...areasRoute(true) };
 const listRoute = (list: Keyword[]): Record<string, Handler> => ({ "GET /api/keywords": () => ({ status: 200, body: { keywords: list } }) });
 
 function airing(over: Partial<GuideAiring> = {}): GuideAiring {
@@ -289,5 +293,58 @@ describe("KeywordsPage", () => {
     mockApi({ ...baseRoutes, "GET /api/keywords": () => ({ status: 500, body: { error: "内部エラー" } }) });
     renderPage();
     expect(await screen.findByRole("alert")).toHaveTextContent("内部エラー");
+  });
+  describe("自分のエリアの外の局（#49）", () => {
+    const withOut = [
+      { id: "TBS", name: "TBSラジオ", areaName: "東京都", outOfArea: false },
+      { id: "MBS", name: "MBSラジオ", areaName: "大阪府", outOfArea: true },
+    ];
+    const mbs: Keyword = { id: 3, words: "向井", exclude: "", stations: ["TBS", "MBS"], enabled: true, pending: 0 };
+    const routes = (switchable: boolean, list: Station[] = withOut): Record<string, Handler> => ({
+      "GET /api/stations": () => ({ status: 200, body: list }),
+      ...areasRoute(switchable),
+      ...listRoute([mbs]),
+      [previewPath("向井", "", "TBS,MBS")]: () => ({
+        status: 200,
+        body: { airings: [airing({ stationId: "MBS", stationName: "MBSラジオ", stationAreaName: "大阪府", title: "大阪の回" })], truncated: false },
+      }),
+    });
+
+    it("一覧と選択肢で、自分のエリアの外の局に局のエリアの名前を添え、自分のエリアの局には添えない", async () => {
+      mockApi(routes(true));
+      const user = userEvent.setup();
+      renderPage();
+      const [item] = await screen.findAllByTestId("keyword");
+      expect(await within(item).findByText("局: TBSラジオ・MBSラジオ（大阪府）")).toBeInTheDocument();
+      expect(within(item).queryByTestId("not-area-free")).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "向井 を編集" }));
+      const dialog = await screen.findByRole("dialog");
+      // 選んだ局の表示（と、選択肢）に、局のエリアの名前が付く。
+      expect(within(dialog).getAllByText("MBSラジオ（大阪府）").length).toBeGreaterThan(0);
+      expect(within(dialog).getAllByText("TBSラジオ").length).toBeGreaterThan(0);
+      expect(within(dialog).queryByTestId("not-area-free")).not.toBeInTheDocument();
+      expect(await within(dialog).findByTestId("preview-airing")).toHaveTextContent("MBSラジオ（大阪府） 大阪の回");
+    });
+
+    it("エリアフリー・ダブルプランでないとき、一覧と変えるダイアログに、自分のエリアの外の局には当てない旨を出す", async () => {
+      mockApi(routes(false));
+      const user = userEvent.setup();
+      renderPage();
+      const [item] = await screen.findAllByTestId("keyword");
+      expect(await within(item).findByTestId("not-area-free")).toHaveTextContent(
+        "エリアフリー・ダブルプランでないので、自分のエリアの外の局（MBSラジオ（大阪府））には当てない。",
+      );
+      await user.click(screen.getByRole("button", { name: "向井 を編集" }));
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).getByTestId("not-area-free")).toHaveTextContent("MBSラジオ（大阪府）");
+    });
+
+    it("自分のエリアの外の局か分からない局には、名前を添えず、当てない旨も出さない", async () => {
+      mockApi(routes(false, [{ id: "TBS", name: "TBSラジオ", areaName: "東京都" }, { id: "MBS", name: "MBSラジオ", areaName: "大阪府" }]));
+      renderPage();
+      const [item] = await screen.findAllByTestId("keyword");
+      expect(await within(item).findByText("局: TBSラジオ・MBSラジオ")).toBeInTheDocument();
+      expect(within(item).queryByTestId("not-area-free")).not.toBeInTheDocument();
+    });
   });
 });
