@@ -1,6 +1,6 @@
 package main
 
-// serve の HTTP API を呼ぶサブコマンド（jobs・retry・skip・record・rerecord・chapters）。DB は開かない。
+// serve の HTTP API を呼ぶサブコマンド（jobs（一覧と、ID を渡したときの 1 件の詳細）・retry・skip・record・rerecord・chapters）。DB は開かない。
 // 足したら直す: CLI のサブコマンド
 
 import (
@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"sort"
 	"strconv"
@@ -19,16 +20,25 @@ import (
 	"github.com/t-seki/rajikura/internal/domain"
 )
 
-// listJobs はジョブを一覧する。放送日・番組・パート・ID の順に並べる。
+// listJobs はジョブを一覧する。放送日・番組・パート・ID の順に並べる。ID を 1 つ渡せば、そのジョブの詳細を出す（showJob）。
 func listJobs(ctx context.Context, connect func() (*client.Client, error), args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("rajikura jobs", flag.ContinueOnError)
 	stateFlag := fs.String("state", "", "状態で絞る（waiting, running, retrying, done, expired, skipped。カンマ区切り）")
 	if err := parseFlags(fs, args, stderr); err != nil {
 		return err
 	}
+	const use = "使い方: rajikura jobs [-state <状態>] または rajikura jobs <ID>"
 	if fs.NArg() > 0 {
-		fmt.Fprintln(stderr, "使い方: rajikura jobs [-state <状態>]")
-		return errUsage
+		if fs.NArg() > 1 || *stateFlag != "" {
+			fmt.Fprintln(stderr, "ID は 1 つだけで、-state とは一緒に渡せない\n"+use)
+			return errUsage
+		}
+		id, err := strconv.ParseInt(fs.Arg(0), 10, 64)
+		if err != nil {
+			fmt.Fprintf(stderr, "ID %q は整数ではない\n%s\n", fs.Arg(0), use)
+			return errUsage
+		}
+		return showJob(ctx, connect, id, stdout)
 	}
 	var states []domain.State
 	if *stateFlag != "" {
@@ -86,6 +96,213 @@ func listJobs(ctx context.Context, connect func() (*client.Client, error), args 
 			j.ID, show, j.Day, stateLabel(j), next, j.Attempts, formatTime(j.Deadline), out, lastErr)
 	}
 	return tw.Flush()
+}
+
+// showJob はジョブ 1 件の詳細を、人が読む形で出す（Web UI のジョブの詳細と同じ範囲。プレーヤーと進捗は出さない）。上に概要を
+// 「項目: 値」の行で並べ、その下に放送回・試行の履歴・チャプターの書き込みの履歴を見出し付きの表で出す（履歴が空なら「なし」）。
+// 無い ID（404）は終了コード 1。
+func showJob(ctx context.Context, connect func() (*client.Client, error), id int64, stdout io.Writer) error {
+	c, err := connect()
+	if err != nil {
+		return err
+	}
+	j, err := c.GetJobDetail(ctx, id)
+	if client.IsStatus(err, http.StatusNotFound) {
+		return fmt.Errorf("ジョブ %d: ID が無い", id)
+	}
+	if err != nil {
+		return err
+	}
+
+	show := j.ShowName
+	if j.Part > 0 {
+		show = fmt.Sprintf("%s (%d)", show, j.Part)
+	}
+	line := func(k, v string) { fmt.Fprintf(stdout, "%s: %s\n", k, v) }
+	line("ID", strconv.FormatInt(j.ID, 10))
+	line("番組", show)
+	line("放送日", j.Day)
+	line("状態", stateLabel(j.Job))
+	if j.State == string(domain.StateWaiting) || j.State == string(domain.StateRetrying) {
+		line("次の試行", formatTime(j.NextAttemptAt))
+	}
+	line("試行回数", strconv.Itoa(j.Attempts))
+	line("録音期限", formatTime(j.Deadline))
+	out := orDash(j.OutputPath)
+	if j.MissingCount > 0 {
+		out += fmt.Sprintf("（欠落 %d）", j.MissingCount)
+	}
+	line("保存先", out)
+	dur := "記録なし"
+	if j.DurationSeconds > 0 {
+		dur = formatDuration(j.DurationSeconds)
+	}
+	line("長さ", dur)
+	if label, ok := chaptersLabels[j.Chapters]; ok {
+		line("チャプター", label)
+	} else if j.Chapters != "" {
+		line("チャプター", j.Chapters)
+	}
+	lastErr := "-"
+	if j.LastError != "" {
+		lastErr = fmt.Sprintf("[%s] %s", j.LastFailedStage, oneLine(j.LastError))
+	}
+	line("直近のエラー", lastErr)
+	line("受け付ける操作", jobOperations(j.Job))
+	if j.ChaptersRedoRequested {
+		fmt.Fprintln(stdout, "チャプターの入れ直しを待っている。")
+	}
+	// 補足（当たるときだけ）。文は web/src/jobs/JobDetailModal.tsx に揃える。
+	if j.Live {
+		fmt.Fprintln(stdout, "ライブ録音のジョブ（タイムフリーの対象外の放送回を含むので、放送中に録る。放送の時刻に rajikura が動いている必要がある）。")
+	}
+	if j.State == string(domain.StateSkipped) {
+		fmt.Fprintln(stdout, skipReason(j))
+	}
+	if j.SaveRetryUntil != nil {
+		fmt.Fprintf(stdout, "録れた分を保存できなかったので、保存を自動でやり直している（%s まで）。\n", formatTime(*j.SaveRetryUntil))
+	}
+	if j.KeepUntil != nil {
+		fmt.Fprintf(stdout, "録れた分を %s まで残している。保存先などの原因を直してから rajikura retry を打つと、保存からやり直す。\n", formatTime(*j.KeepUntil))
+	}
+
+	section := func(title string, header string, rows [][]string) error {
+		fmt.Fprintf(stdout, "\n%s\n", title)
+		if len(rows) == 0 {
+			fmt.Fprintln(stdout, "なし")
+			return nil
+		}
+		tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, header)
+		for _, r := range rows {
+			fmt.Fprintln(tw, strings.Join(r, "	"))
+		}
+		return tw.Flush()
+	}
+	var airings [][]string
+	for _, a := range j.Airings {
+		missing := "-"
+		if a.Missing {
+			missing = "欠落"
+		}
+		airings = append(airings, []string{a.StationID, formatTime(a.Start), formatTime(a.End), oneLine(a.Title), missing})
+	}
+	if err := section("放送回", "局	開始	終わり	題	欠落", airings); err != nil {
+		return err
+	}
+	var attempts [][]string
+	for _, a := range j.AttemptLog {
+		stage, errText, d := "-", "-", "-"
+		if a.FailedStage != "" {
+			stage = stageLabel(a.FailedStage)
+		}
+		if a.Error != "" {
+			errText = oneLine(a.Error)
+		}
+		if a.DurationSeconds > 0 {
+			d = formatDuration(a.DurationSeconds)
+		}
+		attempts = append(attempts, []string{formatTimeSec(a.StartedAt), formatTimeSec(a.EndedAt), stage, errText, d})
+	}
+	if err := section("試行の履歴", "始まり	終わり	失敗した段階	エラー	長さ", attempts); err != nil {
+		return err
+	}
+	var writes [][]string
+	for _, w := range j.ChapterWrites {
+		by, ok := chapterWriteByLabels[w.By]
+		if !ok {
+			by = w.By
+		}
+		errText := "-"
+		if w.Error != "" {
+			errText = oneLine(w.Error)
+		}
+		writes = append(writes, []string{formatTimeSec(w.At), by, chapterWriteResultText(w), errText})
+	}
+	return section("チャプターの書き込みの履歴", "時刻	誰が	結果	エラー", writes)
+}
+
+// 値の書き方は web/src/jobs/jobsApi.ts の chaptersLabels・chapterWriteByLabels・chapterWriteResultText と同じ文にする。
+var chaptersLabels = map[string]string{"added": "入った", "waiting": "待っている", "not_added": "入らなかった"}
+
+var chapterWriteByLabels = map[string]string{"refetch": "チャプターの取り直し", "redo": "チャプターの入れ直し"}
+
+func chapterWriteResultText(w client.JobChapterWrite) string {
+	switch w.Result {
+	case "written":
+		return fmt.Sprintf("%d 件を書き込んだ", w.Count)
+	case "not_fetched":
+		return "チャプターを取れなかったので書かなかった"
+	case "failed":
+		return "書き込めなかった（ファイルは前のまま）"
+	}
+	return w.Result
+}
+
+// stageLabel は試行の失敗した段階の言葉（web/src/jobs/format.ts の stageLabel と同じ）。知らない値はそのまま返す。
+func stageLabel(stage string) string {
+	switch stage {
+	case "fetch":
+		return "入手"
+	case "verify":
+		return "検証"
+	case "save":
+		return "保存"
+	}
+	return stage
+}
+
+// formatDuration は秒を「1時間30分」の形にする（web/src/jobs/format.ts の formatDuration と同じ）。
+func formatDuration(sec float64) string {
+	m := int(math.Round(sec / 60))
+	if h := m / 60; h > 0 {
+		return fmt.Sprintf("%d時間%d分", h, m%60)
+	}
+	return fmt.Sprintf("%d分", m)
+}
+
+// skipReason は skipped のジョブを、誰がなぜ録らないと決めたかの文（web/src/jobs/JobDetailModal.tsx の skipReason と同じ）。
+func skipReason(j client.JobDetail) string {
+	what := "録らなかった"
+	if !j.Settled {
+		what = "録らない予定にした"
+	}
+	if j.ByPerson {
+		return "人が録らないと決めたので、" + what + "。"
+	}
+	seen := map[string]bool{}
+	var titles strings.Builder
+	for _, a := range j.Airings {
+		if !seen[a.Title] {
+			seen[a.Title] = true
+			titles.WriteString("「" + a.Title + "」")
+		}
+	}
+	return fmt.Sprintf("番組表の番組名%sが番組「%s」の名前で始まらないので、%s。", titles.String(), j.ShowName, what)
+}
+
+// jobOperations は、いま打てるサブコマンドの名前を並べる（API の印と対応。無ければ「なし」）。
+func jobOperations(j client.Job) string {
+	var ops []string
+	for _, o := range []struct {
+		ok   bool
+		name string
+	}{{j.Retryable, "retry"}, {j.Skippable, "skip"}, {j.Recordable, "record"}, {j.Rerecordable, "rerecord"}, {j.ChaptersRedoable, "chapters"}} {
+		if o.ok {
+			ops = append(ops, o.name)
+		}
+	}
+	if len(ops) == 0 {
+		return "なし"
+	}
+	return strings.Join(ops, "・")
+}
+
+func formatTimeSec(t time.Time) string {
+	if t.IsZero() {
+		return "-"
+	}
+	return t.In(domain.JST).Format("2006-01-02 15:04:05")
 }
 
 // stateLabel は一覧の状態の列。値は API の状態のまま（skipped）で、skipped には確定の前か後か（録らない予定・録らなかった）を、

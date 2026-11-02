@@ -1,5 +1,5 @@
 // Package client は、CLI（rajikura jobs・retry・skip・record・rerecord・chapters・backup）が serve の HTTP API を呼ぶためのクライアント。
-// jobs・retry・skip・record・rerecord・chapters はジョブを扱う（GET /api/jobs、GET /api/jobs/{id}、
+// jobs・retry・skip・record・rerecord・chapters はジョブを扱う（GET /api/jobs、GET /api/jobs/{id}（jobs <ID> の詳細は GetJobDetail）、
 // POST /api/jobs/{id}/retry・skip・record・rerecord・chapters、POST /api/jobs/chapters）。
 // backup は DB のバックアップを受け取る（GET /api/backup。backup.go）。
 // CLI は DB を開かず、この API だけを使う（docs/adr/0009-cli-over-http.md）。
@@ -154,6 +154,55 @@ type Job struct {
 	MissingCount    int       `json:"missingCount"`
 	LastFailedStage string    `json:"lastFailedStage"`
 	LastError       string    `json:"lastError"`
+	// 次の 7 つは、受け付ける操作の印（retry・skip・record・rerecord・chapters に対応）と、チャプターの値。chaptersRedoable・
+	// chaptersRedoRequested・chapters は、この版より前の serve では無い（false・空）。Chapters は取りに行っていないジョブでは空。
+	Retryable             bool   `json:"retryable"`
+	Skippable             bool   `json:"skippable"`
+	Recordable            bool   `json:"recordable"`
+	Rerecordable          bool   `json:"rerecordable"`
+	ChaptersRedoable      bool   `json:"chaptersRedoable"`
+	ChaptersRedoRequested bool   `json:"chaptersRedoRequested"`
+	Chapters              string `json:"chapters"`
+	// SaveRetryUntil は録れた分の保存を自動でやり直している間の打ち切り、KeepUntil は録れた分を残している間の期限（無ければ nil）。
+	SaveRetryUntil *time.Time `json:"saveRetryUntil"`
+	KeepUntil      *time.Time `json:"keepUntil"`
+}
+
+// JobAiring はジョブの詳細の放送回の 1 行。
+type JobAiring struct {
+	StationID string    `json:"stationId"`
+	Start     time.Time `json:"start"`
+	End       time.Time `json:"end"`
+	Title     string    `json:"title"`
+	Missing   bool      `json:"missing"`
+}
+
+// JobAttempt はジョブの詳細の試行の履歴の 1 行。FailedStage は失敗した段階（成功なら空）。
+type JobAttempt struct {
+	StartedAt       time.Time `json:"startedAt"`
+	EndedAt         time.Time `json:"endedAt"`
+	FailedStage     string    `json:"failedStage"`
+	Error           string    `json:"error"`
+	DurationSeconds float64   `json:"durationSeconds"`
+}
+
+// JobChapterWrite はジョブの詳細のチャプターの書き込みの履歴の 1 行（By: refetch・redo。Result: written・not_fetched・failed）。
+type JobChapterWrite struct {
+	At     time.Time `json:"at"`
+	By     string    `json:"by"`
+	Result string    `json:"result"`
+	Count  int       `json:"count"`
+	Error  string    `json:"error"`
+}
+
+// JobDetail はジョブ 1 件の詳細（GET /api/jobs/{id}）。一覧の 1 行（Job）に、放送回・試行の履歴・チャプターの書き込みの履歴・
+// 長さを足したもの。ChapterWrites は、この版より前の serve では nil。
+type JobDetail struct {
+	Job
+	Airings         []JobAiring       `json:"airings"`
+	AttemptLog      []JobAttempt      `json:"attemptLog"`
+	ChapterWrites   []JobChapterWrite `json:"chapterWrites"`
+	DurationSeconds float64           `json:"durationSeconds"`
 }
 
 // ListJobs はジョブを一覧する（GET /api/jobs）。states が空でなければ、その状態のジョブだけ。
@@ -178,6 +227,13 @@ func (c *Client) ListJobs(ctx context.Context, states ...domain.State) ([]Job, e
 // GetJob はジョブを 1 つ読む（GET /api/jobs/{id}）。
 func (c *Client) GetJob(ctx context.Context, id int64) (Job, error) {
 	var j Job
+	err := c.do(ctx, http.MethodGet, "/api/jobs/"+strconv.FormatInt(id, 10), nil, &j)
+	return j, err
+}
+
+// GetJobDetail はジョブを 1 つ、詳細つきで読む（GET /api/jobs/{id}）。無いジョブは 404 の APIError。
+func (c *Client) GetJobDetail(ctx context.Context, id int64) (JobDetail, error) {
+	var j JobDetail
 	err := c.do(ctx, http.MethodGet, "/api/jobs/"+strconv.FormatInt(id, 10), nil, &j)
 	return j, err
 }
