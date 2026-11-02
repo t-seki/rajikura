@@ -872,16 +872,20 @@ export function GuidePage({
     // 流し直すのはエリアか対象が変わったときだけ（activeQ・runSearch の変化では流さない）
   }, [area, all]);
 
+  // 流した検索の世代。後から流した検索があれば、前の検索の応答（遅い全国の検索など）は結果もエラーも捨てる
+  const searchToken = useRef(0);
   const runSearch = useCallback(async (q: string) => {
+    const my = ++searchToken.current;
     setActiveQ(q);
     setSearching(true);
     setError(null);
     try {
-      setSearch(await searchGuide(q, areaRef.current, allRef.current));
+      const got = await searchGuide(q, areaRef.current, allRef.current);
+      if (my === searchToken.current) setSearch(got);
     } catch (e) {
-      setError(message(e, "番組表を検索できない"));
+      if (my === searchToken.current) setError(message(e, "番組表を検索できない"));
     } finally {
-      setSearching(false);
+      if (my === searchToken.current) setSearching(false);
     }
   }, []);
 
