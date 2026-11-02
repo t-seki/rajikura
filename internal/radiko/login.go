@@ -87,7 +87,8 @@ type loginState struct {
 	rejected bool
 }
 
-// ResetLogin は、持っている radiko のログインのセッションを捨てる（会員種別かログイン情報を保存したとき）。
+// ResetLogin は、持っている radiko のログインのセッションを捨てる（会員種別かログイン情報を保存し、保存の時点の radiko のログインが
+// 通らなかった・試さなかったとき。通ったときは AdoptLogin）。
 // 次に認証が要るときに、その時点のログイン情報で radiko のログインをし直す（非会員なら、radiko のログインをしない）。
 func (c *Client) ResetLogin() {
 	c.login.mu.Lock()
@@ -140,8 +141,8 @@ func (c *Client) account() (Account, bool) {
 
 // loginSession は認証に付けるセッションを返す。非会員のとき・radiko が radiko のログインを拒んだ後は nil を返す。
 // 持っていなければ radiko のログインをする。ネットワークの失敗・5xx はエラー（ErrTemporary）を返す。
-// ログイン情報（Client.Account）はロックの中で読む。ResetLogin（保存）と重なっても、ResetLogin より前に読んだ古いログイン情報での
-// 結果（拒まれた印やセッション）を、ResetLogin の後に残さないため。
+// ログイン情報（Client.Account）はロックの中で読む。ResetLogin（保存）か AdoptLogin（保存の時点で通ったセッションを持たせる）と
+// 重なっても、それより前に読んだ古いログイン情報での結果（拒まれた印やセッション）を、ResetLogin・AdoptLogin の後に残さないため。
 func (c *Client) loginSession(ctx context.Context) (*session, error) {
 	c.login.mu.Lock()
 	acc, ok := c.account()

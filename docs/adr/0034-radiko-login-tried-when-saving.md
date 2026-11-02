@@ -2,7 +2,7 @@
 
 ## 決定
 
-[ADR 0030](0030-radiko-login-follows-chosen-membership.md) を置き換える。radiko のログインを、起動の後に初めて認証が要るときだけでなく、会員種別かログイン情報を保存するときにも試し、radiko が拒んだら保存を断る。ほかの決定は ADR 0030 のまま。
+[ADR 0030](0030-radiko-login-follows-chosen-membership.md) を置き換える。radiko のログインを、起動の後に初めて認証が要るときだけでなく、会員種別かログイン情報を保存するときにも試し、radiko が拒んだら保存を断る。
 
 会員種別は、今までどおり人が設定（`membership`）で選ぶ。非会員でない会員種別では、ログイン情報（メールアドレスは設定、パスワードは秘密）を必須にし、rajikura は radiko のログインで得たセッションを付けて認証する。
 

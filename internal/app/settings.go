@@ -79,7 +79,7 @@ type Settings struct {
 	// （試さなかった・通らなかったなら nil）を渡して呼ぶ（nil なら呼ばない）。Save の中で呼ぶので、次の Save は OnApply が終わるまで待つ。
 	OnApply func(ctx context.Context, p config.Patch, prev, next config.Config, login *radiko.LoginAttempt)
 
-	// mu は Apply を 1 つずつにする（読んでから書くまでに、ほかの保存が割り込まないように）。
+	// mu は Save を 1 つずつにする（読んでから書くまでに、ほかの保存が割り込まないように）。
 	mu  sync.Mutex
 	cur atomic.Pointer[settingsState]
 }
