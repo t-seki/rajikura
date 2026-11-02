@@ -4,7 +4,8 @@
 // 作り方は 2 つあり、設定 muxer で選ぶ（ADR 0013）。どちらも同じ形の箱を書く（チャプターの形は chapter.go。ADR 0027）。
 //
 //   - [Tools]: ffmpeg / ffprobe を子プロセスとして呼ぶ（ADR 0001: ffmpeg にネットワークを触らせない。
-//     手元のファイルから m4a を作る 1 回だけに使う）。このファイル
+//     ffmpeg に渡すのは手元のファイルだけで、入手した ADTS から m4a を作るのと、保存した m4a のチャプターを書き直す
+//     （WriteChapters）のに使う。ffprobe は長さを測るのに使う。SameAudio と InputLengths は ffmpeg を使わず Go で読む）。このファイル
 //   - [Builtin]: ffmpeg / ffprobe を使わず、Go で m4a を作る（builtin.go）
 //
 // # ffmpeg / ffprobe のパス
