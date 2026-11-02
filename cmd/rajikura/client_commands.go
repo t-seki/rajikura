@@ -1,6 +1,6 @@
 package main
 
-// serve の HTTP API を呼ぶサブコマンド（jobs・retry・skip・record・rerecord）。DB は開かない。
+// serve の HTTP API を呼ぶサブコマンド（jobs・retry・skip・record・rerecord・chapters）。DB は開かない。
 // 足したら直す: CLI のサブコマンド
 
 import (
@@ -171,10 +171,46 @@ func rerecordJobs(ctx context.Context, connect func() (*client.Client, error), a
 	})
 }
 
-// jobOp は、ID ごとに serve の API を呼ぶジョブの操作（retry・skip・record・rerecord）。
+// chaptersJobs は、録音済み（done）のタイムフリーから録ったジョブのチャプターの入れ直しを頼む（用語集。ADR 0033）。serve の録音の
+// ループが、radiko から音声を取り直さずに、保存したファイルにチャプターを書き込む（結果はジョブのチャプターの値と、チャプターの
+// 書き込みの履歴に出る。CLI は待たない）。ID を渡せばそのジョブに当て、チャプターが入ったジョブでも置き換える。ライブ録音のジョブは
+// 断る。結果の出し方と終了コードは retryJobs と同じ。-all なら、チャプターの値が値なしか入らなかったのジョブの全部に当て
+// （入った・待っているは飛ばす。放送日では絞らない）、受け付けたジョブの数を出す。-all と ID は一緒に渡せない。
+func chaptersJobs(ctx context.Context, connect func() (*client.Client, error), args []string, stdout, stderr io.Writer) error {
+	const use = "使い方: rajikura chapters <ID> [<ID>...] または rajikura chapters -all"
+	fs := flag.NewFlagSet("rajikura chapters", flag.ContinueOnError)
+	all := fs.Bool("all", false, "チャプターが入っていない（値なし・入らなかった）録音済みのタイムフリーのジョブの全部に当てる")
+	if err := parseFlags(fs, args, stderr); err != nil {
+		return err
+	}
+	if !*all {
+		return jobAction(ctx, connect, fs.Args(), stdout, stderr, jobOp{
+			name: "chapters", use: use, done: "チャプターの入れ直しを受け付けた", failed: "チャプターの入れ直しにできなかった",
+			call: (*client.Client).RedoJobChapters, refusal: chaptersRefusal,
+		})
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprintln(stderr, "-all と ID は一緒に渡せない\n"+use)
+		return errUsage
+	}
+	c, err := connect()
+	if err != nil {
+		return err
+	}
+	n, err := c.RedoAllChapters(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "チャプターの入れ直しを %d 件のジョブで受け付けた\n", n)
+	return nil
+}
+
+// jobOp は、ID ごとに serve の API を呼ぶジョブの操作（retry・skip・record・rerecord・chapters）。
 type jobOp struct {
 	name, done, failed string
-	call               func(c *client.Client, ctx context.Context, id int64) error
+	// use は使い方の誤りのときに出す文（空なら「使い方: rajikura <name> <ID> [<ID>...]」）。
+	use  string
+	call func(c *client.Client, ctx context.Context, id int64) error
 	// refusal は 409 で拒まれたわけを、ジョブの今の状態から作る。
 	refusal func(ctx context.Context, c *client.Client, id int64) string
 }
@@ -186,7 +222,10 @@ func jobAction(ctx context.Context, connect func() (*client.Client, error), args
 	if err := parseFlags(fs, args, stderr); err != nil {
 		return err
 	}
-	use := "使い方: rajikura " + op.name + " <ID> [<ID>...]"
+	use := op.use
+	if use == "" {
+		use = "使い方: rajikura " + op.name + " <ID> [<ID>...]"
+	}
 	if fs.NArg() == 0 {
 		fmt.Fprintln(stderr, use)
 		return errUsage
@@ -262,6 +301,18 @@ func rerecordRefusal(ctx context.Context, c *client.Client, id int64) string {
 		return "ライブ録音のジョブで、ライブ録音は録り直せない"
 	}
 	return "録音期限を過ぎている"
+}
+
+// chaptersRefusal は、チャプターの入れ直しを拒まれた（409）わけを、ジョブの今の状態から作る（domain.CheckChapterRedo と同じ）。
+func chaptersRefusal(ctx context.Context, c *client.Client, id int64) string {
+	j, err := c.GetJob(ctx, id)
+	if err != nil {
+		return "チャプターを入れ直せない状態"
+	}
+	if j.State != string(domain.StateDone) {
+		return fmt.Sprintf("状態が %s で、チャプターを入れ直せるのは done（録音済み）だけ", stateLabel(j))
+	}
+	return "ライブ録音のジョブで、ライブ録音のファイルにはチャプターを入れない"
 }
 
 // skipRefusal は、「録らない」を拒まれた（409）わけを、ジョブの今の状態から作る（store.SkipByPerson と同じ）。

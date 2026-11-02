@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"errors"
 	"maps"
 	"testing"
 	"time"
@@ -149,5 +150,56 @@ func TestSavedAirings(t *testing.T) {
 	j.Missing = []Airing{flat1}
 	if got := j.SavedAirings(); len(got) != 1 || got[0].Key() != flat2.Key() {
 		t.Errorf("flat1 が欠落: %v", got)
+	}
+}
+
+// チャプターの入れ直しを受け付けるのは、タイムフリーから録った done のジョブ（チャプターの値と録音期限は問わない）。done でなければ
+// ErrInvalidTransition、ライブで録るジョブなら ErrChapterRedoLive。まとめての入れ直しは、そのうちチャプターの値が値なしか入らなかった
+// のジョブにだけ当たる（ADR 0033）。
+func TestCheckChapterRedo(t *testing.T) {
+	live := chapterJob()
+	live.Airings = []Airing{flat1, flat2}
+	live.Airings[0].TimeFree.InNG = 2
+	late := chapterJob()
+	late.Deadline = flat1.Start
+	tests := []struct {
+		name  string
+		job   func() Job
+		err   error
+		inAll map[Chapters]bool
+	}{
+		{"done のタイムフリー", chapterJob, nil, map[Chapters]bool{
+			ChaptersNone: true, ChaptersNotAdded: true, ChaptersAdded: false, ChaptersWaiting: false}},
+		{"録音期限を過ぎた done", func() Job { return late }, nil, map[Chapters]bool{ChaptersNone: true, ChaptersAdded: false}},
+		{"ライブ録音", func() Job { return live }, ErrChapterRedoLive, map[Chapters]bool{ChaptersNone: false}},
+		{"retrying", func() Job { j := chapterJob(); j.State = StateRetrying; return j }, ErrInvalidTransition,
+			map[Chapters]bool{ChaptersNone: false}},
+		{"expired", func() Job { j := chapterJob(); j.State = StateExpired; return j }, ErrInvalidTransition,
+			map[Chapters]bool{ChaptersNotAdded: false}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for ch, want := range tt.inAll {
+				j := tt.job()
+				j.Chapters = ch
+				if err := CheckChapterRedo(j); (tt.err == nil) != (err == nil) || (tt.err != nil && !errors.Is(err, tt.err)) {
+					t.Errorf("chapters %q: CheckChapterRedo = %v, want %v", ch, err, tt.err)
+				}
+				if got := ChapterRedoInAll(j); got != want {
+					t.Errorf("chapters %q: ChapterRedoInAll = %v, want %v", ch, got, want)
+				}
+			}
+		})
+	}
+}
+
+// 書き込めなかった（取れずに書かなかったときも）ときのチャプターの値は、前が入ったなら入ったのまま、ほかは入らなかった。
+func TestChaptersAfterFailedWrite(t *testing.T) {
+	for prev, want := range map[Chapters]Chapters{
+		ChaptersAdded: ChaptersAdded, ChaptersWaiting: ChaptersNotAdded, ChaptersNotAdded: ChaptersNotAdded, ChaptersNone: ChaptersNotAdded,
+	} {
+		if got := ChaptersAfterFailedWrite(prev); got != want {
+			t.Errorf("ChaptersAfterFailedWrite(%q) = %q, want %q", prev, got, want)
+		}
 	}
 }

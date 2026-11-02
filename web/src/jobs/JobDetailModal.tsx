@@ -11,6 +11,7 @@ import {
   jobAudioError,
   jobAudioUrl,
   recordJob,
+  redoJobChapters,
   rerecordJob,
   retryJob,
   skipJob,
@@ -101,7 +102,7 @@ interface Props {
   /** 開くジョブの ID。null なら閉じる。 */
   id: number | null;
   onClose: () => void;
-  /** 再試行・録らない・録る・録り直すをしたとき、一覧を読み直すために呼ぶ。 */
+  /** 再試行・録らない・録る・録り直す・チャプターを入れ直すをしたとき、一覧を読み直すために呼ぶ。 */
   onChanged: () => void;
 }
 
@@ -203,7 +204,7 @@ export function JobDetailModal({ id, onClose, onChanged }: Props) {
                 録れた分を {formatDateTime(job.keepUntil)} まで残している。保存先などの原因を直してから「手動で再試行」を押すと、保存からやり直す。
               </Text>
             )}
-            {(job.retryable || job.skippable || job.recordable || job.rerecordable) && (
+            {(job.retryable || job.skippable || job.recordable || job.rerecordable || job.chaptersRedoable) && (
               <Group>
                 {job.retryable && (
                   <Button disabled={busy} onClick={() => act(retryJob, "再試行を依頼した")}>
@@ -233,6 +234,15 @@ export function JobDetailModal({ id, onClose, onChanged }: Props) {
                     録り直す
                   </Button>
                 )}
+                {job.chaptersRedoable && (
+                  <Button
+                    variant="default"
+                    disabled={busy}
+                    onClick={() => act(redoJobChapters, "チャプターの入れ直しを頼んだ（結果はチャプターの書き込みの履歴に出る）")}
+                  >
+                    チャプターを入れ直す
+                  </Button>
+                )}
               </Group>
             )}
 
@@ -243,6 +253,7 @@ export function JobDetailModal({ id, onClose, onChanged }: Props) {
             {job.outputPath && <JobAudio key={`${job.id}:${job.outputPath}`} id={job.id} />}
             <Text size="sm">長さ: {job.durationSeconds > 0 ? formatDuration(job.durationSeconds) : "記録なし"}</Text>
             {job.chapters && <Text size="sm">チャプター: {chaptersLabels[job.chapters]}</Text>}
+            {job.chaptersRedoRequested && <Text size="sm">チャプターの入れ直しを待っている。</Text>}
 
             <Divider label="放送回" />
             {job.airings.map((a) => (

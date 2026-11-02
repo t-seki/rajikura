@@ -1,5 +1,6 @@
 import { MantineProvider } from "@mantine/core";
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { JobDetailModal } from "./JobDetailModal";
 import type { JobDetail } from "./jobsApi";
@@ -84,5 +85,64 @@ describe("JobDetailModal のチャプターの書き込みの履歴", () => {
       expect(screen.queryByTestId("chapter-write")).toBeNull();
       unmount();
     }
+  });
+});
+
+describe("JobDetailModal の「チャプターを入れ直す」", () => {
+  it("受け付けるジョブでは、押すと POST /api/jobs/{id}/chapters で頼み、読み直した詳細に待っていることを出す", async () => {
+    let requested = false;
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const key = `${init?.method ?? "GET"} ${url}`;
+        calls.push(key);
+        if (key === "GET /api/jobs/1") {
+          return new Response(JSON.stringify({ ...job, chaptersRedoable: true, chaptersRedoRequested: requested }), { status: 200 });
+        }
+        if (key === "POST /api/jobs/1/chapters") {
+          requested = true;
+          return new Response(JSON.stringify({ ...job, chaptersRedoable: true, chaptersRedoRequested: true }), { status: 200 });
+        }
+        throw new Error(`想定外の呼び出し: ${key}`);
+      }),
+    );
+    const onChanged = vi.fn();
+    render(
+      <MantineProvider>
+        <JobDetailModal id={1} onClose={() => {}} onChanged={onChanged} />
+      </MantineProvider>,
+    );
+    // チャプターが入ったジョブにも出す（ファイルのチャプターを置き換える）。
+    expect(await screen.findByText("チャプター: 入った")).toBeInTheDocument();
+    expect(screen.queryByText("チャプターの入れ直しを待っている。")).toBeNull();
+    await userEvent.click(await screen.findByRole("button", { name: "チャプターを入れ直す" }));
+    expect(await screen.findByText("チャプターの入れ直しを待っている。")).toBeInTheDocument();
+    expect(calls).toContain("POST /api/jobs/1/chapters");
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it("受け付けないジョブ（ライブ録音・録音済みでない・古い serve）では出さず、API が断ったら理由を出す", async () => {
+    for (const body of [{ ...job, live: true, chaptersRedoable: false }, { ...job, state: "retrying" as const }]) {
+      mockJob(body);
+      const { unmount } = renderModal();
+      await screen.findAllByTestId("attempt");
+      expect(screen.queryByRole("button", { name: "チャプターを入れ直す" })).toBeNull();
+      unmount();
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const key = `${init?.method ?? "GET"} ${url}`;
+        if (key === "GET /api/jobs/1") return new Response(JSON.stringify({ ...job, chaptersRedoable: true }), { status: 200 });
+        if (key === "POST /api/jobs/1/chapters") {
+          return new Response(JSON.stringify({ error: "ライブ録音のジョブにはチャプターを入れ直せない" }), { status: 409 });
+        }
+        throw new Error(`想定外の呼び出し: ${key}`);
+      }),
+    );
+    renderModal();
+    await userEvent.click(await screen.findByRole("button", { name: "チャプターを入れ直す" }));
+    expect(await screen.findByText("ライブ録音のジョブにはチャプターを入れ直せない")).toBeInTheDocument();
   });
 });

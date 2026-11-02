@@ -311,6 +311,9 @@ type Job struct {
 	ChapterCheckAt time.Time
 	// ChapterWaits は、待っている放送回（Airing.Key → AiringChapterPending か AiringChapterReady）。待っていない放送回は持たない。
 	ChapterWaits map[string]AiringChapterWait
+	// ChapterRedoAt は、人がチャプターの入れ直し（用語集。ADR 0033）を頼んだ時刻。頼みが無ければゼロ。録音のループが拾って
+	// 書き込んだら（取れずに書かなかった・書けなかったときも）消す。受け付けるかは CheckChapterRedo。
+	ChapterRedoAt time.Time
 }
 
 // SavedAirings は、保存したファイルに入っている放送回（Airings から欠落した放送回 Missing を除いたもの。開始時刻の順で、

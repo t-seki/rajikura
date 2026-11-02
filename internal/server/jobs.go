@@ -29,6 +29,9 @@ type Jobs interface {
 	SkipByPerson(ctx context.Context, id int64, now time.Time) error
 	RecordByPerson(ctx context.Context, id int64, now time.Time) error
 	Rerecord(ctx context.Context, id int64, m domain.Membership, now time.Time) error
+	// RequestChapterRedo と RequestChapterRedoAll は、チャプターの入れ直しの頼みを DB に書く（ADR 0033。書き込みは録音のループ）。
+	RequestChapterRedo(ctx context.Context, id int64, now time.Time) error
+	RequestChapterRedoAll(ctx context.Context, now time.Time) (int, error)
 }
 
 var _ Jobs = (*store.Store)(nil)
@@ -53,6 +56,8 @@ func (u *UI) registerJobs(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/jobs/{id}/skip", u.guard(u.authed(u.skipJob)))
 	mux.HandleFunc("POST /api/jobs/{id}/record", u.guard(u.authed(u.recordJob)))
 	mux.HandleFunc("POST /api/jobs/{id}/rerecord", u.guard(u.authed(u.rerecordJob)))
+	mux.HandleFunc("POST /api/jobs/{id}/chapters", u.guard(u.authed(u.redoJobChapters)))
+	mux.HandleFunc("POST /api/jobs/chapters", u.guard(u.authed(u.redoAllChapters)))
 }
 
 type jobSummary struct {
@@ -93,6 +98,11 @@ type jobSummary struct {
 	// 過ぎていないこと。store.Rerecord と同じく domain.CheckRerecord で決める。ADR 0031）。
 	// 足したら直す: ジョブの状態の移り方
 	Rerecordable bool `json:"rerecordable"`
+	// ChaptersRedoable は、いまチャプターの入れ直し（POST /api/jobs/{id}/chapters）を受け付けるか（タイムフリーから録った done の
+	// ジョブ。store.RequestChapterRedo と同じく domain.CheckChapterRedo で決める。ADR 0033）。
+	ChaptersRedoable bool `json:"chaptersRedoable"`
+	// ChaptersRedoRequested は、チャプターの入れ直しを頼んで、録音のループがまだ書き込んでいない間だけ true。
+	ChaptersRedoRequested bool `json:"chaptersRedoRequested"`
 	// SaveRetryUntil は、ライブで録るジョブの録れた分の保存を自動でやり直している間（retrying で、最後の試行が保存か検証の段階で
 	// 失敗し、打ち切りの前）だけ、その打ち切り（放送の終了から 24 時間。domain.Job.LiveSaveCutoff）。ほかのときは出さない。
 	// 足したら直す: ジョブの状態の移り方
@@ -228,13 +238,15 @@ func summarize(j domain.Job, last *domain.Attempt, m domain.Membership, now time
 		Skippable:  j.State == domain.StateWaiting && j.Attempts == 0,
 		Recordable: j.State == domain.StateSkipped && (!j.Settled || j.Deadline.After(now)),
 		Attempts:   j.Attempts, NextAttemptAt: j.NextAttemptAt, Deadline: j.Deadline,
-		FinishedAt:   finishedAt(j, last),
-		Retryable:    (j.State == domain.StateRetrying || j.State == domain.StateExpired || settled) && domain.ManualRetryInTime(j, last, now),
-		Rerecordable: domain.CheckRerecord(j, m, now) == nil,
-		OutputPath:   j.OutputPath,
-		MissingCount: len(j.Missing),
-		Stations:     stationSpans(j.Airings),
-		Chapters:     string(j.Chapters),
+		FinishedAt:            finishedAt(j, last),
+		Retryable:             (j.State == domain.StateRetrying || j.State == domain.StateExpired || settled) && domain.ManualRetryInTime(j, last, now),
+		Rerecordable:          domain.CheckRerecord(j, m, now) == nil,
+		ChaptersRedoable:      domain.CheckChapterRedo(j) == nil,
+		ChaptersRedoRequested: !j.ChapterRedoAt.IsZero() && domain.CheckChapterRedo(j) == nil,
+		OutputPath:            j.OutputPath,
+		MissingCount:          len(j.Missing),
+		Stations:              stationSpans(j.Airings),
+		Chapters:              string(j.Chapters),
 	}
 	if last != nil && last.Error != "" {
 		s.LastFailedStage = string(last.FailedStage)
@@ -400,7 +412,7 @@ func (u *UI) getJob(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, d)
 }
 
-// act は人のジョブの操作（手動再試行・録らない・録る・録り直し）の処理。拒まれた状態と録音期限を過ぎたジョブは 409、無いジョブは 404。
+// act は人のジョブの操作（手動再試行・録らない・録る・録り直し・チャプターの入れ直し）の処理。拒まれた状態と録音期限を過ぎたジョブは 409、無いジョブは 404。
 // refusal は、拒まれたわけ（err）から 409 の文言を作る。空を返したら、act の既定の文言にする。nil なら既定の文言だけを使う。
 func (u *UI) act(w http.ResponseWriter, r *http.Request, do func(ctx context.Context, id int64) error, refusal func(err error) string) {
 	id, ok := jobID(w, r)
@@ -470,6 +482,47 @@ func rerecordRefusal(err error) string {
 		return "この状態では録り直せない（録り直せるのは録音済みのジョブだけ）"
 	}
 	return ""
+}
+
+// redoJobChapters は、ジョブ 1 件のチャプターの入れ直し（ADR 0033）。タイムフリーから録った done のジョブに頼みを DB に書き、
+// 録音のループを起こして、受け付けたジョブの要約を返す（書き込みはまだ。結果はジョブのチャプターの値と、チャプターの書き込みの
+// 履歴に出る）。チャプターの値は問わない（入ったのジョブも置き換える）。拒むときは、done でない・ライブ録音で文言を分けて 409 に
+// する。通知はしない。
+func (u *UI) redoJobChapters(w http.ResponseWriter, r *http.Request) {
+	u.act(w, r, func(ctx context.Context, id int64) error {
+		return u.wakeAfter(u.Jobs.RequestChapterRedo(ctx, id, u.now()))
+	}, chapterRedoRefusal)
+}
+
+// chapterRedoRefusal は、チャプターの入れ直しを拒んだわけ（domain.CheckChapterRedo の返すエラー）を 409 の文言にする。
+func chapterRedoRefusal(err error) string {
+	switch {
+	case errors.Is(err, domain.ErrChapterRedoLive):
+		return "ライブ録音のジョブにはチャプターを入れ直せない"
+	case errors.Is(err, domain.ErrInvalidTransition):
+		return "この状態ではチャプターを入れ直せない（入れ直せるのは録音済みのジョブだけ）"
+	}
+	return ""
+}
+
+// chapterRedoAllView は、まとめてのチャプターの入れ直し（POST /api/jobs/chapters）の答え。Accepted は受け付けたジョブの数。
+type chapterRedoAllView struct {
+	Accepted int `json:"accepted"`
+}
+
+// redoAllChapters は、まとめてのチャプターの入れ直し（rajikura chapters --all。ADR 0033）。タイムフリーから録った done のジョブの
+// うち、チャプターの値が値なしか入らなかったのものに頼みを DB に書き、録音のループを起こして、受け付けたジョブの数を返す。
+// 入った・待っているのジョブは飛ばす。放送日では絞らない。当たるジョブが無くても 200（0 件）。
+func (u *UI) redoAllChapters(w http.ResponseWriter, r *http.Request) {
+	n, err := u.Jobs.RequestChapterRedoAll(r.Context(), u.now())
+	if err != nil {
+		u.internalError(w, "チャプターの入れ直しを頼めない", err)
+		return
+	}
+	if n > 0 {
+		u.wakeAfter(nil)
+	}
+	writeJSON(w, http.StatusOK, chapterRedoAllView{Accepted: n})
 }
 
 // wakeAfter は、ジョブの操作が成功した（err が nil）なら録音のループを起こし、err をそのまま返す。
