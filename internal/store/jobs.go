@@ -926,7 +926,7 @@ type RevisedDeadlines struct {
 	Passed int
 }
 
-// ReviseDeadlines は録音期限の付け直し（docs/adr/0030-radiko-login-follows-chosen-membership.md・
+// ReviseDeadlines は録音期限の付け直し（docs/adr/0034-radiko-login-tried-when-saving.md・
 // docs/adr/0032-revise-deadlines-when-own-area-changes.md）。会員種別を保存したときと、自分のエリアが変わったときの両方で使う。
 // まだ終わっていないジョブ（waiting・retrying・skipped・running）の録音期限を、今の会員種別 m と今の自分のエリアの局一覧 own
 // （nil なら分からない）で、DB の放送回から domain.ReviseJobDeadline で求め直す。録音の方式（ライブかタイムフリーか）は変えない

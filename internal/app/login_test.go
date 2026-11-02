@@ -1,7 +1,10 @@
 package app
 
 import (
+	"errors"
+	"net/http"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -268,6 +271,213 @@ func TestSettingsAppliedMembership(t *testing.T) {
 	e.fake.set(func(f *fakeRadiko) {
 		if f.logins != 2 {
 			t.Errorf("logins = %d, want 2", f.logins)
+		}
+	})
+}
+
+// useSettingsLogin は、設定（Settings）を偽の radiko を使う radiko.Client につなぐ（cmd と同じ。保存の前に radiko のログインを試す）。
+// 会員種別をエリアフリーにし、ログイン情報（me@example.com / pass）を保存してから返す（保存の時点のログインは通る）。
+func (e *env) useSettingsLogin() (*Settings, *radiko.Client) {
+	e.t.Helper()
+	s := &Settings{Store: e.store, Secrets: secret.Load(filepath.Join(e.t.TempDir(), config.KeyFile)), Log: e.app.log(),
+		Build: func(c config.Config) Runtime {
+			return Runtime{Config: c, Media: e.media, Preset: library.Jellyfin{}, Notifier: e.app.Notifier}
+		}}
+	if err := s.Load(e.ctx); err != nil {
+		e.t.Fatal(err)
+	}
+	e.app.Live = s.Runtime
+	s.OnApply = e.app.SettingsApplied
+	c := e.app.Fetcher.(*radiko.Client)
+	c.Account = s.RadikoAccount
+	c.OnLogin = e.app.LoginResult
+	s.Login = c
+	mail, pass, m := "me@example.com", "pass", string(domain.MembershipAreaFree)
+	r, err := s.Save(e.ctx, config.Patch{Membership: &m, Radiko: &config.RadikoPatch{Mail: &mail, Password: &pass}})
+	if err != nil || r.RadikoLogin != RadikoLoginOK {
+		e.t.Fatalf("save = %+v, %v", r.RadikoLogin, err)
+	}
+	return s, c
+}
+
+// storedSettings は DB にある設定の本文と、暗号化した秘密の名前（名前の順）。
+func (e *env) storedSettings() string {
+	e.t.Helper()
+	body, sealed, err := e.store.Settings(e.ctx)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	names := make([]string, 0, len(sealed))
+	for name, b := range sealed {
+		names = append(names, name+"="+string(b))
+	}
+	slices.Sort(names)
+	return body + "\n" + strings.Join(names, "\n")
+}
+
+// 保存の時点の radiko のログインが通ったら、そのセッションを持たせ、次の認証ではログインし直さない（ADR 0034）。
+func TestSaveLoginAdoptsSession(t *testing.T) {
+	e := newFlowEnv(t)
+	_, c := e.useSettingsLogin()
+	tok, err := c.Authenticate(e.ctx)
+	if err != nil || tok.Session != "sess1" || !tok.AreaFree {
+		t.Fatalf("token = %+v, %v; want the session from saving", tok, err)
+	}
+	e.fake.set(func(f *fakeRadiko) {
+		if f.logins != 1 {
+			t.Errorf("logins = %d, want 1（保存の時点の 1 回だけ）", f.logins)
+		}
+	})
+}
+
+// radiko が保存の時点のログインを拒んだら、保存を断る（400 の *InvalidSettingsError）。DB・写し・持っているセッションを変えず、
+// サービスの異常も書かない。
+func TestSaveLoginRejectedKeepsEverything(t *testing.T) {
+	e := newFlowEnv(t)
+	d := e.useDiscord()
+	s, c := e.useSettingsLogin()
+	e.checkNotifications()
+	d.take() // 保存の時点で通った復旧などは見ない
+	if tok, err := c.Authenticate(e.ctx); err != nil || tok.Session != "sess1" {
+		t.Fatalf("token = %+v, %v", tok, err)
+	}
+	before, beforeDB := s.Current(), e.storedSettings()
+	e.fake.set(func(f *fakeRadiko) { f.loginReject = true })
+	pass := "wrong"
+	keep := 7
+	_, err := s.Save(e.ctx, config.Patch{KeywordMaxPending: &keep, Radiko: &config.RadikoPatch{Password: &pass}})
+	var invalid *InvalidSettingsError
+	if !errors.As(err, &invalid) || !strings.Contains(err.Error(), "拒んだ") {
+		t.Fatalf("err = %v, want *InvalidSettingsError about the rejected login", err)
+	}
+	if got := s.Current(); got.RadikoPassword != before.RadikoPassword || got.KeywordMaxPending != before.KeywordMaxPending {
+		t.Fatalf("写しが変わった: password changed = %v, keyword_max_pending = %d", got.RadikoPassword != before.RadikoPassword, got.KeywordMaxPending)
+	}
+	if got := e.storedSettings(); got != beforeDB {
+		t.Fatalf("DB の設定が変わった")
+	}
+	// 持っているセッションはそのまま（ログインし直さない）。
+	if tok, err := c.Authenticate(e.ctx); err != nil || tok.Session != "sess1" {
+		t.Fatalf("token = %+v, %v; want the kept session", tok, err)
+	}
+	e.fake.set(func(f *fakeRadiko) {
+		if f.logins != 2 {
+			t.Errorf("logins = %d, want 2（最初の保存と、断った保存の 2 回）", f.logins)
+		}
+	})
+	e.checkNotifications()
+	d.expectNone(t)
+	if ongoing, err := e.store.AnomalyOngoing(e.ctx, notify.KindLogin); err != nil || ongoing {
+		t.Fatalf("ongoing = %v, %v; want no anomaly", ongoing, err)
+	}
+}
+
+// radiko のログインの失敗が続き、拒まれた印が立っている間に、拒まれるログイン情報を保存しても、印と異常はそのまま
+// （ログインし直さず、復旧も書かない）。
+func TestSaveLoginRejectedKeepsRejectedMarkAndAnomaly(t *testing.T) {
+	e := newFlowEnv(t)
+	d := e.useDiscord()
+	s, c := e.useSettingsLogin()
+	// セッションを捨て（保存の時点の試しを使わない保存の代わり）、次の認証で拒まれて異常が始まる。
+	c.ResetLogin()
+	e.fake.set(func(f *fakeRadiko) { f.loginReject = true })
+	if tok, err := c.Authenticate(e.ctx); err != nil || tok.Session != "" {
+		t.Fatalf("token = %+v, %v; want a non-member token", tok, err)
+	}
+	e.checkNotifications()
+	d.take()
+	if ongoing, err := e.store.AnomalyOngoing(e.ctx, notify.KindLogin); err != nil || !ongoing {
+		t.Fatalf("ongoing = %v, %v; want the login anomaly", ongoing, err)
+	}
+	pass := "wrong"
+	var invalid *InvalidSettingsError
+	if _, err := s.Save(e.ctx, config.Patch{Radiko: &config.RadikoPatch{Password: &pass}}); !errors.As(err, &invalid) {
+		t.Fatalf("err = %v, want *InvalidSettingsError", err)
+	}
+	// 拒まれた印は残る（ログインし直さない）。
+	e.fake.set(func(f *fakeRadiko) { f.loginReject = false })
+	if tok, err := c.Authenticate(e.ctx); err != nil || tok.Session != "" {
+		t.Fatalf("token = %+v, %v; want the rejected mark kept", tok, err)
+	}
+	e.fake.set(func(f *fakeRadiko) {
+		if f.logins != 3 {
+			t.Errorf("logins = %d, want 3（最初の保存・拒まれた認証・断った保存）", f.logins)
+		}
+	})
+	e.checkNotifications()
+	d.expectNone(t)
+	if ongoing, err := e.store.AnomalyOngoing(e.ctx, notify.KindLogin); err != nil || !ongoing {
+		t.Fatalf("ongoing = %v, %v; want the anomaly kept", ongoing, err)
+	}
+	// 正しいログイン情報を保存したら、保存の時点で通り、異常の復旧を書く。
+	pass = "pass"
+	if r, err := s.Save(e.ctx, config.Patch{Radiko: &config.RadikoPatch{Password: &pass}}); err != nil || r.RadikoLogin != RadikoLoginOK {
+		t.Fatalf("save = %+v, %v", r, err)
+	}
+	e.checkNotifications()
+	d.expectOne(t, "【復旧】", "radiko のログイン")
+	if tok, err := c.Authenticate(e.ctx); err != nil || tok.Session != "sess4" {
+		t.Fatalf("token = %+v, %v; want the session from saving", tok, err)
+	}
+}
+
+// 保存の時点の radiko のログインが 5xx なら、保存して unchecked を返し、次の認証で radiko のログインをし直す。
+func TestSaveLoginServerErrorSavesUnchecked(t *testing.T) {
+	e := newFlowEnv(t)
+	s, c := e.useSettingsLogin()
+	e.fake.set(func(f *fakeRadiko) { f.loginStatus = http.StatusServiceUnavailable })
+	pass := "pass2"
+	r, err := s.Save(e.ctx, config.Patch{Radiko: &config.RadikoPatch{Password: &pass}})
+	if err != nil || r.RadikoLogin != RadikoLoginUnchecked {
+		t.Fatalf("save = %+v, %v; want unchecked", r.RadikoLogin, err)
+	}
+	if s.Current().RadikoPassword != "pass2" {
+		t.Fatal("保存していない")
+	}
+	e.fake.set(func(f *fakeRadiko) { f.loginStatus = 0 })
+	if tok, err := c.Authenticate(e.ctx); err != nil || tok.Session != "sess3" {
+		t.Fatalf("token = %+v, %v; want a new login after the save", tok, err)
+	}
+	if ongoing, err := e.store.AnomalyOngoing(e.ctx, notify.KindLogin); err != nil || ongoing {
+		t.Fatalf("ongoing = %v, %v", ongoing, err)
+	}
+}
+
+// 保存の時点の radiko のログインが通ったが、エリアフリーの値が食い違うなら、保存して mismatch を返し、異常を書き、セッションを持たせる。
+func TestSaveLoginMismatchSavesAndNotifies(t *testing.T) {
+	e := newFlowEnv(t)
+	d := e.useDiscord()
+	s, c := e.useSettingsLogin()
+	e.checkNotifications()
+	d.take()
+	e.fake.set(func(f *fakeRadiko) { f.loginAreaFree = "0" })
+	pass := "pass2"
+	r, err := s.Save(e.ctx, config.Patch{Radiko: &config.RadikoPatch{Password: &pass}})
+	if err != nil || r.RadikoLogin != RadikoLoginMismatch {
+		t.Fatalf("save = %+v, %v; want mismatch", r.RadikoLogin, err)
+	}
+	e.checkNotifications()
+	d.expectOne(t, "【radiko のログインの失敗】", "areafree = 0")
+	if tok, err := c.Authenticate(e.ctx); err != nil || tok.Session != "sess2" {
+		t.Fatalf("token = %+v, %v; want the session from saving", tok, err)
+	}
+}
+
+// 試さない保存: 非会員にする保存、ほかの設定だけの保存、Login が nil の Settings。
+func TestSaveWithoutLoginTry(t *testing.T) {
+	e := newFlowEnv(t)
+	s, _ := e.useSettingsLogin()
+	keep := 5
+	if r, err := s.Save(e.ctx, config.Patch{KeywordMaxPending: &keep}); err != nil || r.RadikoLogin != "" {
+		t.Fatalf("save = %+v, %v", r, err)
+	}
+	freeM := string(domain.MembershipFree)
+	if r, err := s.Save(e.ctx, config.Patch{Membership: &freeM}); err != nil || r.RadikoLogin != "" {
+		t.Fatalf("save = %+v, %v", r, err)
+	}
+	e.fake.set(func(f *fakeRadiko) {
+		if f.logins != 1 {
+			t.Errorf("logins = %d, want 1（最初の保存だけ）", f.logins)
 		}
 	})
 }

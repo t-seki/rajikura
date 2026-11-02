@@ -291,7 +291,7 @@ func TestSettingsAppliedRevisesWithOwnArea(t *testing.T) {
 	e.app.Membership = domain.MembershipAreaFree
 	m := string(domain.MembershipAreaFree)
 	e.app.SettingsApplied(e.ctx, config.Patch{Membership: &m},
-		config.Config{Membership: domain.MembershipDouble}, config.Config{Membership: domain.MembershipAreaFree})
+		config.Config{Membership: domain.MembershipDouble}, config.Config{Membership: domain.MembershipAreaFree}, nil)
 	// 付け直しは展開役が行う。
 	e.expandPending()
 	j := e.getJob(old)
@@ -316,7 +316,7 @@ func TestReviseAfterMembershipSavedDuringOwnAreaRevise(t *testing.T) {
 		// 展開役が自分のエリアの付け直しで局一覧を取っている間に、会員種別をタイムフリー30 にして保存する。
 		e.app.Membership = domain.MembershipTimeFree30
 		e.app.SettingsApplied(e.ctx, config.Patch{Membership: &m},
-			config.Config{Membership: domain.MembershipDouble}, config.Config{Membership: domain.MembershipTimeFree30})
+			config.Config{Membership: domain.MembershipDouble}, config.Config{Membership: domain.MembershipTimeFree30}, nil)
 		// 保存は待たず、保存した goroutine では付け直さない。
 		if j := e.getJob(old); !j.Deadline.Equal(before) {
 			t.Errorf("保存した goroutine で付け直した: deadline = %v", j.Deadline)
@@ -347,7 +347,7 @@ func TestMembershipReviseWaitsForStations(t *testing.T) {
 	e.app.Membership = domain.MembershipAreaFree
 	m := string(domain.MembershipAreaFree)
 	e.app.SettingsApplied(e.ctx, config.Patch{Membership: &m},
-		config.Config{Membership: domain.MembershipDouble}, config.Config{Membership: domain.MembershipAreaFree})
+		config.Config{Membership: domain.MembershipDouble}, config.Config{Membership: domain.MembershipAreaFree}, nil)
 	e.expandPending()
 	if j := e.getJob(old); !j.Deadline.Equal(before.Deadline) || !j.NextAttemptAt.Equal(before.NextAttemptAt) {
 		t.Fatalf("局一覧を取れないのに付け直した: deadline = %v, next = %v", j.Deadline, j.NextAttemptAt)

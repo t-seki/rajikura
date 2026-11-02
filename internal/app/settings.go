@@ -28,9 +28,12 @@ import (
 // 部品と値の写し（Runtime）を丸ごと 1 つ持ち、保存したら新しい写しに atomic に差し替える。使う側（録音のループ・展開役・
 // HTTP の goroutine）は、使うときに最新の写しを読むので、保存した設定は再起動しなくてもすぐに効く
 // （番組表のキャッシュの大きさ（radiko.program_cache_mb）は除く。キャッシュは cmd が起動したときの値で作るので、再起動が要る）。
-// 会員種別もすぐに効く（再試行・番組表の範囲は、使うときの会員種別から読む。録音期限は、下のとおり展開役が付け直す）。会員種別かログイン情報を保存したら、
-// OnApply（cmd が App.SettingsApplied をつなぐ）が、持っている radiko のログインのセッションを捨て、会員種別が変わったなら
-// まだ終わっていないジョブの録音期限の付け直しを展開役に頼む（待たない。付け直すのは展開役。ADR 0030・0032、own_area.go）。
+// 会員種別もすぐに効く（再試行・番組表の範囲は、使うときの会員種別から読む。録音期限は、下のとおり展開役が付け直す）。会員種別かログイン情報を保存するときは、
+// 保存した後の会員種別が非会員でなくログイン情報がそろっていれば、保存の前に radiko のログインを 1 回試し（Settings.Login）、拒まれたら
+// 保存を断る（*InvalidSettingsError。checkDir と同じく何も当てない）。通信の失敗・5xx・時間切れなら保存する（ADR 0034）。保存したら、
+// OnApply（cmd が App.SettingsApplied をつなぐ）が、保存の時点で通ったセッションを radiko のログインに持たせるか（通らなかった・試さなかったなら）
+// 持っているセッションを捨て、会員種別が変わったならまだ終わっていないジョブの録音期限の付け直しを展開役に頼む
+// （待たない。付け直すのは展開役。ADR 0032・0034、own_area.go）。
 // ジョブの実行は、試行を始めたときに写しを 1 つ取り、その試行の最後（保存・再スキャン）までその写しを使う（録音の途中で
 // 保存先が変わって、1 つのジョブのファイルが 2 か所に分かれないように）。
 //
@@ -69,9 +72,12 @@ type Settings struct {
 	Build Build
 	// Log は nil なら slog.Default。
 	Log *slog.Logger
-	// OnApply は、Apply が保存して写しを差し替えた後に、当てた p と前後の設定を渡して呼ぶ（nil なら呼ばない）。Apply の中で
-	// 呼ぶので、次の Apply は OnApply が終わるまで待つ。
-	OnApply func(ctx context.Context, p config.Patch, prev, next config.Config)
+	// Login は、会員種別かログイン情報を変える保存で、保存の前に radiko のログインを試す先（cmd が *radiko.Client をつなぐ）。
+	// nil なら試さない（保存の時点では radiko のログインをしない）。
+	Login LoginTrier
+	// OnApply は、Save が保存して写しを差し替えた後に、当てた p と前後の設定と、保存の時点で通った radiko のログインの結果
+	// （試さなかった・通らなかったなら nil）を渡して呼ぶ（nil なら呼ばない）。Save の中で呼ぶので、次の Save は OnApply が終わるまで待つ。
+	OnApply func(ctx context.Context, p config.Patch, prev, next config.Config, login *radiko.LoginAttempt)
 
 	// mu は Apply を 1 つずつにする（読んでから書くまでに、ほかの保存が割り込まないように）。
 	mu  sync.Mutex
@@ -164,29 +170,71 @@ func (s *Settings) View() config.View {
 	return v
 }
 
-// Apply は設定に p を当てて DB に保存し、写しを差し替える（再起動しなくてもすぐに効く）。p に書いた欄だけを変え、
+// RadikoLogin は、保存の時点で試した radiko のログインの結果（PATCH /api/settings の radiko_login。ADR 0034）。空なら試していない。
+type RadikoLogin string
+
+const (
+	// RadikoLoginOK は、radiko のログインが通り、応答のエリアフリーの値も選んだ会員種別と合う。
+	RadikoLoginOK RadikoLogin = "ok"
+	// RadikoLoginUnchecked は、radiko に届かなかった（通信の失敗・5xx・時間切れ）ので確かめられなかった（保存はした）。
+	RadikoLoginUnchecked RadikoLogin = "unchecked"
+	// RadikoLoginMismatch は、radiko のログインは通ったが、応答のエリアフリーの値が選んだ会員種別と食い違う（保存はした）。
+	RadikoLoginMismatch RadikoLogin = "mismatch"
+)
+
+// LoginTrier は、保存の前に radiko のログインを 1 回試せるもの（*radiko.Client が満たす）。
+type LoginTrier interface {
+	TryLogin(ctx context.Context, acc radiko.Account) (radiko.LoginAttempt, error)
+}
+
+// Saved は Save の結果。
+type Saved struct {
+	// Config は保存した後の設定。
+	Config config.Config
+	// RadikoLogin は保存の時点で試した radiko のログインの結果。試さなかったら空。
+	RadikoLogin RadikoLogin
+}
+
+// loginChanged は、p が会員種別かログイン情報（radiko.mail・radiko.password）を書くか。
+func loginChanged(p config.Patch) bool {
+	return p.Membership != nil || (p.Radiko != nil && (p.Radiko.Mail != nil || p.Radiko.Password != nil))
+}
+
+// Apply は Save と同じく保存し、保存した後の設定だけを返す。
+func (s *Settings) Apply(ctx context.Context, p config.Patch) (config.Config, error) {
+	r, err := s.Save(ctx, p)
+	return r.Config, err
+}
+
+// Save は設定に p を当てて DB に保存し、写しを差し替える（再起動しなくてもすぐに効く）。p に書いた欄だけを変え、
 // 秘密の空の文字列は消す。値の誤りが 1 つでもあれば、何も当てずに *InvalidSettingsError を返す。
 // 保存先を変えるときは、フォルダを作り、書けることを確かめてから保存する（書けなければ *InvalidSettingsError）。
+// 会員種別かログイン情報を書くときは、当てた後の設定のログイン情報で radiko のログインを試してから保存する（tryLogin。ADR 0034）。
+// radiko が拒んだら、何も当てずに *InvalidSettingsError を返す。
 // 当てた秘密は、復号できない秘密の一覧から外す（入れ直した・消した）。
-func (s *Settings) Apply(ctx context.Context, p config.Patch) (config.Config, error) {
+func (s *Settings) Save(ctx context.Context, p config.Patch) (Saved, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	st := s.state()
 	cur := st.rt.Config
 	next, err := config.Apply(cur, p)
 	if err != nil {
-		return config.Config{}, &InvalidSettingsError{err}
+		return Saved{}, &InvalidSettingsError{err}
 	}
 	if p.Library != nil && next.Library != cur.Library {
 		if err := checkDir("保存先", next.Library); err != nil {
-			return config.Config{}, &InvalidSettingsError{err}
+			return Saved{}, &InvalidSettingsError{err}
 		}
 	}
 	backupDirChanged := p.BackupDir != nil && next.BackupDir != cur.BackupDir
 	if backupDirChanged && next.BackupDir != "" {
 		if err := checkDir("バックアップの取る先", next.BackupDir); err != nil {
-			return config.Config{}, &InvalidSettingsError{err}
+			return Saved{}, &InvalidSettingsError{err}
 		}
+	}
+	result, login, err := s.tryLogin(ctx, p, next)
+	if err != nil {
+		return Saved{}, err
 	}
 	changes := map[string][]byte{}
 	unreadable := slices.Clone(st.unreadable)
@@ -196,7 +244,7 @@ func (s *Settings) Apply(ctx context.Context, p config.Patch) (config.Config, er
 		} else {
 			b, err := s.Secrets.Seal(name, v)
 			if err != nil {
-				return config.Config{}, fmt.Errorf("秘密 %s を暗号化できない: %w", name, err)
+				return Saved{}, fmt.Errorf("秘密 %s を暗号化できない: %w", name, err)
 			}
 			changes[name] = b
 		}
@@ -204,10 +252,10 @@ func (s *Settings) Apply(ctx context.Context, p config.Patch) (config.Config, er
 	}
 	body, err := json.Marshal(config.Values(next))
 	if err != nil {
-		return config.Config{}, err
+		return Saved{}, err
 	}
 	if err := s.Store.SaveSettings(ctx, string(body), changes); err != nil {
-		return config.Config{}, fmt.Errorf("設定を DB に書けない: %w", err)
+		return Saved{}, fmt.Errorf("設定を DB に書けない: %w", err)
 	}
 	if backupDirChanged {
 		// 取る先を変えたら、前に取った日時は前の取る先のものなので忘れる（次の見回りで、新しい取る先に取る）。
@@ -226,15 +274,47 @@ func (s *Settings) Apply(ctx context.Context, p config.Patch) (config.Config, er
 		"backup_dir", next.BackupDir, "backup_keep", next.BackupKeep, "jellyfin", next.JellyfinURL, "muxer", next.Muxer, "chapters", next.Chapters,
 		"membership", next.Membership, "secrets_changed", changed)
 	if s.OnApply != nil {
-		s.OnApply(context.WithoutCancel(ctx), p, cur, next)
+		s.OnApply(context.WithoutCancel(ctx), p, cur, next, login)
 	}
-	return next, nil
+	return Saved{Config: next, RadikoLogin: result}, nil
+}
+
+// tryLogin は、保存の前に radiko のログインを試す（ADR 0034）。Login が nil のとき、p が会員種別もログイン情報も書かないとき、
+// 当てた後の設定 next が非会員か、ログイン情報がそろっていないときは試さない（空の結果を返す）。
+// radiko が拒んだら *InvalidSettingsError を返す（サービスの異常は書かない）。通信の失敗・5xx・時間切れ（radiko.ErrTemporary）なら
+// RadikoLoginUnchecked を返す（保存する。次に認証が要るときに radiko のログインをする）。通ったら、試した結果も返す（保存した後に持たせる）。
+// 待つのは radiko のログインの要求 1 回のタイムアウト（radiko.DefaultRequestTimeout）までで、その間はほかの保存を待たせる。
+func (s *Settings) tryLogin(ctx context.Context, p config.Patch, next config.Config) (RadikoLogin, *radiko.LoginAttempt, error) {
+	if s.Login == nil || !loginChanged(p) {
+		return "", nil, nil
+	}
+	acc, ok := radikoAccount(next)
+	if !ok {
+		return "", nil, nil
+	}
+	a, err := s.Login.TryLogin(ctx, acc)
+	switch {
+	case errors.Is(err, radiko.ErrTemporary):
+		s.log().Warn("保存する前に radiko のログインを試したが、radiko に届かなかった（保存して、次に認証が要るときに radiko のログインをする）", "err", err)
+		return RadikoLoginUnchecked, nil, nil
+	case err != nil:
+		return "", nil, fmt.Errorf("保存する前に radiko のログインを試せない: %w", err)
+	case a.Event.Err != nil:
+		s.log().Warn("保存する前に radiko のログインを試したが、radiko が拒んだので保存しない", "err", a.Event.Err)
+		return "", nil, &InvalidSettingsError{errors.New("radiko がログインを拒んだので、保存しなかった。radiko のメールアドレスとパスワードを確かめる")}
+	case a.Event.Mismatch:
+		return RadikoLoginMismatch, &a, nil
+	default:
+		return RadikoLoginOK, &a, nil
+	}
 }
 
 // RadikoAccount は、今の設定から radiko のログインに使うログイン情報を返す（radiko.Client.Account にする）。会員種別が非会員のとき、
 // ログイン情報がそろっていない（パスワードを復号できないときも）ときは false（非会員として認証する）。
-func (s *Settings) RadikoAccount() (radiko.Account, bool) {
-	c := s.Current()
+func (s *Settings) RadikoAccount() (radiko.Account, bool) { return radikoAccount(s.Current()) }
+
+// radikoAccount は設定 c から radiko のログインに使うログイン情報を返す（RadikoAccount と同じ判定）。
+func radikoAccount(c config.Config) (radiko.Account, bool) {
 	if !c.Membership.Member() || c.RadikoMail == "" || c.RadikoPassword == "" {
 		return radiko.Account{}, false
 	}
@@ -273,7 +353,7 @@ type live struct {
 	backupKeep        int
 	// chapters は設定 chapters（タイムフリーから録るファイルにチャプターを入れるか。ADR 0027）。
 	chapters bool
-	// membership は会員種別（録音期限・再試行・キーワードの照合に使う。保存したらすぐ効く。ADR 0030）。
+	// membership は会員種別（録音期限・再試行・キーワードの照合に使う。保存したらすぐ効く。ADR 0034）。
 	membership domain.Membership
 }
 
@@ -304,20 +384,33 @@ type LoginResetter interface {
 	ResetLogin()
 }
 
+// LoginAdopter は、保存の時点で通った radiko のログインのセッションを持たせられるもの（*radiko.Client が満たす）。
+type LoginAdopter interface {
+	AdoptLogin(radiko.LoginAttempt)
+}
+
 // SettingsApplied は、設定を保存した後に呼ぶ（cmd が Settings.OnApply につなぐ）。会員種別かログイン情報（radiko.mail・
-// radiko.password）を保存したら、持っている radiko のログインのセッションを捨てる（Fetcher が LoginResetter を満たすとき）。
+// radiko.password）を保存したら、保存の時点で radiko のログインが通っていれば（login が nil でない）そのセッションを持たせ
+// （Fetcher が LoginAdopter を満たすとき。結果は radiko.Client.OnLogin から LoginResult に渡り、続いている radiko のログインの失敗を
+// 復旧として閉じるか、食い違いなら始まりを書く）、通っていなければ持っているセッションを捨てる（Fetcher が LoginResetter を満たすとき。
+// 次に認証が要るときに radiko のログインをし直す。ADR 0034）。
 // 会員種別を非会員にして保存したら、radiko のログインの失敗の異常が続いていれば、radiko のログインを止めたことを復旧として閉じる
 // （もう radiko のログインをしないので、ログインが通る日は来ない。バックアップの取る先を空にしたときと同じ）。
 // 会員種別が変わったら、まだ終わっていないジョブ（waiting・retrying・skipped・running）の録音期限の付け直しを展開役に頼み、
-// 待たずに戻る（ADR 0030・0032。自分のエリアが変わったときと同じ reviseDeadlines を、展開役が reviseForMembership で呼ぶ）。
+// 待たずに戻る（ADR 0032・0034。自分のエリアが変わったときと同じ reviseDeadlines を、展開役が reviseForMembership で呼ぶ）。
 // エリアフリー・ダブルプランなら覚えている自分のエリアの局一覧を取って使い、取れなければ付け直さずに依頼を残す（own_area.go）。
 // 足したら直す: サービスの異常
-func (a *App) SettingsApplied(ctx context.Context, p config.Patch, prev, next config.Config) {
-	login := p.Membership != nil || (p.Radiko != nil && (p.Radiko.Mail != nil || p.Radiko.Password != nil))
-	if r, ok := a.Fetcher.(LoginResetter); ok && login {
-		r.ResetLogin()
-		a.log().Info("会員種別かログイン情報を保存したので、radiko のログインのセッションを捨てた（次に認証が要るときに radiko のログインをし直す）",
-			"membership", next.Membership)
+func (a *App) SettingsApplied(ctx context.Context, p config.Patch, prev, next config.Config, login *radiko.LoginAttempt) {
+	if loginChanged(p) {
+		if ad, ok := a.Fetcher.(LoginAdopter); ok && login != nil {
+			ad.AdoptLogin(*login)
+			a.log().Info("会員種別かログイン情報を保存したので、保存する前に通った radiko のログインのセッションを持たせた（次の認証ではログインし直さない）",
+				"membership", next.Membership)
+		} else if r, ok := a.Fetcher.(LoginResetter); ok {
+			r.ResetLogin()
+			a.log().Info("会員種別かログイン情報を保存したので、radiko のログインのセッションを捨てた（次に認証が要るときに radiko のログインをし直す）",
+				"membership", next.Membership)
+		}
 	}
 	if p.Membership != nil && !next.Membership.Member() {
 		a.addAnomaly(ctx, a.log(), notify.KindRecovered, notify.KindLogin,

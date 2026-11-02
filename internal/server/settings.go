@@ -19,8 +19,9 @@ type Settings interface {
 	View() config.View
 	// Current は今の設定（通知先の種類と会員種別を読む。秘密は API に出さない）。
 	Current() config.Config
-	// Apply は設定に p を当てて保存し、すぐに効かせる。値の誤りは *app.InvalidSettingsError。
-	Apply(ctx context.Context, p config.Patch) (config.Config, error)
+	// Save は設定に p を当てて保存し、すぐに効かせる。値の誤り（radiko が保存の前の radiko のログインを拒んだことを含む）は
+	// *app.InvalidSettingsError。保存の時点で試した radiko のログインの結果も返す。
+	Save(ctx context.Context, p config.Patch) (app.Saved, error)
 }
 
 var _ Settings = (*app.Settings)(nil)
@@ -33,7 +34,9 @@ const maxSettingsBody = 1 << 20
 //   - GET /api/settings: 今の設定（秘密の値は返さず、秘密ごとに設定済みか・復号できないかを返す）と、保存先が決まっているか、
 //     復号できない秘密の名前
 //   - PATCH /api/settings: 本文に書いた項目だけを変える（キーは config.Patch の JSON のキー。秘密の空の文字列は消す）。誤りが 1 つでも
-//     あれば 400 にして何も当てない。保存先を変えるときは、フォルダを作り、書けることを確かめてから保存する。答えは GET と同じ
+//     あれば 400 にして何も当てない。保存先を変えるときは、フォルダを作り、書けることを確かめてから保存する。会員種別かログイン情報を
+//     変えるときは、保存の前に radiko のログインを試し、radiko が拒んだら 400 にして何も当てない（ADR 0034）。答えは GET と同じ形に、
+//     保存の時点で試した radiko のログインの結果（radiko_login）を足したもの
 func (u *UI) registerSettings(mux *http.ServeMux) {
 	if u.Settings == nil {
 		return
@@ -47,6 +50,8 @@ type settingsResponse struct {
 	config.View
 	// LastBackupAt は最後に自動のバックアップを取れた時刻。まだ取れていない・読めないときは null。
 	LastBackupAt *time.Time `json:"last_backup_at"`
+	// RadikoLogin は、PATCH の保存の時点で試した radiko のログインの結果（"ok"・"unchecked"・"mismatch"）。試さなかった保存と GET では null。
+	RadikoLogin *app.RadikoLogin `json:"radiko_login"`
 }
 
 func (u *UI) settingsResponse(ctx context.Context) settingsResponse {
@@ -78,7 +83,8 @@ func (u *UI) patchSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
 		return
 	}
-	if _, err := u.Settings.Apply(r.Context(), p); err != nil {
+	saved, err := u.Settings.Save(r.Context(), p)
+	if err != nil {
 		var invalid *app.InvalidSettingsError
 		if errors.As(err, &invalid) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": invalid.Error()})
@@ -88,5 +94,9 @@ func (u *UI) patchSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "内部エラー"})
 		return
 	}
-	writeJSON(w, http.StatusOK, u.settingsResponse(r.Context()))
+	resp := u.settingsResponse(r.Context())
+	if saved.RadikoLogin != "" {
+		resp.RadikoLogin = &saved.RadikoLogin
+	}
+	writeJSON(w, http.StatusOK, resp)
 }

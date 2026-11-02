@@ -51,20 +51,21 @@ interface SectionProps {
   onChanged: (view: SettingsView) => void;
 }
 
-// 区切りごとの保存（busy・失敗の理由・成功のトースト）。save は成功したら true。
+// 区切りごとの保存（busy・失敗の理由・成功のトースト）。save は成功したら保存した後の設定を、失敗したら null を返す。
 function useSaver(onChanged: (view: SettingsView) => void, what: string) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const save = async (patch: SettingsValues): Promise<boolean> => {
+  const save = async (patch: SettingsValues): Promise<SettingsView | null> => {
     setBusy(true);
     setError(null);
     try {
-      onChanged(await patchSettings(patch));
+      const v = await patchSettings(patch);
+      onChanged(v);
       notifySuccess(`${what}を保存した`);
-      return true;
+      return v;
     } catch (e) {
       setError(e instanceof SettingsApiError ? e.message : `${what}を保存できなかった。通信を確かめてほしい`);
-      return false;
+      return null;
     } finally {
       setBusy(false);
     }
@@ -72,7 +73,20 @@ function useSaver(onChanged: (view: SettingsView) => void, what: string) {
   return { busy, error, save };
 }
 
-function Section({ title, hint, error, children }: { title: string; hint?: string; error: string | null; children: React.ReactNode }) {
+function Section({
+  title,
+  hint,
+  error,
+  warning,
+  children,
+}: {
+  title: string;
+  hint?: string;
+  error: string | null;
+  /** 保存はしたが、知らせておくこと（オレンジで出す）。 */
+  warning?: string | null;
+  children: React.ReactNode;
+}) {
   return (
     <Card withBorder padding="md" component="section" aria-label={title}>
       <Stack>
@@ -85,6 +99,11 @@ function Section({ title, hint, error, children }: { title: string; hint?: strin
         {error && (
           <Alert color="red" role="alert">
             {error}
+          </Alert>
+        )}
+        {warning && (
+          <Alert color="orange" role="status">
+            {warning}
           </Alert>
         )}
         {children}
@@ -193,14 +212,33 @@ const membershipOptions = [
   { value: "double", label: "ダブルプラン（エリアフリーとタイムフリー30）" },
 ];
 
+// 保存の時点の radiko のログインの結果（radiko_login）ごとの、保存したことと並べて出す警告（ADR 0034）。ok と null は出さない。
+const radikoLoginWarnings: Record<string, string> = {
+  unchecked:
+    "保存したが、radiko に届かず、ログインできるかを確かめられなかった。次に録音・番組表で radiko の認証が要るときに radiko にログインする（拒まれたら通知で知らせる）。",
+  mismatch:
+    "保存した。radiko のログインは通ったが、radiko の応答のエリアフリーの値が、選んだ会員種別と食い違う。会員種別と radiko の契約を確かめる。",
+};
+
 // 会員種別と、radiko のログインに使うログイン情報。非会員でないときだけ、ログイン情報の欄を出す（そろっていなければサーバーが断る）。
+// 保存するときにサーバーが radiko のログインを試し、拒まれたら保存しない（400 の理由をエラーとして出し、入れたパスワードは残す）。
+// 確かめられなかった（unchecked）・食い違う（mismatch）ときは、保存したうえでオレンジの警告を出す。
 // 非会員に戻して保存しても、ログイン情報は消さない（消すのは「消す」を押したときだけ）。
 function MembershipSection({ view, onChanged }: SectionProps) {
   const [membership, setMembership] = useState(view.settings.membership ?? "free");
   const [mail, setMail] = useState(view.settings.radiko?.mail ?? "");
   const [password, setPassword] = useState("");
-  const { busy, error, save } = useSaver(onChanged, "radiko の会員種別");
+  const [warning, setWarning] = useState<string | null>(null);
+  const saver = useSaver(onChanged, "radiko の会員種別");
+  const { busy, error } = saver;
   const member = membership !== "free";
+
+  async function save(patch: SettingsValues): Promise<SettingsView | null> {
+    setWarning(null);
+    const v = await saver.save(patch);
+    if (v) setWarning(v.radiko_login ? (radikoLoginWarnings[v.radiko_login] ?? null) : null);
+    return v;
+  }
 
   async function submit() {
     const patch: SettingsValues = { membership };
@@ -223,8 +261,9 @@ function MembershipSection({ view, onChanged }: SectionProps) {
   return (
     <Section
       title="radiko の会員種別"
-      hint="radiko と契約している会員種別。非会員でなければ、radiko のアカウントのメールアドレスとパスワードで radiko にログインして録る。radiko にログインを拒まれたら、非会員として録り、通知で知らせる。"
+      hint="radiko と契約している会員種別。非会員でなければ、radiko のアカウントのメールアドレスとパスワードで radiko にログインして録る。保存するときに radiko にログインを試し、拒まれたら保存しない。録っている間に radiko にログインを拒まれたら、非会員として録り、通知で知らせる。"
       error={error}
+      warning={warning}
     >
       <Select label="会員種別" data={membershipOptions} value={membership} onChange={(v) => v && setMembership(v)} allowDeselect={false} />
       {member && (

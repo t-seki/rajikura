@@ -47,10 +47,11 @@ type fakeRadiko struct {
 	loginAreaFree string // 応答の areafree（JSON の値の表記のまま。空なら "1"）
 	gotMail       string
 	gotPass       string
-	authSessions  []string        // auth2 に付いた radiko_session（付かなければ空）を順に
-	rejectSession map[string]bool // auth2 で 401 にするセッション
-	playlistPaths []string        // マスタの要求のパスを順に
-	medialistReqs []string        // medialist の要求を「候補(first/second) seek l」で順に
+	loginHook     func(mail string) // あれば、ログインの要求を受けたときに（数える前に、ロックの外で）呼ぶ。始める前に入れる
+	authSessions  []string          // auth2 に付いた radiko_session（付かなければ空）を順に
+	rejectSession map[string]bool   // auth2 で 401 にするセッション
+	playlistPaths []string          // マスタの要求のパスを順に
+	medialistReqs []string          // medialist の要求を「候補(first/second) seek l」で順に
 }
 
 func newFake(t *testing.T) *fakeRadiko {
@@ -126,6 +127,9 @@ func (f *fakeRadiko) memberLogin(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "form", http.StatusBadRequest)
 		return
+	}
+	if f.loginHook != nil {
+		f.loginHook(r.PostForm.Get("mail"))
 	}
 	f.mu.Lock()
 	f.loginCount++
