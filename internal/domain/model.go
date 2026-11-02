@@ -304,15 +304,32 @@ type Job struct {
 	Settled bool
 	// Chapters は、保存したファイルにチャプターが入ったか（入った・待っている・入らなかった。ADR 0027）。取りに行っていない
 	// ジョブ（ライブ録音、設定 chapters がオフ、まだ保存していない、チャプターの取り直しの前の版で保存した）は ChaptersNone。
+	// チャプターの取り直しでファイルにチャプターを書き込んだら、その結果で付け直す（ADR 0033）。
 	// ChapterCheckAt と ChapterWaits は、待っている（ChaptersWaiting）間だけ使う。
 	Chapters Chapters
 	// ChapterCheckAt は、待っているジョブが次にチャプターの API を引く時刻。
 	ChapterCheckAt time.Time
 	// ChapterWaits は、待っている放送回（Airing.Key → AiringChapterPending か AiringChapterReady）。待っていない放送回は持たない。
 	ChapterWaits map[string]AiringChapterWait
-	// ChapterRefetch は、今の試行（retrying・running）がチャプターの取り直しで起こしたものである印。録れなかったときに
-	// 録音できなかったにせず録音済みに戻し、通知しないために持つ（人が頼んだ録り直しとは別。ADR 0027）。
-	ChapterRefetch bool
+}
+
+// SavedAirings は、保存したファイルに入っている放送回（Airings から欠落した放送回 Missing を除いたもの。開始時刻の順で、
+// 連結したファイルのパートの並びと同じ）。
+func (j Job) SavedAirings() []Airing {
+	if len(j.Missing) == 0 {
+		return j.Airings
+	}
+	miss := map[string]bool{}
+	for _, a := range j.Missing {
+		miss[a.Key()] = true
+	}
+	var out []Airing
+	for _, a := range j.Airings {
+		if !miss[a.Key()] {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // Expandable は、展開が触るジョブか（waiting と、確定の前の skipped）。展開は、これに当たるジョブの放送回・パート番号・

@@ -1,12 +1,14 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -62,6 +64,139 @@ func (f *chapterFetcher) Chapters(ctx context.Context, stationID string, day, st
 		return nil, fmt.Errorf("%w: test", radiko.ErrNoChapters)
 	}
 	return r.chapters, r.err
+}
+
+// fakeChapterMark は、偽の WriteChapters が書いたファイルで、音声（入力をつないだもの）とチャプターの間に置く印。
+const fakeChapterMark = "\nCHAPTERS:"
+
+// fakeChapterWrite は、偽の WriteChapters に渡されたもの。
+type fakeChapterWrite struct {
+	in       string
+	chapters []media.Chapter
+	parts    []time.Duration
+}
+
+// fakeChapterWriter は、fakeMedia（fake_test.go）の ChapterWriter の分の記録と、起こす失敗。
+type fakeChapterWriter struct {
+	mu     sync.Mutex
+	writes []fakeChapterWrite
+	// writeErr があれば WriteChapters はそれを返す。corrupt なら、書いたファイルの音声を元と変える（SameAudio が一致しない）。
+	writeErr error
+	corrupt  bool
+}
+
+// fakeChapterWriters は fakeMedia ごとの fakeChapterWriter（fakeMedia のフィールドに持たせないので、ここで引く）。
+var fakeChapterWriters sync.Map
+
+// chapterWriter は m の fakeChapterWriter。
+func (m *fakeMedia) chapterWriter() *fakeChapterWriter {
+	v, _ := fakeChapterWriters.LoadOrStore(m, &fakeChapterWriter{})
+	return v.(*fakeChapterWriter)
+}
+
+// fakeAudio は、偽の格納が書いたファイルの中身 b の、音声の部分（WriteChapters が書いたチャプターを除く）。
+func fakeAudio(b []byte) []byte {
+	if i := bytes.Index(b, []byte(fakeChapterMark)); i >= 0 {
+		return b[:i]
+	}
+	return b
+}
+
+// InputLengths は、Duration と同じく、入力ごとに中身の "[" の数 × 5 秒を返す（ChapterWriter）。
+func (m *fakeMedia) InputLengths(ctx context.Context, inputs []string) ([]time.Duration, error) {
+	out := make([]time.Duration, len(inputs))
+	for i, in := range inputs {
+		d, err := os.ReadFile(in)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = time.Duration(bytes.Count(d, []byte("["))) * 5 * time.Second
+	}
+	return out, nil
+}
+
+// WriteChapters は、in の音声の部分の後ろに印とチャプターの題を書き、渡されたものを記録する（ChapterWriter）。
+func (m *fakeMedia) WriteChapters(ctx context.Context, in, out string, chapters []media.Chapter, parts []time.Duration) (int, error) {
+	w := m.chapterWriter()
+	w.mu.Lock()
+	w.writes = append(w.writes, fakeChapterWrite{in: in, chapters: chapters, parts: parts})
+	werr, corrupt := w.writeErr, w.corrupt
+	w.mu.Unlock()
+	if werr != nil {
+		return 0, werr
+	}
+	d, err := os.ReadFile(in)
+	if err != nil {
+		return 0, err
+	}
+	audio := slices.Clone(fakeAudio(d))
+	if corrupt {
+		audio = append([]byte("壊れた"), audio...)
+	}
+	titles := make([]string, len(chapters))
+	for i, ch := range chapters {
+		titles[i] = ch.Title
+	}
+	return len(chapters), os.WriteFile(out, append(audio, []byte(fakeChapterMark+strings.Join(titles, "|"))...), 0o644)
+}
+
+// SameAudio は、a と b の音声の部分が同じか（ChapterWriter）。
+func (m *fakeMedia) SameAudio(ctx context.Context, a, b string) error {
+	x, err := os.ReadFile(a)
+	if err != nil {
+		return err
+	}
+	y, err := os.ReadFile(b)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(fakeAudio(x), fakeAudio(y)) {
+		return fmt.Errorf("%w: fake", media.ErrAudioMismatch)
+	}
+	return nil
+}
+
+// lastWrite は、最後に WriteChapters に渡されたもの（無ければ失敗）。
+func (e *env) lastWrite() fakeChapterWrite {
+	e.t.Helper()
+	w := e.media.chapterWriter()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.writes) == 0 {
+		e.t.Fatal("WriteChapters が呼ばれていない")
+	}
+	return w.writes[len(w.writes)-1]
+}
+
+// writeCount は WriteChapters が呼ばれた回数。
+func (e *env) writeCount() int {
+	w := e.media.chapterWriter()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return len(w.writes)
+}
+
+// chapterWrites は、ジョブ id のチャプターの書き込みの履歴。
+func (e *env) chapterWrites(id int64) []domain.ChapterWrite {
+	e.t.Helper()
+	ws, err := e.store.ChapterWrites(e.ctx, id)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return ws
+}
+
+// partials は、dir の下に残った *.partial.m4a。
+func partials(t *testing.T, dir string) []string {
+	t.Helper()
+	var out []string
+	filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err == nil && strings.HasSuffix(p, ".partial.m4a") {
+			out = append(out, p)
+		}
+		return nil
+	})
+	return out
 }
 
 // useChapters は設定 chapters をオンにし、チャプターの取得元を results を返す偽のものにする。ログは buf にも書く。
@@ -245,13 +380,27 @@ func newChapterWaitEnv(t *testing.T) (*env, *chapterFetcher, domain.Job) {
 }
 
 // 最初の試行でチャプターが 404 だった放送回は、チャプター無しで保存された後、待っている放送回のチャプターの API だけを 30 分おきに
-// 引き、できた時点のチャプターの取り直しでファイルにチャプターが入る。取り直しは radiko から取り直して前の保存先を
-// 上書きし、通知しない。
-func TestChapterRefetchAddsChapters(t *testing.T) {
+// 引き、できた時点のチャプターの取り直しで、保存したファイルにチャプターが書き込まれる（ADR 0033）。radiko から音声は取らず、
+// 試行も起こさない（ジョブは done のまま、試行は増えない）。書き込みは保存した放送回の全部のチャプターを取り直し、連結した
+// ファイルの 2 つ目のパートのチャプターは、保存のときに DB に残したパートの長さでずらす。置き換えたら再スキャンを頼み、
+// 書き込みの履歴に 1 行残す。通知はしない。
+func TestChapterRefetchWritesSavedFile(t *testing.T) {
 	e, f, j := newChapterWaitEnv(t)
+	r := &fakeRescanner{}
+	e.app.Rescanner = r
 	prev := j.OutputPath
+	before, err := os.ReadFile(prev)
+	if err != nil {
+		t.Fatal(err)
+	}
 	kinds := e.kinds()
 	calls := f.count()
+	attempts := len(e.attempts(j.ID))
+	// 保存のときに、パート（放送回）ごとの長さを DB に残している。
+	lengths, err := e.store.PartLengths(e.ctx, j.ID)
+	if err != nil || len(lengths) != 2 || lengths[airingOf(flat1).Key()] <= 0 || lengths[airingOf(flat2).Key()] <= 0 {
+		t.Fatalf("PartLengths = %v, %v", lengths, err)
+	}
 
 	// 引く時刻の前は引かない。
 	e.clock.Set(afterBroadcast.Add(29 * time.Minute))
@@ -271,26 +420,76 @@ func TestChapterRefetchAddsChapters(t *testing.T) {
 		t.Fatalf("待ち続ける: %+v", got)
 	}
 
-	// チャプターができた。次に引く時刻に、チャプターの取り直しの試行を起こして録り直す。
+	// チャプターができた。次に引く時刻に、保存した放送回のチャプターを取り直して、保存したファイルに書き込む（試行は起こさない）。
 	f.set(flat1.start, &chapterResult{chapters: []radiko.Chapter{{From: 0, TitleLong: "前半"}}})
 	e.clock.Set(afterBroadcast.Add(time.Hour))
-	if !e.runDue() {
-		t.Fatal("チャプターの取り直しが実行されない")
+	if e.runDue() {
+		t.Fatal("チャプターの取り直しで試行を起こした")
+	}
+	if want := []string{"TBS 20261007 0830", "TBS 20261007 0830", "TBS 20261007 1000"}; !slices.Equal(f.calls[calls+1:], want) {
+		t.Errorf("calls = %q, want %q", f.calls[calls+1:], want)
 	}
 	got := e.job(flatShow.Name)
-	if got.State != domain.StateDone || got.Chapters != domain.ChaptersAdded || got.ChapterRefetch || got.OutputPath != prev ||
-		!got.ChapterCheckAt.IsZero() || len(got.ChapterWaits) != 0 {
+	if got.State != domain.StateDone || got.Chapters != domain.ChaptersAdded || got.OutputPath != prev ||
+		!got.ChapterCheckAt.IsZero() || len(got.ChapterWaits) != 0 || got.Attempts != j.Attempts {
 		t.Fatalf("取り直しの後: %+v", got)
 	}
-	if n := e.fake.playlistCount(flat1.start); n != 2 {
-		t.Errorf("flat1 の入手の回数 = %d, want 2（取り直す）", n)
+	if n := len(e.attempts(j.ID)); n != attempts {
+		t.Errorf("試行の数 = %d, want %d（増えない）", n, attempts)
 	}
+	if n := e.fake.playlistCount(flat1.start); n != 1 {
+		t.Errorf("flat1 の入手の回数 = %d, want 1（音声は取り直さない）", n)
+	}
+	w := e.lastWrite()
 	want := []media.Chapter{{Input: 0, Start: 0, Title: "前半"}, {Input: 1, Start: 0, Title: "後半"}}
-	if last := e.media.chapters[len(e.media.chapters)-1]; !slices.Equal(last, want) {
-		t.Errorf("chapters = %+v, want %+v", last, want)
+	wantParts := []time.Duration{lengths[airingOf(flat1).Key()], lengths[airingOf(flat2).Key()]}
+	if w.in != prev || !slices.Equal(w.chapters, want) || !slices.Equal(w.parts, wantParts) {
+		t.Errorf("WriteChapters = %+v, want chapters %+v parts %v", w, want, wantParts)
+	}
+	after, err := os.ReadFile(prev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(fakeAudio(after), before) || !strings.HasSuffix(string(after), fakeChapterMark+"前半|後半") {
+		t.Errorf("保存したファイル = %q", after)
+	}
+	if p := partials(t, e.app.Library); len(p) != 0 {
+		t.Errorf("partial が残った: %q", p)
+	}
+	ws := e.chapterWrites(j.ID)
+	if len(ws) != 1 || ws[0].By != domain.ChapterWriteByRefetch || ws[0].Result != domain.ChapterWritten || ws[0].Count != 2 ||
+		!ws[0].At.Equal(afterBroadcast.Add(time.Hour)) {
+		t.Errorf("書き込みの履歴 = %+v", ws)
+	}
+	if r.calls != 1 {
+		t.Errorf("再スキャンの回数 = %d, want 1", r.calls)
 	}
 	if after := e.kinds(); !slices.Equal(after, kinds) {
 		t.Errorf("チャプターの取り直しで通知した: %v → %v", kinds, after)
+	}
+	// 書き込んだ後は、もう取りに行かない。
+	n := f.count()
+	e.clock.Set(afterBroadcast.Add(3 * time.Hour))
+	if e.runDue() || f.count() != n {
+		t.Errorf("書き込んだ後に取りに行った: %q", f.calls[n:])
+	}
+}
+
+// パートの長さが DB に残っていない（この決定より前に保存した）連結したファイルでは、2 つ目のパートのチャプターを、番組表の
+// 放送時間（終了 − 開始）でずらす（ADR 0033）。
+func TestChapterRefetchGuidePartsWithoutLengths(t *testing.T) {
+	e, f, j := newChapterWaitEnv(t)
+	if err := e.store.SetPartLengths(e.ctx, j.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	f.set(flat1.start, &chapterResult{chapters: []radiko.Chapter{{From: 0, TitleLong: "前半"}}})
+	e.clock.Set(afterBroadcast.Add(30 * time.Minute))
+	e.runDue()
+	if want := []time.Duration{flat1.end.Sub(flat1.start), flat2.end.Sub(flat2.start)}; !slices.Equal(e.lastWrite().parts, want) {
+		t.Errorf("parts = %v, want %v", e.lastWrite().parts, want)
+	}
+	if got := e.job(flatShow.Name); got.Chapters != domain.ChaptersAdded {
+		t.Errorf("job = %+v", got)
 	}
 }
 
@@ -333,8 +532,8 @@ func TestChapterWaitGivesUpAtCutoff(t *testing.T) {
 	}
 }
 
-// 打ち切りの時点で一部の放送回だけ取れるようになっていれば、そのとき 1 回だけチャプターの取り直しを起こす。取り直しの保存は
-// 打ち切りを過ぎているので待たず、入らなかったにする（一部だけ入った）。
+// 打ち切りの時点で一部の放送回だけ取れるようになっていれば、そのとき 1 回だけ、取れた分を保存したファイルに書き込む。一部だけ
+// 入ったので、入らなかったにする。試行は起こさない。
 func TestChapterRefetchPartialAtCutoff(t *testing.T) {
 	e := newFlowEnv(t)
 	e.store.DeleteShow(e.ctx, suppinShow.Name)
@@ -347,28 +546,30 @@ func TestChapterRefetchPartialAtCutoff(t *testing.T) {
 	}
 	f.set(flat2.start, &chapterResult{chapters: []radiko.Chapter{{From: 0, TitleLong: "後半"}}})
 	cutoff := flat2.end.Add(6 * time.Hour)
-	refetched := 0
 	for now := afterBroadcast.Add(30 * time.Minute); !now.After(cutoff); now = now.Add(30 * time.Minute) {
 		if now.Add(30 * time.Minute).After(cutoff) {
 			now = cutoff
 		}
 		e.clock.Set(now)
 		if e.runDue() {
-			refetched++
-			if !now.Equal(cutoff) {
-				t.Errorf("打ち切りの前（%v）に取り直した", now)
-			}
+			t.Fatalf("%v に試行した", now)
+		}
+		if n := e.writeCount(); n > 0 && !now.Equal(cutoff) {
+			t.Fatalf("打ち切りの前（%v）に書き込んだ", now)
 		}
 	}
-	if refetched != 1 {
-		t.Fatalf("取り直しの回数 = %d, want 1", refetched)
+	if n := e.writeCount(); n != 1 {
+		t.Fatalf("書き込みの回数 = %d, want 1", n)
 	}
 	got := e.job(flatShow.Name)
-	if got.State != domain.StateDone || got.Chapters != domain.ChaptersNotAdded || !got.ChapterCheckAt.IsZero() {
-		t.Fatalf("取り直しの後: %+v", got)
+	if got.State != domain.StateDone || got.Chapters != domain.ChaptersNotAdded || !got.ChapterCheckAt.IsZero() || got.Attempts != 1 {
+		t.Fatalf("書き込んだ後: %+v", got)
 	}
-	if want := []media.Chapter{{Input: 1, Start: 0, Title: "後半"}}; !slices.Equal(e.media.chapters[len(e.media.chapters)-1], want) {
-		t.Errorf("chapters = %+v", e.media.chapters)
+	if want := []media.Chapter{{Input: 1, Start: 0, Title: "後半"}}; !slices.Equal(e.lastWrite().chapters, want) {
+		t.Errorf("chapters = %+v", e.lastWrite().chapters)
+	}
+	if ws := e.chapterWrites(got.ID); len(ws) != 1 || ws[0].Result != domain.ChapterWritten || ws[0].Count != 1 {
+		t.Errorf("書き込みの履歴 = %+v", ws)
 	}
 }
 
@@ -402,79 +603,117 @@ func TestChaptersNoWaitWhenEmptyOrNoEvent(t *testing.T) {
 	}
 }
 
-// チャプターの取り直しで起こした試行が録れなければ（恒久的に取れない）、録音できなかったにせず録音済みに戻し、前のファイル・
-// 保存先・欠落の印を前のまま残す。通知はしない。
-func TestChapterRefetchFailureRevertsToDone(t *testing.T) {
-	e, f, j := newChapterWaitEnv(t)
-	prev := j.OutputPath
-	before, err := os.ReadFile(prev)
-	if err != nil {
-		t.Fatal(err)
+// 書き込めないとき（音声のサンプルが元と一致しない・書き込みが失敗する・保存先にファイルが無い）は、元のファイルをそのまま残し、
+// partial を残さない。ジョブは done のまま入らなかったにし、書き込みの履歴に失敗と理由を残す。通知はしない。音声のサンプルが
+// 一致しなかったときは、ログに Error で出す。再スキャンは頼まない（ADR 0033）。
+func TestChapterRefetchWriteFailureKeepsFile(t *testing.T) {
+	tests := []struct {
+		name   string
+		setup  func(e *env, j domain.Job)
+		reason string
+		level  string
+	}{
+		{"音声のサンプルが元と一致しない", func(e *env, j domain.Job) { e.media.chapterWriter().corrupt = true }, "audio samples differ", "level=ERROR"},
+		{"書き込みが失敗する", func(e *env, j domain.Job) { e.media.chapterWriter().writeErr = errors.New("書けない") }, "書けない", "level=WARN"},
+		{"保存先にファイルが無い", func(e *env, j domain.Job) {
+			if err := os.Remove(j.OutputPath); err != nil {
+				e.t.Fatal(err)
+			}
+		}, "保存先にファイルが無い", "level=WARN"},
 	}
-	kinds := e.kinds()
-	f.set(flat1.start, &chapterResult{chapters: []radiko.Chapter{{From: 0, TitleLong: "前半"}}})
-	e.fake.set(func(f *fakeRadiko) { f.noTimefree = true })
-	e.clock.Set(afterBroadcast.Add(30 * time.Minute))
-	if !e.runDue() {
-		t.Fatal("チャプターの取り直しが実行されない")
-	}
-	got := e.job(flatShow.Name)
-	if got.State != domain.StateDone || got.OutputPath != prev || len(got.Missing) != 0 || got.ChapterRefetch ||
-		got.Chapters != domain.ChaptersNotAdded {
-		t.Fatalf("録れなかった取り直しの後: %+v", got)
-	}
-	if after, err := os.ReadFile(prev); err != nil || string(after) != string(before) {
-		t.Errorf("前のファイルが変わった: %v", err)
-	}
-	if after := e.kinds(); !slices.Equal(after, kinds) {
-		t.Errorf("通知した: %v → %v", kinds, after)
-	}
-	// 録音済みに戻した後は、もう取りに行かない。
-	n := f.count()
-	e.clock.Set(afterBroadcast.Add(2 * time.Hour))
-	if e.runDue() || f.count() != n {
-		t.Errorf("戻した後に取りに行った: %q", f.calls[n:])
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, f, j := newChapterWaitEnv(t)
+			var buf lockedBuffer
+			e.app.Log = slog.New(slog.NewTextHandler(&buf, nil))
+			r := &fakeRescanner{}
+			e.app.Rescanner = r
+			kinds := e.kinds()
+			tt.setup(e, j)
+			before, _ := os.ReadFile(j.OutputPath) // 保存先にファイルが無いときは nil
+			f.set(flat1.start, &chapterResult{chapters: []radiko.Chapter{{From: 0, TitleLong: "前半"}}})
+			e.clock.Set(afterBroadcast.Add(30 * time.Minute))
+			if e.runDue() {
+				t.Fatal("試行を起こした")
+			}
+			got := e.job(flatShow.Name)
+			if got.State != domain.StateDone || got.OutputPath != j.OutputPath || got.Chapters != domain.ChaptersNotAdded ||
+				!got.ChapterCheckAt.IsZero() || len(got.ChapterWaits) != 0 || got.Attempts != j.Attempts {
+				t.Fatalf("書き込めなかった後: %+v", got)
+			}
+			after, err := os.ReadFile(j.OutputPath)
+			if before != nil && (err != nil || !bytes.Equal(after, before)) {
+				t.Errorf("元のファイルが変わった: %v", err)
+			}
+			if before == nil && err == nil {
+				t.Error("無かった保存先にファイルができた")
+			}
+			if p := partials(t, e.app.Library); len(p) != 0 {
+				t.Errorf("partial が残った: %q", p)
+			}
+			ws := e.chapterWrites(j.ID)
+			if len(ws) != 1 || ws[0].Result != domain.ChapterWriteFailed || !strings.Contains(ws[0].Error, tt.reason) {
+				t.Errorf("書き込みの履歴 = %+v", ws)
+			}
+			line := ""
+			for _, l := range strings.Split(buf.String(), "\n") {
+				if strings.Contains(l, "元のファイルを残す") {
+					line = l
+				}
+			}
+			if !strings.Contains(line, tt.level) {
+				t.Errorf("ログの行に %s が無い: %q", tt.level, line)
+			}
+			if r.calls != 0 {
+				t.Errorf("再スキャンを頼んだ: %d", r.calls)
+			}
+			if after := e.kinds(); !slices.Equal(after, kinds) {
+				t.Errorf("通知した: %v → %v", kinds, after)
+			}
+		})
 	}
 }
 
-// チャプターの取り直しで起こした試行が、録音期限の時点で一部の放送回しか取れていなくても、録音済みに戻して前のファイル・保存先・
-// 欠落の印を残す（人が頼んだ録り直しなら録音できなかったにするところ。TestRerecordPartialAtDeadlineKeepsPrev）。再試行の間も、
-// 期限間近・欠落ありを含めて通知しない。
-func TestChapterRefetchPartialAtDeadlineRevertsToDone(t *testing.T) {
+// 書き込もうとしたときにチャプターを 1 つも取れなければ（できたはずのものが取れなくなった）、ファイルは書かず、取れなかったので
+// 書かなかったと履歴に残し、入らなかったにする。
+func TestChapterRefetchNotFetched(t *testing.T) {
 	e, f, j := newChapterWaitEnv(t)
-	prev := j.OutputPath
-	before, err := os.ReadFile(prev)
-	if err != nil {
-		t.Fatal(err)
-	}
-	kinds := e.kinds()
 	f.set(flat1.start, &chapterResult{chapters: []radiko.Chapter{{From: 0, TitleLong: "前半"}}})
-	e.fake.set(func(f *fakeRadiko) { f.failSeek[flat2.start.Format(radikoTime)] = true })
+	// 引いたときは取れ、書き込む前に取ると取れない。
+	e.app.Fetcher = &flakyChapters{chapterFetcher: f, okCalls: 1}
+	before, _ := os.ReadFile(j.OutputPath)
 	e.clock.Set(afterBroadcast.Add(30 * time.Minute))
-	if !e.runDue() {
-		t.Fatal("チャプターの取り直しが実行されない")
+	e.runDue()
+	if n := e.writeCount(); n != 0 {
+		t.Errorf("WriteChapters が呼ばれた: %d", n)
 	}
-	if got := e.job(flatShow.Name); got.State != domain.StateRetrying || !got.ChapterRefetch {
-		t.Fatalf("1 回目の試行の後: %+v", got)
+	if after, _ := os.ReadFile(j.OutputPath); !bytes.Equal(after, before) {
+		t.Error("ファイルが変わった")
 	}
-	e.clock.Set(j.Deadline.Add(-time.Hour))
-	if err := e.app.CheckNotifications(e.ctx); err != nil {
-		t.Fatal(err)
+	if got := e.job(flatShow.Name); got.State != domain.StateDone || got.Chapters != domain.ChaptersNotAdded {
+		t.Errorf("job = %+v", got)
 	}
-	e.clock.Set(j.Deadline)
-	for e.runDue() {
+	if ws := e.chapterWrites(j.ID); len(ws) != 1 || ws[0].Result != domain.ChapterNotFetched {
+		t.Errorf("書き込みの履歴 = %+v", ws)
 	}
-	got := e.job(flatShow.Name)
-	if got.State != domain.StateDone || got.OutputPath != prev || len(got.Missing) != 0 || got.ChapterRefetch ||
-		got.Chapters != domain.ChaptersNotAdded {
-		t.Fatalf("録音期限の後: %+v", got)
+}
+
+// flakyChapters は、最初の okCalls 回だけ chapterFetcher のとおりに返し、その後は全部 404 にする Fetcher。
+type flakyChapters struct {
+	*chapterFetcher
+	mu      sync.Mutex
+	okCalls int
+}
+
+func (f *flakyChapters) Chapters(ctx context.Context, stationID string, day, start time.Time) ([]radiko.Chapter, error) {
+	f.mu.Lock()
+	ok := f.okCalls > 0
+	f.okCalls--
+	f.mu.Unlock()
+	if ok {
+		return f.chapterFetcher.Chapters(ctx, stationID, day, start)
 	}
-	if after, err := os.ReadFile(prev); err != nil || string(after) != string(before) {
-		t.Errorf("前のファイルが変わった: %v", err)
-	}
-	if after := e.kinds(); !slices.Equal(after, kinds) {
-		t.Errorf("通知した: %v → %v", kinds, after)
-	}
+	return nil, fmt.Errorf("%w: test", radiko.ErrNoChapters)
 }
 
 // 待っている間に人が録り直したら待ちが消え（入らなかったにする）、その保存でまた取れなければ待ち直す。人が頼んだ録り直しは
@@ -487,7 +726,7 @@ func TestChapterWaitClearedByRerecord(t *testing.T) {
 	if err := e.store.Rerecord(e.ctx, j.ID, domain.MembershipFree, now); err != nil {
 		t.Fatal(err)
 	}
-	if got := e.job(flatShow.Name); got.Chapters != domain.ChaptersNotAdded || !got.ChapterCheckAt.IsZero() || len(got.ChapterWaits) != 0 || got.ChapterRefetch {
+	if got := e.job(flatShow.Name); got.Chapters != domain.ChaptersNotAdded || !got.ChapterCheckAt.IsZero() || len(got.ChapterWaits) != 0 {
 		t.Fatalf("録り直しを受け付けた後: %+v", got)
 	}
 	n := f.count()

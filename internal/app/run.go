@@ -63,6 +63,9 @@ type saved struct {
 	// いなければ chapterFetch は nil（domain.ChaptersAfterSave で値なしになる）。
 	chapterAirings []domain.Airing
 	chapterFetch   []domain.ChapterFetch
+	// partLengths は、連結したファイル（放送回が 2 つ以上）のパートごとのファイルの中の長さ（Airing.Key → 長さ）。保存の後に
+	// DB に残し、チャプターの取り直しで 2 つ目以降のパートのチャプターをずらすのに使う（ADR 0033）。測れなければ nil。
+	partLengths map[string]time.Duration
 }
 
 // chapterStatus は、保存の結果 res からジョブ job のチャプターの値を決める（保存のたびに決め直す。ADR 0027）。
@@ -99,14 +102,10 @@ func (a *App) runJob(ctx context.Context, cur live, job domain.Job) error {
 		if err := a.Store.Complete(ctx, job.ID, res.path, nil, a.chapterStatus(log, job, res)); err != nil {
 			return err
 		}
+		a.storePartLengths(ctx, log, job, res)
 		a.markSaved(ctx, log)
-		if job.ChapterRefetch {
-			// チャプターの取り直しは通知しない（録音の結果は 1 回目の通知で伝わっている。ADR 0027）。
-			log.Info("チャプターの取り直しで保存した", "path", res.path, "length", res.probe)
-		} else {
-			log.Info("保存した", "path", res.path, "length", res.probe)
-			a.notifyRecorded(ctx, log, job, res.probe, "")
-		}
+		log.Info("保存した", "path", res.path, "length", res.probe)
+		a.notifyRecorded(ctx, log, job, res.probe, "")
 		a.removeDoneOnces(ctx, log, job)
 		a.removeJobDir(log, job.ID)
 		a.rescan(cancelable, cur, log)
@@ -145,8 +144,7 @@ func (a *App) runJob(ctx context.Context, cur live, job domain.Job) error {
 	}
 	if fetched, _ := a.fetchedAirings(job); fetched > 0 {
 		// 取れた分を捨てずに、録音期限を過ぎてから扱いを決める（finishAtDeadline。取れた分を保存するが、録り直しの試行で
-		// 一部しか取れていなければ保存せずに期限切れにする。ADR 0025。チャプターの取り直しの試行なら、期限切れにせずに done に戻す
-		// （expire。ADR 0027））。
+		// 一部しか取れていなければ保存せずに期限切れにする。ADR 0025）。
 		log.Info("次の試行が無いので、録音期限を過ぎてから取れた分の扱いを決める", "next", job.Deadline)
 		return a.Store.Retry(ctx, job.ID, job.Deadline)
 	}
@@ -192,18 +190,8 @@ func (a *App) discardFetched(log *slog.Logger, job domain.Job) {
 }
 
 // expire はジョブを expired にし、作業用フォルダを消して通知する。cause は直近のエラー（通知の本文に入れる）。
-// ただし、チャプターの取り直しで起こした試行（domain.Job.ChapterRefetch）は、expired にせず done に戻し（前のファイル・保存先・
-// 欠落の印は前のまま）、通知しない（ADR 0027）。
 // 足したら直す: ジョブの状態の移り方
 func (a *App) expire(ctx context.Context, log *slog.Logger, job domain.Job, cause string) error {
-	if job.ChapterRefetch {
-		if err := a.Store.RevertChapterRefetch(ctx, job.ID); err != nil {
-			return err
-		}
-		a.removeJobDir(log, job.ID)
-		log.Warn("チャプターの取り直しで録れなかったので、前のファイルを残して録音済みに戻す", "path", job.OutputPath, "cause", cause)
-		return nil
-	}
 	if err := a.Store.Expire(ctx, job.ID); err != nil {
 		return err
 	}
@@ -509,6 +497,7 @@ func (a *App) save(ctx context.Context, cur live, log *slog.Logger, job domain.J
 	if err != nil {
 		return res, failAt(stage, err)
 	}
+	res.partLengths = a.partLengths(ctx, cur, log, airings, files)
 	switch {
 	case r.Replaced:
 		log.Info("前の保存先を上書きした（録り直し）", "path", r.Path)
@@ -538,6 +527,49 @@ type ChapterRemuxer interface {
 	RemuxWithChapters(ctx context.Context, inputs []string, out string, tags media.Tags, cover string, chapters []media.Chapter) error
 }
 
+// ChapterWriter は、保存した m4a へのチャプターの書き込み（ADR 0033）。*media.Tools と media.Builtin が満たす（設定 muxer に従う）。
+// Media がこれを満たさなければ、パートの長さを残さず、チャプターの取り直しは書き込めない（失敗として履歴に残す）。
+type ChapterWriter interface {
+	// InputLengths は、格納の入力（ADTS）ごとの、ファイルの中の長さ（media.Builtin.InputLengths）。
+	InputLengths(ctx context.Context, inputs []string) ([]time.Duration, error)
+	// WriteChapters は、保存した m4a in のチャプターを chapters に置き換えたものを out に書き、置いた件数を返す。parts は
+	// パートの長さ（media.Builtin.WriteChapters）。
+	WriteChapters(ctx context.Context, in, out string, chapters []media.Chapter, parts []time.Duration) (int, error)
+	// SameAudio は、m4a a と b の音声のサンプルが数とバイト列で同じか（違えば media.ErrAudioMismatch を包む）。
+	SameAudio(ctx context.Context, a, b string) error
+}
+
+// partLengths は、連結したファイル（files が 2 つ以上）を保存したとき、パート（airings の並び）ごとのファイルの中の長さを測る
+// （ADR 0033）。放送回が 1 つなら空（ずらさないので要らない）。測れなければ Warn を出して nil（チャプターの取り直しでは番組表の
+// 放送時間で代える。保存は失敗にしない）。
+func (a *App) partLengths(ctx context.Context, cur live, log *slog.Logger, airings []domain.Airing, files []string) map[string]time.Duration {
+	if len(files) < 2 {
+		return map[string]time.Duration{}
+	}
+	cw, ok := cur.media.(ChapterWriter)
+	if !ok {
+		return nil
+	}
+	ds, err := cw.InputLengths(ctx, files)
+	if err != nil || len(ds) != len(airings) {
+		log.Warn("連結したファイルのパートの長さを測れない（チャプターの取り直しでは番組表の放送時間でずらす）", "err", err)
+		return nil
+	}
+	out := make(map[string]time.Duration, len(airings))
+	for i, ar := range airings {
+		out[ar.Key()] = ds[i]
+	}
+	return out
+}
+
+// storePartLengths は、保存した res のパートの長さを DB に残す（保存のたびに置き換える。ADR 0033）。測れなかった（nil）なら
+// 前の値を消す。残せなくても Warn だけ（チャプターの取り直しでは番組表の放送時間で代える）。
+func (a *App) storePartLengths(ctx context.Context, log *slog.Logger, job domain.Job, res saved) {
+	if err := a.Store.SetPartLengths(ctx, job.ID, res.partLengths); err != nil {
+		log.Warn("連結したファイルのパートの長さを DB に残せない（チャプターの取り直しでは番組表の放送時間でずらす）", "err", err)
+	}
+}
+
 // fetchChapters は、保存する放送回 airings（Remux の inputs と同じ並び）ごとにチャプターを取り、ファイルに入れる形にする（ADR 0027）。
 // 時刻は放送回ごとの開始から数えたまま渡し、ファイルの中の位置（前の放送回の長さの合計だけずらす）とファイルの長さでの
 // 切り詰めは media が入力の長さから決める。保存の試行のたびに取り直す。あわせて、放送回ごとの取った結果（airings の並び）を
@@ -545,7 +577,8 @@ type ChapterRemuxer interface {
 //
 // 取れない放送回（404 で、まだ無いか局に無い・空・eventId が無い・通信の失敗や読めない応答。chapterFetchOf）は、その放送回の分だけ
 // チャプター無しにし、Info で局・放送回の開始時刻・理由を出す（ジョブは log が持つ）。試行は失敗にせず、再試行も通知もしない
-// （404 と通信の失敗・読めない応答なら、保存の後にチャプターの取り直しを待つ）。
+// （404 と通信の失敗・読めない応答なら、保存の後にチャプターの取り直しを待つ）。チャプターの取り直しで保存したファイルに書き込む
+// ときも、保存した放送回の並びで取り直す（writeChapters）。
 func (a *App) fetchChapters(ctx context.Context, log *slog.Logger, airings []domain.Airing) ([]media.Chapter, []domain.ChapterFetch) {
 	src, ok := a.Fetcher.(ChapterSource)
 	if !ok {
@@ -575,8 +608,9 @@ func (a *App) fetchChapters(ctx context.Context, log *slog.Logger, airings []dom
 
 // checkChapters は、チャプターを待っている done のジョブ（domain.ChaptersWaiting）のうち、次にチャプターの API を引く時刻を
 // 過ぎたものについて、待っている放送回のチャプターの API だけを引く（音声は取らない。ADR 0027）。タイムフリーの録音のループ
-// （RunDue）が、ジョブを拾う前に呼ぶ。引いた結果で、待ち続けるか、チャプターの取り直しの試行を起こすか（domain.CheckChapters）、
-// 待つのをやめて入らなかったにするかを決める。設定 chapters がオフなら、引かずに待ちを消す（入らなかったにする）。
+// （RunDue）が、ジョブを拾う前に呼ぶ。引いた結果で、待ち続けるか、チャプターの取り直しで保存したファイルにチャプターを書き込むか
+// （domain.CheckChapters。書き込みは writeChapters。試行は起こさず、ジョブは done のまま。ADR 0033）、待つのをやめて入らなかったに
+// するかを決める。設定 chapters がオフなら、引かずに待ちを消す（入らなかったにする）。
 // どれも通知しない（打ち切りはログに 1 行）。1 件のジョブで DB に書けなければ、エラーを返す（残りは次の見回りで引く）。
 // 足したら直す: ジョブの状態の移り方
 func (a *App) checkChapters(ctx context.Context, cur live) error {
@@ -616,13 +650,10 @@ func (a *App) checkChapters(ctx context.Context, cur live) error {
 		}
 		now := a.now()
 		switch next, ch := domain.CheckChapters(job, results, now); next {
-		case domain.ChapterRefetchNow:
-			started, err := a.Store.StartChapterRefetch(ctx, job.ID, now)
-			if err != nil {
+		case domain.ChapterWriteNow:
+			log.Info("チャプターができたので、チャプターの取り直しで保存したファイルに書き込む")
+			if err := a.writeChapters(ctx, cur, log, job, domain.ChapterWriteByRefetch); err != nil {
 				return err
-			}
-			if started {
-				log.Info("チャプターができたので、チャプターの取り直しで録り直す")
 			}
 		case domain.ChapterGiveUp:
 			if _, err := a.Store.UpdateChapterWait(ctx, job.ID, ch); err != nil {
@@ -636,6 +667,92 @@ func (a *App) checkChapters(ctx context.Context, cur live) error {
 		}
 	}
 	return nil
+}
+
+// writeChapters は、done のジョブ job の保存したファイルに、保存した放送回（欠落を除く）のチャプターを radiko から取って書き込む
+// （チャプターの取り直し・チャプターの入れ直し。用語集。ADR 0033）。by は誰が起こしたか。音声は取り直さず、試行も起こさない（状態・
+// 試行回数・欠落の印・保存先は変えない）。録音のループだけが呼ぶ（保存先のファイルを書く者を 1 つに保つ）。
+//
+//   - 1 つも取れなければ書かない（取れなかったので書かなかった）。一部だけ取れたら、取れた分を書く。
+//   - 書き込みは rewriteChapters（同じフォルダの partial に書き、音声のサンプルが元と一致することを確かめてから置き換える。
+//     どこかで失敗したら partial を消して元のファイルを残す。保存先にファイルが無ければ書かない）。
+//   - 置き換えたら、保存のときと同じくライブラリの再スキャンを頼む（rescan）。
+//   - チャプターの値は ADR 0027 の決まりで付け直す（全部取れて書き込めたら入った、それ以外は入らなかった。書き込めなかったときは、
+//     前の値が待っているなら入らなかった、そうでなければ前のまま（ファイルは前のまま））。待ちは消す。
+//   - 結果は、チャプターの書き込みの履歴に 1 行残す（Store.FinishChapterWrite）。通知はしない（書き込めなくても元のファイルが残る）。
+//     音声のサンプルが元と一致しなかったときは Error、ほかの失敗は Warn でログに出す。
+//
+// DB に書けなければエラーを返す（書き込みの失敗はエラーにしない）。
+// 足したら直す: 保存の後の処理
+func (a *App) writeChapters(ctx context.Context, cur live, log *slog.Logger, job domain.Job, by domain.ChapterWriteBy) error {
+	airings := job.SavedAirings()
+	chapters, fetched := a.fetchChapters(ctx, log, airings)
+	if ctx.Err() != nil {
+		return nil
+	}
+	w := domain.ChapterWrite{JobID: job.ID, By: by}
+	ch := domain.ChaptersAfterWrite(fetched)
+	written := false
+	if len(chapters) == 0 {
+		w.Result = domain.ChapterNotFetched
+		log.Info("チャプターを取れなかったので、保存したファイルに書き込まない", "path", job.OutputPath)
+	} else if n, err := a.rewriteChapters(ctx, cur, log, job, airings, chapters); err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		w.Result, w.Error = domain.ChapterWriteFailed, err.Error()
+		if job.Chapters != domain.ChaptersWaiting {
+			ch = job.Chapters
+		} else {
+			ch = domain.ChaptersNotAdded
+		}
+		if errors.Is(err, media.ErrAudioMismatch) {
+			log.Error("チャプターを書き込んだファイルの音声が元と一致しないので、元のファイルを残す", "path", job.OutputPath, "err", err)
+		} else {
+			log.Warn("保存したファイルにチャプターを書き込めないので、元のファイルを残す", "path", job.OutputPath, "err", err)
+		}
+	} else {
+		w.Result, w.Count, written = domain.ChapterWritten, n, true
+		log.Info("保存したファイルにチャプターを書き込んだ", "path", job.OutputPath, "count", n, "chapters", ch)
+	}
+	w.At = a.now()
+	if _, err := a.Store.FinishChapterWrite(context.WithoutCancel(ctx), w, ch); err != nil {
+		return err
+	}
+	if written {
+		a.rescan(ctx, cur, log)
+	}
+	return nil
+}
+
+// rewriteChapters は、job の保存したファイルのチャプターを chapters（Input は airings の並びの番号）に置き換え、置いた件数を返す
+// （library.Rewrite。ADR 0033）。パートの長さは、保存のときに DB に残したもの（無ければ番組表の放送時間。domain.ChapterParts）。
+// 書いた partial の音声のサンプルが元と一致しなければ、置き換えずに media.ErrAudioMismatch を包んだエラーにする。
+func (a *App) rewriteChapters(ctx context.Context, cur live, log *slog.Logger, job domain.Job, airings []domain.Airing, chapters []media.Chapter) (int, error) {
+	if job.OutputPath == "" {
+		return 0, library.ErrNoFile
+	}
+	cw, ok := cur.media.(ChapterWriter)
+	if !ok {
+		return 0, errors.New("設定 muxer の格納が、保存したファイルへのチャプターの書き込みに対応していない")
+	}
+	lengths, err := a.Store.PartLengths(ctx, job.ID)
+	if err != nil {
+		return 0, fmt.Errorf("パートの長さを読めない: %w", err)
+	}
+	parts := domain.ChapterParts(airings, lengths)
+	if len(airings) > 1 && len(lengths) == 0 {
+		log.Info("パートの長さが残っていないので、番組表の放送時間でチャプターをずらす")
+	}
+	var n int
+	err = library.Rewrite(job.OutputPath, func(partial string) error {
+		var err error
+		if n, err = cw.WriteChapters(ctx, job.OutputPath, partial, chapters, parts); err != nil {
+			return err
+		}
+		return cw.SameAudio(ctx, job.OutputPath, partial)
+	})
+	return n, err
 }
 
 // chaptersOf は、放送回 ar のチャプターを src から取る。
@@ -701,8 +818,7 @@ func (a *App) fetchCover(ctx context.Context, log *slog.Logger, job domain.Job, 
 // finishAtDeadline は録音期限を過ぎたジョブを、入手せずに片付ける。
 // 一部でも取れていれば取れた分を保存して done にし、欠落を記録する。何も取れていなければ expired にする。
 // ただし録り直しの試行（前の保存先がある）は、一部しか取れていなければ取れた分を保存せずに expired にし、前のファイル・保存先・
-// 欠落の印を前のまま残す（全部取れていれば保存する。ADR 0025）。チャプターの取り直しの試行は、expired にするところで done に
-// 戻す（expire。ADR 0027）。
+// 欠落の印を前のまま残す（全部取れていれば保存する。ADR 0025）。
 // 局一覧が一度も取れていなくても、局 ID を局名にして保存する（局名が決められないことでは expired にしない）。
 // 足したら直す: ジョブの状態の移り方
 func (a *App) finishAtDeadline(ctx context.Context, cur live, log *slog.Logger, job domain.Job, started time.Time) error {
@@ -722,8 +838,7 @@ func (a *App) finishAtDeadline(ctx context.Context, cur live, log *slog.Logger, 
 	}
 	if verdict == domain.VerdictSavePartial && job.OutputPath != "" {
 		// 録り直しの試行（前の保存先がある）は、一部しか取れていなければ取れた分を保存せずに期限切れにし、前のファイル・保存先・
-		// 欠落の印を前のまま残す（前のファイルを欠落のあるファイルで置き換えない。ADR 0025）。チャプターの取り直しの試行なら、
-		// 期限切れにせずに done に戻す（expire。ADR 0027）。
+		// 欠落の印を前のまま残す（前のファイルを欠落のあるファイルで置き換えない。ADR 0025）。
 		log.Warn("録り直しで録音期限までに一部しか取れなかったので、前のファイルを残して期限切れにする", "fetched", len(job.Airings)-len(missing), "missing", len(missing), "path", job.OutputPath)
 		cause := fmt.Sprintf("録り直しで録音期限までに %d 個の放送回のうち %d 個しか取れなかったので、取れた分を保存せず、前に保存したファイル（%s）を残した", len(job.Airings), len(job.Airings)-len(missing), job.OutputPath)
 		if prev := a.lastError(ctx, job.ID); prev != "" {
@@ -768,12 +883,10 @@ func (a *App) finishAtDeadline(ctx context.Context, cur live, log *slog.Logger, 
 	if err := a.Store.Complete(ctx, job.ID, res.path, missing, a.chapterStatus(log, job, res)); err != nil {
 		return err
 	}
+	a.storePartLengths(ctx, log, job, res)
 	a.markSaved(ctx, log)
 	a.removeDoneOnces(ctx, log, job)
 	switch {
-	case job.ChapterRefetch:
-		// チャプターの取り直しは通知しない（ADR 0027）。一部しか取れていなければ上で録音済みに戻しているので、ここは全部取れたとき。
-		log.Info("チャプターの取り直しで保存した", "path", res.path)
 	case len(missing) > 0:
 		log.Warn("欠落のまま保存した", "path", res.path, "missing", len(missing))
 		a.notifyMissing(ctx, log, job, res.path, missing)

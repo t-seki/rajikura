@@ -4,6 +4,8 @@ import { broadcastRange } from "../guide/format";
 import { notifySuccess } from "../ui/toast";
 import { formatDateTime, formatDuration, progressPercent, progressText, stageLabel } from "./format";
 import {
+  chapterWriteByLabels,
+  chapterWriteResultText,
   chaptersLabels,
   getJob,
   jobAudioError,
@@ -273,6 +275,24 @@ export function JobDetailModal({ id, onClose, onChanged }: Props) {
                 )}
               </Stack>
             ))}
+
+            {(job.chapterWrites ?? []).length > 0 && (
+              <>
+                <Divider label="チャプターの書き込みの履歴" />
+                {(job.chapterWrites ?? []).map((w, i) => (
+                  <Stack key={`${w.at}:${i}`} gap={0} data-testid="chapter-write">
+                    <Text size="sm">
+                      {formatDateTime(w.at)} ・ {chapterWriteByLabels[w.by] ?? w.by} ・ {chapterWriteResultText(w)}
+                    </Text>
+                    {w.error && (
+                      <Text size="xs" c="red" style={{ overflowWrap: "anywhere" }}>
+                        {w.error}
+                      </Text>
+                    )}
+                  </Stack>
+                ))}
+              </>
+            )}
           </>
         )}
       </Stack>

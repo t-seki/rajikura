@@ -118,9 +118,45 @@ export const chaptersLabels: Record<JobChapters, string> = {
   not_added: "入らなかった",
 };
 
+/** チャプターの書き込みを誰が起こしたか（refetch: チャプターの取り直し、redo: チャプターの入れ直し。ADR 0033）。 */
+export type ChapterWriteBy = "refetch" | "redo";
+
+/** チャプターの書き込みの結果（written: 書き込んだ、not_fetched: 取れなかったので書かなかった、failed: 書き込めなかった）。 */
+export type ChapterWriteResult = "written" | "not_fetched" | "failed";
+
+/** チャプターの書き込みの履歴の 1 行（保存したファイルへの書き込みのたびに 1 行。試行の履歴とは別。ADR 0033）。 */
+export interface JobChapterWrite {
+  at: string;
+  by: ChapterWriteBy;
+  result: ChapterWriteResult;
+  /** 書き込んだチャプターの件数（written のときだけ）。 */
+  count: number;
+  /** 書き込めなかった理由（failed のときだけ）。 */
+  error: string;
+}
+
+export const chapterWriteByLabels: Record<ChapterWriteBy, string> = {
+  refetch: "チャプターの取り直し",
+  redo: "チャプターの入れ直し",
+};
+
+/** チャプターの書き込みの履歴の 1 行の結果の文（「12 件を書き込んだ」など）。 */
+export function chapterWriteResultText(w: JobChapterWrite): string {
+  switch (w.result) {
+    case "written":
+      return `${w.count} 件を書き込んだ`;
+    case "not_fetched":
+      return "チャプターを取れなかったので書かなかった";
+    case "failed":
+      return "書き込めなかった（ファイルは前のまま）";
+  }
+}
+
 export interface JobDetail extends JobSummary {
   airings: JobAiring[];
   attemptLog: JobAttempt[];
+  /** チャプターの書き込みの履歴（書き込んだ順）。API は常に配列で返す（この版より前の serve では無い）。 */
+  chapterWrites?: JobChapterWrite[];
   durationSeconds: number;
 }
 

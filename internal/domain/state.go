@@ -42,8 +42,7 @@ func ParseState(s string) (State, error) {
 // transitions は許される遷移。
 //
 //	waiting → running            実行を始めた
-//	running → done               保存まで完了した。またはチャプターの取り直しで起こした試行が録れなかった（次の試行が無い・
-//	                             録音期限を過ぎた。expired にせず、前の保存先のまま done に戻す。ADR 0027）
+//	running → done               保存まで完了した
 //	running → retrying           試行が失敗し、録音期限の内側に次の試行がある／起動時の回復（タイムフリーから録るジョブ）。
 //	                             ライブで録るジョブ（Job.Live）は、入手（録音）の失敗では retrying にせず、保存か検証の段階で
 //	                             失敗したときだけ、保存のやり直しの打ち切り（放送の終了から 24 時間。録音期限を過ぎてもよい）の
@@ -55,8 +54,7 @@ func ParseState(s string) (State, error) {
 //	                             録れた分を作業用フォルダに残している間（LiveKeepUntil の前）は、録音期限を過ぎていてもよい）
 //	skipped → retrying           人が手動で再試行した・「録る」を選んだ（確定した録らなかったのジョブを録らせる）
 //	done → retrying              人が録り直しを選んだ（タイムフリーから録るジョブで、今の会員種別で計算した録音期限
-//	                             （RerecordDeadline）の内側に限る。CheckRerecord。ADR 0031）。または、チャプターを待っていたジョブのチャプターができたので、録音のループが
-//	                             チャプターの取り直しの試行を起こした（ライブで録るジョブでなく、DB の録音期限（Job.Deadline）の内側に限る。CheckRerecordUntil。ADR 0027）
+//	                             （RerecordDeadline）の内側に限る。CheckRerecord。ADR 0031）
 //	waiting → skipped            確定の前の展開が番組名の食い違いで録らないと決めた・最初の試行の時刻を過ぎた展開で
 //	                             録らないと決めた・人が「録らない」を選んだ（試行がまだ 1 度も無いもの）
 //	skipped → waiting            確定の前の展開が、番組名が直ったので録ると決めた・人が確定の前に「録る」を選んだ
@@ -65,6 +63,7 @@ func ParseState(s string) (State, error) {
 // 最初の試行の時刻の前なら録らない予定）。確定した skipped からは、retrying へだけ遷移する。
 //
 // retrying のジョブの手動再試行は状態を変えず、次の試行の時刻と試行回数だけを書き換えるので、遷移表には無い。
+// チャプターの取り直し（保存したファイルへのチャプターの書き込み）は試行を起こさず、done のまま行うので、遷移表には無い（ADR 0033）。
 // 足したら直す: ジョブの状態の移り方
 var transitions = map[State][]State{
 	StateWaiting:  {StateRunning, StateSkipped},

@@ -11,6 +11,8 @@ package media
 //     位置を決める（ffmpeg の +faststart と同じく、moov を mdat の前に置く）
 //  3. ADTS のヘッダーを外したフレームを、mdat に順に書く。チャプターがあれば、チャプタートラックのサンプルをその後ろに書く
 //
+// 保存した m4a を読み、チャプターだけを書き直す部品（WriteChapters。ADR 0033）も、このファイルの後ろの節にある。
+//
 // HE-AAC（SBR）の扱い: ADTS のヘッダーには、コア（AAC-LC）のサンプリング周波数しか書かれていない
 // （radiko は 24 kHz）。AudioSpecificConfig・タイムスケール・サンプルエントリーのサンプルレートは、
 // どれもヘッダーの値のまま（24 kHz、1 フレーム 1024）書き、SBR はデコーダーに見つけさせる
@@ -699,3 +701,760 @@ func writeIlst(bw *boxWriter, t Tags, cover []byte) {
 	pair("trkn", t.Track)
 	pair("disk", t.Disc)
 }
+
+// ---- 保存した m4a を読む部品と、チャプターだけを書き直す WriteChapters（ADR 0033） ----
+//
+// 読めるのは、rajikura が保存した m4a（builtin が書いたものと、muxer が ffmpeg のときに ffmpeg が書いたもの）の箱の並び。
+// 最上位は ftyp・moov・mdat（と free・skip・wide）、moov の trak は音声のトラック（hdlr が soun）1 つと、それが tref/chap で
+// 指すチャプタートラック（hdlr が text）だけ。ほかの並び（別のトラック、chap 以外の tref、知らない最上位の箱）は読まずに
+// エラーにする（書かずに失敗にする）。
+
+// m4aBox は、メモリに読んだ箱 1 つ（ヘッダーを含むバイト列）。
+type m4aBox struct {
+	typ string
+	hdr int
+	b   []byte
+}
+
+func (x m4aBox) payload() []byte { return x.b[x.hdr:] }
+
+// parseBoxes は、p に並ぶ箱を読む（大きさ 1 の 64 ビットの大きさと、大きさ 0 の終わりまでを読む）。
+func parseBoxes(p []byte) ([]m4aBox, error) {
+	var out []m4aBox
+	for len(p) > 0 {
+		if len(p) < 8 {
+			return nil, errors.New("truncated box header")
+		}
+		size := uint64(binary.BigEndian.Uint32(p))
+		typ := string(p[4:8])
+		hdr := 8
+		switch size {
+		case 0:
+			size = uint64(len(p))
+		case 1:
+			if len(p) < 16 {
+				return nil, fmt.Errorf("truncated %q box header", typ)
+			}
+			size, hdr = binary.BigEndian.Uint64(p[8:]), 16
+		}
+		if size < uint64(hdr) || size > uint64(len(p)) {
+			return nil, fmt.Errorf("bad size %d of %q box", size, typ)
+		}
+		out = append(out, m4aBox{typ: typ, hdr: hdr, b: p[:size]})
+		p = p[size:]
+	}
+	return out, nil
+}
+
+// childBoxes は、箱 x の中身を子の箱として読む。
+func childBoxes(x m4aBox) ([]m4aBox, error) {
+	kids, err := parseBoxes(x.payload())
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", x.typ, err)
+	}
+	return kids, nil
+}
+
+// findBox は bs の中の、型 typ の最初の箱を返す。
+func findBox(bs []m4aBox, typ string) (m4aBox, bool) {
+	for _, b := range bs {
+		if b.typ == typ {
+			return b, true
+		}
+	}
+	return m4aBox{}, false
+}
+
+// boxAt は、x から型の並び path をたどった箱を返す（どの段も最初の箱）。
+func boxAt(x m4aBox, path ...string) (m4aBox, error) {
+	for _, typ := range path {
+		kids, err := childBoxes(x)
+		if err != nil {
+			return m4aBox{}, err
+		}
+		var ok bool
+		if x, ok = findBox(kids, typ); !ok {
+			return m4aBox{}, fmt.Errorf("no %s box", typ)
+		}
+	}
+	return x, nil
+}
+
+// makeBox は、型 typ と中身 parts から箱のバイト列を作る（大きさは 32 ビット）。
+func makeBox(typ string, parts ...[]byte) []byte {
+	n := 8
+	for _, p := range parts {
+		n += len(p)
+	}
+	b := make([]byte, 8, n)
+	binary.BigEndian.PutUint32(b, uint32(n))
+	copy(b[4:], typ)
+	for _, p := range parts {
+		b = append(b, p...)
+	}
+	return b
+}
+
+// m4aChunk は、音声のトラックのチャンク 1 つ（ファイルの中の位置と、中のサンプルの大きさの合計）。
+type m4aChunk struct {
+	offset uint64
+	size   uint64
+}
+
+// m4aSound は、音声のトラックの読んだ値。
+type m4aSound struct {
+	timescale uint32
+	// samples は stts の長さの合計（timescale で）。
+	samples uint64
+	sizes   []uint32
+	chunks  []m4aChunk
+	co64    bool
+}
+
+// m4aFile は、読んだ m4a（ftyp と moov のバイト列と、書き直しに要る値）。
+type m4aFile struct {
+	ftyp []byte
+	moov m4aBox
+	// sound は音声のトラック、soundIdx は moov の子の中での位置、chapterIdx はチャプタートラックの位置（無ければ -1）。
+	sound      m4aSound
+	soundIdx   int
+	chapterIdx int
+	// trackIDs は、チャプタートラックを除くトラックの番号。nextTrackID は mvhd の値。
+	trackIDs    []uint32
+	nextTrackID uint32
+	// cover は ilst に covr（カバー画像）があるか。
+	cover bool
+}
+
+// readM4A は f の m4a を読む（この節の冒頭のコメントの箱の並びだけ）。
+func readM4A(f *os.File) (*m4aFile, error) {
+	st, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	end := st.Size()
+	m := &m4aFile{chapterIdx: -1}
+	var moov []byte
+	hdr := make([]byte, 16)
+	for pos := int64(0); pos < end; {
+		if end-pos < 8 {
+			return nil, fmt.Errorf("truncated box header at %d", pos)
+		}
+		if _, err := f.ReadAt(hdr[:8], pos); err != nil {
+			return nil, err
+		}
+		size := int64(binary.BigEndian.Uint32(hdr))
+		typ := string(hdr[4:8])
+		h := int64(8)
+		switch size {
+		case 0:
+			size = end - pos
+		case 1:
+			if _, err := f.ReadAt(hdr[8:16], pos+8); err != nil {
+				return nil, err
+			}
+			size, h = int64(binary.BigEndian.Uint64(hdr[8:16])), 16
+		}
+		if size < h || size > end-pos {
+			return nil, fmt.Errorf("bad size %d of %q box at %d", size, typ, pos)
+		}
+		switch typ {
+		case "ftyp", "moov":
+			if (typ == "ftyp" && m.ftyp != nil) || (typ == "moov" && moov != nil) {
+				return nil, fmt.Errorf("more than one %s box", typ)
+			}
+			if size > 64<<20 {
+				return nil, fmt.Errorf("%s box too large (%d bytes)", typ, size)
+			}
+			b := make([]byte, size)
+			if _, err := f.ReadAt(b, pos); err != nil {
+				return nil, err
+			}
+			if typ == "ftyp" {
+				m.ftyp = b
+			} else {
+				moov = b
+			}
+		case "mdat", "free", "skip", "wide":
+		default:
+			return nil, fmt.Errorf("unexpected top-level %q box", typ)
+		}
+		pos += size
+	}
+	if m.ftyp == nil || moov == nil {
+		return nil, errors.New("no ftyp or moov box")
+	}
+	boxes, err := parseBoxes(moov)
+	if err != nil {
+		return nil, err
+	}
+	m.moov = boxes[0]
+	if err := m.parseMoov(); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// m4aTrak は、moov の trak 1 つの読んだ値。
+type m4aTrak struct {
+	idx     int
+	id      uint32
+	handler string
+	chaps   []uint32 // tref/chap が指すトラックの番号
+}
+
+// parseMoov は moov を読み、音声のトラック・チャプタートラック・トラックの番号・カバー画像の有無を決める。
+func (m *m4aFile) parseMoov() error {
+	kids, err := childBoxes(m.moov)
+	if err != nil {
+		return err
+	}
+	var traks []m4aTrak
+	sound := -1
+	for i, k := range kids {
+		switch k.typ {
+		case "mvhd":
+			p := k.payload()
+			if len(p) < 4 {
+				return errors.New("truncated mvhd box")
+			}
+			m.nextTrackID = binary.BigEndian.Uint32(p[len(p)-4:])
+		case "trak":
+			t, err := readTrak(k)
+			if err != nil {
+				return err
+			}
+			t.idx = i
+			if t.handler == "soun" {
+				if sound >= 0 {
+					return errors.New("more than one sound track")
+				}
+				sound = len(traks)
+			}
+			traks = append(traks, t)
+		case "udta":
+			m.cover = hasCover(k)
+		}
+	}
+	if sound < 0 {
+		return errors.New("no sound track")
+	}
+	st := traks[sound]
+	m.soundIdx = st.idx
+	for i, t := range traks {
+		switch {
+		case i == sound:
+			m.trackIDs = append(m.trackIDs, t.id)
+		case t.handler == "text" && slices.Contains(st.chaps, t.id) && m.chapterIdx < 0:
+			m.chapterIdx = t.idx
+		default:
+			return fmt.Errorf("unexpected track %d (handler %q)", t.id, t.handler)
+		}
+	}
+	m.sound, err = readSound(kids[st.idx])
+	return err
+}
+
+// readTrak は trak の番号（tkhd）・handler（mdia/hdlr）・tref/chap を読む。tref に chap 以外があればエラー。
+func readTrak(trak m4aBox) (m4aTrak, error) {
+	var t m4aTrak
+	tkhd, err := boxAt(trak, "tkhd")
+	if err != nil {
+		return t, err
+	}
+	p := tkhd.payload()
+	off := 12
+	if len(p) > 0 && p[0] == 1 {
+		off = 20
+	}
+	if len(p) < off+4 {
+		return t, errors.New("truncated tkhd box")
+	}
+	t.id = binary.BigEndian.Uint32(p[off:])
+	hdlr, err := boxAt(trak, "mdia", "hdlr")
+	if err != nil {
+		return t, err
+	}
+	hp := hdlr.payload()
+	if len(hp) < 12 {
+		return t, errors.New("truncated hdlr box")
+	}
+	t.handler = string(hp[8:12])
+	kids, err := childBoxes(trak)
+	if err != nil {
+		return t, err
+	}
+	if tref, ok := findBox(kids, "tref"); ok {
+		refs, err := childBoxes(tref)
+		if err != nil {
+			return t, err
+		}
+		for _, r := range refs {
+			if r.typ != "chap" {
+				return t, fmt.Errorf("unexpected tref/%s box", r.typ)
+			}
+			for p := r.payload(); len(p) >= 4; p = p[4:] {
+				t.chaps = append(t.chaps, binary.BigEndian.Uint32(p))
+			}
+		}
+	}
+	return t, nil
+}
+
+// hasCover は udta/meta/ilst に covr があるか。
+func hasCover(udta m4aBox) bool {
+	meta, err := boxAt(udta, "meta")
+	if err != nil || len(meta.payload()) < 4 {
+		return false
+	}
+	// meta は FullBox（版とフラグの 4 バイトの後に子の箱）。
+	kids, err := parseBoxes(meta.payload()[4:])
+	if err != nil {
+		return false
+	}
+	ilst, ok := findBox(kids, "ilst")
+	if !ok {
+		return false
+	}
+	items, err := childBoxes(ilst)
+	if err != nil {
+		return false
+	}
+	_, ok = findBox(items, "covr")
+	return ok
+}
+
+// readSound は音声のトラックの mdhd・stts・stsz・stsc・stco/co64 を読み、チャンクごとの位置と大きさを決める。
+func readSound(trak m4aBox) (m4aSound, error) {
+	var s m4aSound
+	mdhd, err := boxAt(trak, "mdia", "mdhd")
+	if err != nil {
+		return s, err
+	}
+	p := mdhd.payload()
+	off := 12
+	if len(p) > 0 && p[0] == 1 {
+		off = 20
+	}
+	if len(p) < off+4 {
+		return s, errors.New("truncated mdhd box")
+	}
+	s.timescale = binary.BigEndian.Uint32(p[off:])
+	if s.timescale == 0 {
+		return s, errors.New("mdhd timescale is 0")
+	}
+	stbl, err := boxAt(trak, "mdia", "minf", "stbl")
+	if err != nil {
+		return s, err
+	}
+	kids, err := childBoxes(stbl)
+	if err != nil {
+		return s, err
+	}
+	// table は FullBox の表（版とフラグ・件数・1 件 entry バイトの並び）の中身と件数を返す。
+	table := func(typ string, entry int) ([]byte, int, error) {
+		b, ok := findBox(kids, typ)
+		if !ok {
+			return nil, 0, fmt.Errorf("no %s box", typ)
+		}
+		p := b.payload()
+		if len(p) < 8 {
+			return nil, 0, fmt.Errorf("truncated %s box", typ)
+		}
+		n := binary.BigEndian.Uint32(p[4:])
+		if uint64(len(p)-8) < uint64(n)*uint64(entry) {
+			return nil, 0, fmt.Errorf("truncated %s box", typ)
+		}
+		return p[8:], int(n), nil
+	}
+	stts, n, err := table("stts", 8)
+	if err != nil {
+		return s, err
+	}
+	var sttsCount uint64
+	for i := range n {
+		e := stts[i*8:]
+		c, d := uint64(binary.BigEndian.Uint32(e)), uint64(binary.BigEndian.Uint32(e[4:]))
+		sttsCount += c
+		s.samples += c * d
+	}
+	stsz, ok := findBox(kids, "stsz")
+	if !ok {
+		return s, errors.New("no stsz box")
+	}
+	zp := stsz.payload()
+	if len(zp) < 12 {
+		return s, errors.New("truncated stsz box")
+	}
+	size, count := binary.BigEndian.Uint32(zp[4:]), binary.BigEndian.Uint32(zp[8:])
+	if size == 0 && uint64(len(zp)-12) < uint64(count)*4 {
+		return s, errors.New("truncated stsz box")
+	}
+	s.sizes = make([]uint32, count)
+	for i := range s.sizes {
+		if size != 0 {
+			s.sizes[i] = size
+		} else {
+			s.sizes[i] = binary.BigEndian.Uint32(zp[12+i*4:])
+		}
+	}
+	if len(s.sizes) == 0 || uint64(len(s.sizes)) != sttsCount {
+		return s, fmt.Errorf("%d samples in stsz but %d in stts", len(s.sizes), sttsCount)
+	}
+	var offsets []uint64
+	if co, n, err := table("stco", 4); err == nil {
+		for i := range n {
+			offsets = append(offsets, uint64(binary.BigEndian.Uint32(co[i*4:])))
+		}
+	} else if co, n, err := table("co64", 8); err == nil {
+		s.co64 = true
+		for i := range n {
+			offsets = append(offsets, binary.BigEndian.Uint64(co[i*8:]))
+		}
+	} else {
+		return s, errors.New("no stco or co64 box")
+	}
+	stsc, n, err := table("stsc", 12)
+	if err != nil {
+		return s, err
+	}
+	perChunk := make([]uint32, len(offsets))
+	for i := range n {
+		e := stsc[i*12:]
+		first, spc := binary.BigEndian.Uint32(e), binary.BigEndian.Uint32(e[4:])
+		last := uint32(len(offsets))
+		if i+1 < n {
+			last = binary.BigEndian.Uint32(stsc[(i+1)*12:]) - 1
+		}
+		if first == 0 || first > last+1 || last > uint32(len(offsets)) {
+			return s, errors.New("bad stsc box")
+		}
+		for c := first; c <= last; c++ {
+			perChunk[c-1] = spc
+		}
+	}
+	next := 0
+	for i, off := range offsets {
+		c := m4aChunk{offset: off}
+		for range perChunk[i] {
+			if next >= len(s.sizes) {
+				return s, errors.New("stsc has more samples than stsz")
+			}
+			c.size += uint64(s.sizes[next])
+			next++
+		}
+		s.chunks = append(s.chunks, c)
+	}
+	if next != len(s.sizes) {
+		return s, fmt.Errorf("stsc has %d samples but stsz has %d", next, len(s.sizes))
+	}
+	return s, nil
+}
+
+// durationMs は音声の長さ（ミリ秒。ffmpeg と同じく切り上げ）。
+func (m *m4aFile) durationMs() uint64 { return durationMillis(m.sound.samples, m.sound.timescale) }
+
+// place は、チャプター chs を、入力（パート）の長さ parts でファイルの中の時刻に置く（chapter.go の placeChapters）。
+// 最後のパートの長さは、ファイルの長さから前のパートの長さを引いたもの（parts の最後の値は使わない）。parts が空なら 1 つのパート。
+func (m *m4aFile) place(chs []Chapter, parts []time.Duration) []placedChapter {
+	rate, total := m.sound.timescale, m.sound.samples
+	n := max(len(parts), 1)
+	samples := make([]uint64, n)
+	var sum uint64
+	for i := range n - 1 {
+		s := uint64(0)
+		if parts[i] > 0 {
+			s = uint64(math.Round(parts[i].Seconds() * float64(rate)))
+		}
+		samples[i] = min(s, total-sum)
+		sum += samples[i]
+	}
+	samples[n-1] = total - sum
+	return placeChapters(chs, samples, rate, m.durationMs())
+}
+
+// chapterTrackID は、書き足すチャプタートラックの番号。builtin・ffmpeg が書くときと同じく、カバー画像があれば 3、無ければ 2
+// （buildMoov）。ほかのトラックの番号と重なるなら、その後ろにする。
+func (m *m4aFile) chapterTrackID() uint32 {
+	id := uint32(2)
+	if m.cover {
+		id = 3
+	}
+	for _, t := range m.trackIDs {
+		if t >= id {
+			id = t + 1
+		}
+	}
+	return id
+}
+
+// WriteChapters は、保存した m4a in のチャプターを chs に置き換えた m4a を out に書き、置いたチャプターの数を返す（ADR 0033）。
+// parts はパート（連結したファイルの、もとの放送回）ごとの長さで、Chapter.Input はその番号。2 つ目以降のパートのチャプターは、
+// 前のパートの長さだけずらす（最後のパートの長さはファイルから決める）。音声・タグ・画像は in のまま残す。
+//
+// in の moov の音声のトラックとタグはバイト列のまま写し、前のチャプター（チャプタートラック・tref/chap・chpl）を除いて、
+// RemuxWithChapters と同じ形のチャプターを書き足す。音声のサンプルはチャンクの並びのまま mdat に写し、チャンクの位置だけを
+// 書き直す（moov は mdat の前に置く）。builtin が書いたファイルなら、同じチャプターで RemuxWithChapters したのと同じバイト列に
+// なる（テストで確かめる）。out は上書きされ、失敗したら消す。
+func (Builtin) WriteChapters(ctx context.Context, in, out string, chs []Chapter, parts []time.Duration) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	src, err := os.Open(in)
+	if err != nil {
+		return 0, fmt.Errorf("media: write chapters: %w", err)
+	}
+	defer src.Close()
+	m, err := readM4A(src)
+	if err != nil {
+		return 0, fmt.Errorf("media: write chapters: %s: %w", in, err)
+	}
+	placed := m.place(chs, parts)
+	if err := m.writeWithChapters(ctx, src, out, placed); err != nil {
+		os.Remove(out)
+		return 0, fmt.Errorf("media: write chapters: %w", err)
+	}
+	return len(placed), nil
+}
+
+// writeWithChapters は、m（src から読んだもの）にチャプター placed を書き足した m4a を out に書く。
+func (m *m4aFile) writeWithChapters(ctx context.Context, src *os.File, out string, placed []placedChapter) error {
+	var chapterData []byte
+	for _, ch := range placed {
+		chapterData = append(chapterData, chapterSample(ch.title)...)
+	}
+	var audio uint64
+	for _, c := range m.sound.chunks {
+		audio += c.size
+	}
+	dataSize := audio + uint64(len(chapterData))
+	largeMdat := dataSize+8 > math.MaxUint32
+	mdatHeader := uint64(8)
+	if largeMdat {
+		mdatHeader = 16
+	}
+	co64 := m.sound.co64
+	trial, err := m.buildMoov(placed, 0, co64)
+	if err != nil {
+		return err
+	}
+	if !co64 && uint64(len(m.ftyp))+uint64(len(trial))+mdatHeader+dataSize > math.MaxUint32 {
+		co64 = true
+		if trial, err = m.buildMoov(placed, 0, co64); err != nil {
+			return err
+		}
+	}
+	dataStart := uint64(len(m.ftyp)) + uint64(len(trial)) + mdatHeader
+	moov, err := m.buildMoov(placed, dataStart, co64)
+	if err != nil {
+		return err
+	}
+	if len(moov) != len(trial) {
+		return errors.New("moov size changed")
+	}
+
+	f, err := os.Create(out)
+	if err != nil {
+		return err
+	}
+	w := bufio.NewWriterSize(f, 1<<20)
+	err = func() error {
+		if _, err := w.Write(m.ftyp); err != nil {
+			return err
+		}
+		if _, err := w.Write(moov); err != nil {
+			return err
+		}
+		if largeMdat {
+			var h [16]byte
+			binary.BigEndian.PutUint32(h[0:], 1)
+			copy(h[4:], "mdat")
+			binary.BigEndian.PutUint64(h[8:], dataSize+16)
+			if _, err := w.Write(h[:]); err != nil {
+				return err
+			}
+		} else {
+			var h [8]byte
+			binary.BigEndian.PutUint32(h[0:], uint32(dataSize+8))
+			copy(h[4:], "mdat")
+			if _, err := w.Write(h[:]); err != nil {
+				return err
+			}
+		}
+		buf := make([]byte, 1<<16)
+		for i, c := range m.sound.chunks {
+			if i%64 == 0 {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+			}
+			if _, err := io.CopyBuffer(w, io.NewSectionReader(src, int64(c.offset), int64(c.size)), buf); err != nil {
+				return err
+			}
+		}
+		if _, err := w.Write(chapterData); err != nil {
+			return err
+		}
+		return w.Flush()
+	}()
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return err
+}
+
+// buildMoov は、m の moov から前のチャプターを除き、チャプター placed（無ければ書かない）を書き足した moov を組む。dataStart は
+// mdat の中身の先頭の位置（音声のチャンクをその順に置き、チャプターのサンプルをその後ろに置く）、co64 は 64 ビットの位置で書くか。
+func (m *m4aFile) buildMoov(placed []placedChapter, dataStart uint64, co64 bool) ([]byte, error) {
+	offsets := make([]uint64, len(m.sound.chunks))
+	off := dataStart
+	for i, c := range m.sound.chunks {
+		offsets[i] = off
+		off += c.size
+	}
+	var chapterTrak, tref, chpl []byte
+	next := m.nextTrackID
+	if len(placed) > 0 {
+		id := m.chapterTrackID()
+		next = max(next, id+1)
+		ws := &memWS{}
+		bw := &boxWriter{w: mp4.NewWriter(ws)}
+		writeChapterTrak(bw, id, placed, m.durationMs(), off, co64)
+		if bw.err != nil {
+			return nil, bw.err
+		}
+		chapterTrak = ws.buf
+		tref = makeBox("tref", makeBox("chap", binary.BigEndian.AppendUint32(nil, id)))
+		chpl = makeBox("chpl", chplPayload(placed))
+	}
+	kids, err := childBoxes(m.moov)
+	if err != nil {
+		return nil, err
+	}
+	var parts [][]byte
+	sawUdta := false
+	for i, k := range kids {
+		switch {
+		case k.typ == "mvhd":
+			b := slices.Clone(k.b)
+			binary.BigEndian.PutUint32(b[len(b)-4:], next)
+			parts = append(parts, b)
+		case i == m.soundIdx:
+			b, err := rebuildSoundTrak(k, tref, offsets, co64)
+			if err != nil {
+				return nil, err
+			}
+			parts = append(parts, b)
+			if chapterTrak != nil {
+				parts = append(parts, chapterTrak)
+			}
+		case i == m.chapterIdx:
+			// 前のチャプタートラックは除く（サンプルも mdat に写さない）。
+		case k.typ == "udta":
+			sawUdta = true
+			b, err := rebuildUdta(k, chpl)
+			if err != nil {
+				return nil, err
+			}
+			parts = append(parts, b)
+		default:
+			parts = append(parts, k.b)
+		}
+	}
+	if !sawUdta && chpl != nil {
+		parts = append(parts, makeBox("udta", chpl))
+	}
+	return makeBox("moov", parts...), nil
+}
+
+// rebuildSoundTrak は、音声のトラックの trak から前の tref を除いて tref（nil なら書かない）を edts の後ろ（edts が無ければ tkhd
+// の後ろ）に置き、チャンクの位置を offsets で書き直す。
+func rebuildSoundTrak(trak m4aBox, tref []byte, offsets []uint64, co64 bool) ([]byte, error) {
+	kids, err := childBoxes(trak)
+	if err != nil {
+		return nil, err
+	}
+	_, hasEdts := findBox(kids, "edts")
+	var parts [][]byte
+	for _, k := range kids {
+		switch k.typ {
+		case "tref":
+			continue
+		case "mdia":
+			b, err := rebuildOffsets(k, offsets, co64)
+			if err != nil {
+				return nil, err
+			}
+			parts = append(parts, b)
+		default:
+			parts = append(parts, k.b)
+		}
+		if tref != nil && (k.typ == "edts" || k.typ == "tkhd" && !hasEdts) {
+			parts = append(parts, tref)
+		}
+	}
+	return makeBox("trak", parts...), nil
+}
+
+// rebuildOffsets は、mdia・minf・stbl をたどって stco / co64 を offsets で書き直す（co64 なら co64 で書く）。
+func rebuildOffsets(x m4aBox, offsets []uint64, co64 bool) ([]byte, error) {
+	kids, err := childBoxes(x)
+	if err != nil {
+		return nil, err
+	}
+	var parts [][]byte
+	for _, k := range kids {
+		switch {
+		case x.typ == "mdia" && k.typ == "minf", x.typ == "minf" && k.typ == "stbl":
+			b, err := rebuildOffsets(k, offsets, co64)
+			if err != nil {
+				return nil, err
+			}
+			parts = append(parts, b)
+		case x.typ == "stbl" && (k.typ == "stco" || k.typ == "co64"):
+			body := binary.BigEndian.AppendUint32(make([]byte, 4), uint32(len(offsets)))
+			typ := "stco"
+			if co64 {
+				typ = "co64"
+				for _, o := range offsets {
+					body = binary.BigEndian.AppendUint64(body, o)
+				}
+			} else {
+				for _, o := range offsets {
+					body = binary.BigEndian.AppendUint32(body, uint32(o))
+				}
+			}
+			parts = append(parts, makeBox(typ, body))
+		default:
+			parts = append(parts, k.b)
+		}
+	}
+	return makeBox(x.typ, parts...), nil
+}
+
+// rebuildUdta は、udta から前の chpl を除き、chpl（nil なら書かない）を最後に置く（ffmpeg と同じく meta の後ろ）。
+func rebuildUdta(udta m4aBox, chpl []byte) ([]byte, error) {
+	kids, err := childBoxes(udta)
+	if err != nil {
+		return nil, err
+	}
+	var parts [][]byte
+	for _, k := range kids {
+		if k.typ != "chpl" {
+			parts = append(parts, k.b)
+		}
+	}
+	if chpl != nil {
+		parts = append(parts, chpl)
+	}
+	return makeBox("udta", parts...), nil
+}
+
+// InputLengths は、開始時刻の順に並んだ ADTS ファイル inputs ごとの長さを、フレームの数から出す（Remux がファイルの中で
+// 入力ごとに占める長さ。連結したファイルのパートの長さとして DB に残す。ADR 0033）。
+func (Builtin) InputLengths(ctx context.Context, inputs []string) ([]time.Duration, error) {
+	return inputLengths(ctx, inputs)
+}
+
+// SameAudio は、m4a a と b の音声のトラックのサンプルが、数とバイト列で同じかを確かめる（chapter.go の sameAudio）。
+func (Builtin) SameAudio(ctx context.Context, a, b string) error { return sameAudio(ctx, a, b) }

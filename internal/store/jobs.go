@@ -100,11 +100,11 @@ func insertJob(ctx context.Context, tx *sql.Tx, j domain.Job) (int64, error) {
 	var id int64
 	err := tx.QueryRowContext(ctx, `INSERT INTO jobs
 		(show_name, broadcast_day, part, state, next_attempt_at, attempts, deadline, output_path, by_person, settled,
-		 chapters, chapters_check_at, chapters_refetch)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		 chapters, chapters_check_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
 		j.ShowName, j.Day.String(), j.Part, string(j.State), formatTime(j.NextAttemptAt),
 		j.Attempts, formatTime(j.Deadline), j.OutputPath, boolInt(j.ByPerson), boolInt(j.Settled),
-		string(j.Chapters), formatTime(j.ChapterCheckAt), boolInt(j.ChapterRefetch)).Scan(&id)
+		string(j.Chapters), formatTime(j.ChapterCheckAt)).Scan(&id)
 	if err != nil {
 		return 0, err
 	}
@@ -140,18 +140,19 @@ func putAirings(ctx context.Context, tx *sql.Tx, jobID int64, airings, missing [
 	return nil
 }
 
+// jobColumns は jobs から読む列。列 chapters_refetch（前の版のチャプターの取り直しの印。0028_chapter_writes.sql）は読まない。
 const jobColumns = `id, show_name, broadcast_day, part, state, next_attempt_at, attempts, deadline, output_path, by_person, settled,
-	chapters, chapters_check_at, chapters_refetch`
+	chapters, chapters_check_at`
 
 func scanJob(sc interface{ Scan(...any) error }) (domain.Job, error) {
 	var j domain.Job
 	var day, state, next, deadline, chapters, checkAt string
-	var byPerson, settled, refetch int
+	var byPerson, settled int
 	if err := sc.Scan(&j.ID, &j.ShowName, &day, &j.Part, &state, &next, &j.Attempts, &deadline, &j.OutputPath,
-		&byPerson, &settled, &chapters, &checkAt, &refetch); err != nil {
+		&byPerson, &settled, &chapters, &checkAt); err != nil {
 		return j, err
 	}
-	j.ByPerson, j.Settled, j.ChapterRefetch = byPerson != 0, settled != 0, refetch != 0
+	j.ByPerson, j.Settled = byPerson != 0, settled != 0
 	j.Chapters = domain.Chapters(chapters)
 	var err error
 	if j.ChapterCheckAt, err = parseTime(checkAt); err != nil {
@@ -312,8 +313,7 @@ const liveJob = `EXISTS (SELECT 1 FROM job_airings WHERE job_airings.job_id = jo
 //
 // 録音期限を過ぎたジョブも返す。呼び出し側が録音期限を確かめ、過ぎていれば
 // domain.JudgeAtDeadline で、取れた分を保存して done にするか expired にするかを決める（録り直しの試行は、一部しか取れて
-// いなければ保存せずに expired にする。internal/app の finishAtDeadline。ADR 0025。チャプターの取り直しの試行なら、expired に
-// せずに done に戻す。ADR 0027）。
+// いなければ保存せずに expired にする。internal/app の finishAtDeadline。ADR 0025）。
 func (s *Store) ClaimDue(ctx context.Context, now time.Time) (domain.Job, bool, error) {
 	return s.claimDue(ctx, now, `NOT `+liveJob)
 }
@@ -398,7 +398,7 @@ func (s *Store) transition(ctx context.Context, id int64, to domain.State, fn fu
 // 次の試行が無くても、取れた放送回があるときは、next を録音期限にして呼ぶ（internal/app）。
 // 録音期限を過ぎてから ClaimDue で取られ、入手はせずに取れた分を保存して done にする
 // （domain.JudgeAtDeadline）。取れた分を捨てずに済ませるため。録り直しの試行は、一部しか取れていなければ保存せずに expired に
-// する（internal/app の finishAtDeadline。ADR 0025）。チャプターの取り直しの試行なら、expired にせずに done に戻す（ADR 0027）。
+// する（internal/app の finishAtDeadline。ADR 0025）。
 //
 // ライブで録るジョブも、録れた分の保存が失敗したときは、保存だけをやり直す次の試行の時刻（domain.LiveSaveRetryAt。録音期限を
 // 過ぎてもよい）を next にして呼ぶ（internal/app）。
@@ -415,7 +415,6 @@ func (s *Store) Expire(ctx context.Context, id int64) error {
 // Complete は running のジョブを done にし、保存先のパスを記録する。
 // missing に渡した放送回に欠落の印を付ける（取れた分だけを保存したとき）。
 // ch はチャプターの値（domain.ChaptersAfterSave。保存のたびに決め直す）で、待つなら次に API を引く時刻と待っている放送回も書く。
-// チャプターの取り直しの印（chapters_refetch）は外す（ADR 0027）。
 // 足したら直す: ジョブの状態の移り方
 func (s *Store) Complete(ctx context.Context, id int64, outputPath string, missing []domain.Airing, ch domain.ChapterStatus) error {
 	return s.transition(ctx, id, domain.StateDone, func(tx *sql.Tx) error {
@@ -428,7 +427,7 @@ func (s *Store) Complete(ctx context.Context, id int64, outputPath string, missi
 			}
 		}
 		return putChapterWaits(ctx, tx, id, ch.Waits)
-	}, `output_path = ?, chapters = ?, chapters_check_at = ?, chapters_refetch = 0`, outputPath, string(ch.Chapters), formatTime(ch.CheckAt))
+	}, `output_path = ?, chapters = ?, chapters_check_at = ?`, outputPath, string(ch.Chapters), formatTime(ch.CheckAt))
 }
 
 // putChapterWaits は、ジョブ id の放送回のチャプターの待ちを waits（Airing.Key → 待っている様子）に置き換える。
@@ -456,6 +455,7 @@ const waitingChapters = `state = 'done' AND chapters = 'waiting'`
 
 // UpdateChapterWait は、チャプターを待っている done のジョブ id のチャプターの値を ch にする（待ち続けるなら次に引く時刻と
 // 待っている放送回、待つのをやめるなら入らなかった）。読んだ後に人が録り直したなどで、もう待っていなければ何もせず false を返す。
+// 書き込んだ（書けなかった）後の値は FinishChapterWrite で書く。
 func (s *Store) UpdateChapterWait(ctx context.Context, id int64, ch domain.ChapterStatus) (bool, error) {
 	updated := false
 	err := s.tx(ctx, func(tx *sql.Tx) error {
@@ -474,50 +474,92 @@ func (s *Store) UpdateChapterWait(ctx context.Context, id int64, ch domain.Chapt
 	return updated, err
 }
 
-// StartChapterRefetch は、チャプターを待っている done のジョブ id に、チャプターの取り直しの試行を起こす（ADR 0027）。移り方は
-// 録り直し（Rerecord）と同じで、retrying にし、試行回数を 0 に戻して次の試行を now にする。保存先・欠落の印・期限間近を通知した
-// 時刻は変えない。チャプターの取り直しの印（chapters_refetch）を立て、待ち（次に引く時刻と待っている放送回）を消す（値は
-// 待っているのまま）。もう待っていなければ何もせず false を返す。録り直しを受け付けない（domain.CheckRerecord。録音期限を
-// 過ぎたなど）なら、起こさずに入らなかったにして false を返す。
-// 足したら直す: ジョブの状態の移り方
-func (s *Store) StartChapterRefetch(ctx context.Context, id int64, now time.Time) (bool, error) {
-	started := false
+// FinishChapterWrite は、ジョブ w.JobID の保存したファイルへのチャプターの書き込み（チャプターの取り直し・チャプターの入れ直し。
+// ADR 0033）の結果を書き、足した履歴の行の ID を返す。チャプターの書き込みの履歴に w を 1 行足し、ジョブのチャプターの値を ch に
+// して、待ち（次に引く時刻と待っている放送回）を消す。状態・試行回数・欠落の印・保存先は変えない（書き込みは試行を起こさない）。
+// ジョブが無ければ ErrNotFound を包んだエラーにする。
+// 足したら直す: DB の表
+func (s *Store) FinishChapterWrite(ctx context.Context, w domain.ChapterWrite, ch domain.Chapters) (int64, error) {
+	var id int64
 	err := s.tx(ctx, func(tx *sql.Tx) error {
-		j, err := getJob(ctx, tx, id)
+		res, err := tx.ExecContext(ctx, `UPDATE jobs SET chapters = ?, chapters_check_at = '' WHERE id = ?`, string(ch), w.JobID)
 		if err != nil {
 			return err
 		}
-		if j.State != domain.StateDone || j.Chapters != domain.ChaptersWaiting {
-			return nil
+		if n, err := res.RowsAffected(); err != nil {
+			return err
+		} else if n == 0 {
+			return fmt.Errorf("ジョブ %d: %w", w.JobID, ErrNotFound)
 		}
-		if err := putChapterWaits(ctx, tx, id, nil); err != nil {
+		if err := putChapterWaits(ctx, tx, w.JobID, nil); err != nil {
 			return err
 		}
-		if domain.CheckRerecordUntil(j, j.Deadline, now) != nil {
-			_, err := tx.ExecContext(ctx, `UPDATE jobs SET chapters = 'not_added', chapters_check_at = '' WHERE id = ?`, id)
-			return err
-		}
-		if err := domain.Transition(j.State, domain.StateRetrying); err != nil {
-			return fmt.Errorf("ジョブ %d: %w", id, err)
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE jobs SET state = 'retrying', attempts = 0, next_attempt_at = ?,
-			chapters_check_at = '', chapters_refetch = 1 WHERE id = ?`, formatTime(now), id); err != nil {
-			return err
-		}
-		started = true
-		return nil
+		return tx.QueryRowContext(ctx, `INSERT INTO chapter_writes (job_id, written_at, requested_by, result, count, error)
+			VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,
+			w.JobID, formatTime(w.At), string(w.By), string(w.Result), w.Count, w.Error).Scan(&id)
 	})
-	return started, err
+	return id, err
 }
 
-// RevertChapterRefetch は、チャプターの取り直しで起こした試行が尽きた（録音期限の時点で一部の放送回しか取れなかったときも）
-// running のジョブを done に戻す（ADR 0027。人が頼んだ録り直しなら expired にするところ）。保存先・欠落の印は前のまま残し、
-// チャプターの値は入らなかったにして、チャプターの取り直しの印を外す。
-// 足したら直す: ジョブの状態の移り方
-func (s *Store) RevertChapterRefetch(ctx context.Context, id int64) error {
-	return s.transition(ctx, id, domain.StateDone, func(tx *sql.Tx) error {
-		return putChapterWaits(ctx, tx, id, nil)
-	}, `chapters = 'not_added', chapters_check_at = '', chapters_refetch = 0`)
+// ChapterWrites は、ジョブ jobID のチャプターの書き込みの履歴を、書き込んだ順に読む。
+func (s *Store) ChapterWrites(ctx context.Context, jobID int64) ([]domain.ChapterWrite, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, job_id, written_at, requested_by, result, count, error FROM chapter_writes
+		WHERE job_id = ? ORDER BY written_at, id`, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.ChapterWrite
+	for rows.Next() {
+		var w domain.ChapterWrite
+		var at, by, result string
+		if err := rows.Scan(&w.ID, &w.JobID, &at, &by, &result, &w.Count, &w.Error); err != nil {
+			return nil, err
+		}
+		if w.At, err = parseTime(at); err != nil {
+			return nil, err
+		}
+		w.By, w.Result = domain.ChapterWriteBy(by), domain.ChapterWriteResult(result)
+		out = append(out, w)
+	}
+	return out, rows.Err()
+}
+
+// SetPartLengths は、ジョブ id の連結したファイルの放送回（パート）ごとの長さ lengths（Airing.Key → ファイルの中の長さ）を
+// 置き換える（保存のたびに。ADR 0033）。lengths が空なら消す。
+// 足したら直す: DB の表
+func (s *Store) SetPartLengths(ctx context.Context, id int64, lengths map[string]time.Duration) error {
+	return s.tx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM job_part_lengths WHERE job_id = ?`, id); err != nil {
+			return err
+		}
+		for key, d := range lengths {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO job_part_lengths (job_id, airing_key, length_ms) VALUES (?, ?, ?)`,
+				id, key, d.Milliseconds()); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// PartLengths は、ジョブ id の、保存のときに残した放送回（パート）ごとの長さ（Airing.Key → 長さ）を読む。残していなければ空。
+func (s *Store) PartLengths(ctx context.Context, id int64) (map[string]time.Duration, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT airing_key, length_ms FROM job_part_lengths WHERE job_id = ?`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]time.Duration{}
+	for rows.Next() {
+		var key string
+		var ms int64
+		if err := rows.Scan(&key, &ms); err != nil {
+			return nil, err
+		}
+		out[key] = time.Duration(ms) * time.Millisecond
+	}
+	return out, rows.Err()
 }
 
 // ErrPastDeadline は録音期限を過ぎていて、再試行しても取れないこと。errors.Is で見分ける。
@@ -578,10 +620,10 @@ func manualRetry(ctx context.Context, tx *sql.Tx, j domain.Job, now time.Time) e
 // 同じで、試行回数を 0 に戻し、試行の履歴は消さない。保存先（output_path）・欠落の印（job_airings.missing）・期限間近を
 // 通知した時刻（deadline_notified_at）は変えない（録れなければ前の値のまま残し、期限間近は 1 度だけ通知する）。
 // 作業用フォルダは done にしたときに消えているので、次の試行はどの放送回も radiko から取り直す。
-// チャプターを待っていれば待ちを消して入らなかったにし（保存のたびに待つかを決め直す）、チャプターの取り直しの印は外す（ADR 0027）。
+// チャプターを待っていれば待ちを消して入らなかったにする（保存のたびに待つかを決め直す。ADR 0027）。
 // 受け付けるかは domain.CheckRerecord で、今の会員種別 m の録音期限で、読み出しと同じトランザクションの中で決める。
 // 受け付けたら録音期限の列（deadline）も m の録音期限に書き換える（そのままだと、retrying に戻ったジョブが古い期限で
-// すぐに期限の判定に掛かり、チャプターの取り直しの打ち切りも古い期限で数えるため。ADR 0031）。done でないジョブは
+// すぐに期限の判定に掛かるため。ADR 0031）。done でないジョブは
 // domain.ErrInvalidTransition、ライブで録るジョブは domain.ErrRerecordLive、録音期限を過ぎたジョブは
 // domain.ErrRerecordPastDeadline、無いジョブは ErrNotFound を包んだエラーにする。通知はしない（人の操作）。
 // 足したら直す: ジョブの状態の移り方
@@ -601,7 +643,7 @@ func (s *Store) Rerecord(ctx context.Context, id int64, m domain.Membership, now
 			return err
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE jobs SET state = 'retrying', attempts = 0, next_attempt_at = ?, chapters_check_at = '',
-			chapters_refetch = 0, chapters = CASE chapters WHEN 'waiting' THEN 'not_added' ELSE chapters END, deadline = ? WHERE id = ?`,
+			chapters = CASE chapters WHEN 'waiting' THEN 'not_added' ELSE chapters END, deadline = ? WHERE id = ?`,
 			formatTime(now), formatTime(domain.RerecordDeadline(j, m)), id)
 		return err
 	})

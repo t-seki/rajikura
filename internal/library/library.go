@@ -2,8 +2,8 @@
 //
 // 命名とタグは [Preset] が決める。今あるのは Jellyfin プリセットだけ（ADR 0002。title は、放送回の番組名が
 // 番組の名前と違えば足す。ADR 0007）。置き方は [Store]
-// （partial に書いてから確定、衝突時は別名）と、録り直しで前の保存先を上書きする [StoreOver]（ADR 0025）と
-// [CleanPartials]（起動時の残骸の掃除）。番組のフォルダの画像 folder.jpg は [StoreFolderImage]
+// （partial に書いてから確定、衝突時は別名）と、録り直しで前の保存先を上書きする [StoreOver]（ADR 0025）と、保存したファイルを
+// partial に書き直してから置き換える [Rewrite]（チャプターの書き込み。ADR 0033）と [CleanPartials]（起動時の残骸の掃除）。番組のフォルダの画像 folder.jpg は [StoreFolderImage]
 // が置く（保存のたびに上書き）。
 package library
 
@@ -286,6 +286,50 @@ func StoreOver(root string, l Layout, firstStart time.Time, prev string, write f
 		rel = final
 	}
 	return Result{Path: final, RelPath: rel, Renamed: renamed, Replaced: replaced}, nil
+}
+
+// ErrNoFile は、書き直す保存したファイルが無い（または通常のファイルでない）こと（[Rewrite]）。errors.Is で見分ける。
+var ErrNoFile = errors.New("library: 保存先にファイルが無い")
+
+// rewritePartialPrefix は [Rewrite] の partial の名前の頭。保存したファイルの名前を使わないので、名前の長さの上限
+// （MaxPathNameBytes）に掛からない。
+const rewritePartialPrefix = "rajikura-chapters."
+
+// Rewrite は、保存したファイル path を、write が書いたもので置き換える（チャプターの書き込み。ADR 0033）。write には path と同じ
+// フォルダの partial（*.partial.m4a。起動時に [CleanPartials] が消す）のパスを渡すので、そこへ書かせる（書いた中身の確かめも
+// write の中で行う）。write が成功したら、partial を path と同じ許可にしてリネームで置き換え、失敗したら partial を消して path を
+// そのまま残す。path が無い（通常のファイルでない）なら、書かずに ErrNoFile を包んだエラーを返す。
+// 同じ path への Rewrite と [StoreOver] の呼び出しは直列であること（呼び出し側が保証する。保存先のファイルを書くのは録音のループだけ）。
+func Rewrite(path string, write func(partial string) error) error {
+	st, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) || err == nil && !st.Mode().IsRegular() {
+		return fmt.Errorf("%w: %s", ErrNoFile, path)
+	}
+	if err != nil {
+		return fmt.Errorf("library: %w", err)
+	}
+	f, err := os.CreateTemp(filepath.Dir(path), rewritePartialPrefix+"*"+partialExt)
+	if err != nil {
+		return fmt.Errorf("library: %w", err)
+	}
+	partial := f.Name()
+	if err := f.Close(); err != nil {
+		os.Remove(partial)
+		return fmt.Errorf("library: %w", err)
+	}
+	if err := write(partial); err != nil {
+		os.Remove(partial)
+		return err
+	}
+	if err := os.Chmod(partial, st.Mode().Perm()); err != nil {
+		os.Remove(partial)
+		return fmt.Errorf("library: %w", err)
+	}
+	if err := os.Rename(partial, path); err != nil {
+		os.Remove(partial)
+		return fmt.Errorf("library: %w", err)
+	}
+	return nil
 }
 
 // pickName は最終ファイル名を選ぶ。l の名前、" HHmm" を付けた別名の順に、空いているか prev と同じパスのものを選ぶ。
