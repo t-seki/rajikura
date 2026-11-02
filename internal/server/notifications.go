@@ -88,7 +88,7 @@ type notificationView struct {
 //   - ジョブを持つ通知（ジョブの出来事）: /jobs/{id}
 //   - 番組を持つ通知（keyword_added・unmatched_day）: /shows/{名前}（名前はパスの 1 区切りとしてエスケープする。`/` も %2F）
 //   - keyword_limit: /keywords（種類から決める。列を足す前からある行も同じ）
-//   - それ以外（サービスの異常・復旧・テスト通知と、列を足す前からある行）: 空（付けない）
+//   - それ以外（area_changed（自分のエリアが変わった）・サービスの異常・復旧・テスト通知と、列を足す前からある行）: 空（付けない）
 //
 // 指す先が今もあるかは確かめない（無ければ Web UI の画面が一覧へ移す）。
 func notificationLink(n store.Notification) string {

@@ -28,9 +28,9 @@ import (
 // 部品と値の写し（Runtime）を丸ごと 1 つ持ち、保存したら新しい写しに atomic に差し替える。使う側（録音のループ・展開役・
 // HTTP の goroutine）は、使うときに最新の写しを読むので、保存した設定は再起動しなくてもすぐに効く
 // （番組表のキャッシュの大きさ（radiko.program_cache_mb）は除く。キャッシュは cmd が起動したときの値で作るので、再起動が要る）。
-// 会員種別もすぐに効く（録音期限・再試行・番組表の範囲は、使うときの会員種別から読む）。会員種別かログイン情報を保存したら、
+// 会員種別もすぐに効く（再試行・番組表の範囲は、使うときの会員種別から読む。録音期限は、下のとおり展開役が付け直す）。会員種別かログイン情報を保存したら、
 // OnApply（cmd が App.SettingsApplied をつなぐ）が、持っている radiko のログインのセッションを捨て、会員種別が変わったなら
-// まだ終わっていないジョブの録音期限を付け直す（ADR 0030）。
+// まだ終わっていないジョブの録音期限の付け直しを展開役に頼む（待たない。付け直すのは展開役。ADR 0030・0032、own_area.go）。
 // ジョブの実行は、試行を始めたときに写しを 1 つ取り、その試行の最後（保存・再スキャン）までその写しを使う（録音の途中で
 // 保存先が変わって、1 つのジョブのファイルが 2 か所に分かれないように）。
 //
@@ -308,7 +308,9 @@ type LoginResetter interface {
 // radiko.password）を保存したら、持っている radiko のログインのセッションを捨てる（Fetcher が LoginResetter を満たすとき）。
 // 会員種別を非会員にして保存したら、radiko のログインの失敗の異常が続いていれば、radiko のログインを止めたことを復旧として閉じる
 // （もう radiko のログインをしないので、ログインが通る日は来ない。バックアップの取る先を空にしたときと同じ）。
-// 会員種別が変わったら、まだ終わっていないジョブ（waiting・retrying・skipped・running）の録音期限を新しい会員種別で付け直す（ADR 0030）。
+// 会員種別が変わったら、まだ終わっていないジョブ（waiting・retrying・skipped・running）の録音期限の付け直しを展開役に頼み、
+// 待たずに戻る（ADR 0030・0032。自分のエリアが変わったときと同じ reviseDeadlines を、展開役が reviseForMembership で呼ぶ）。
+// エリアフリー・ダブルプランなら覚えている自分のエリアの局一覧を取って使い、取れなければ付け直さずに依頼を残す（own_area.go）。
 // 足したら直す: サービスの異常
 func (a *App) SettingsApplied(ctx context.Context, p config.Patch, prev, next config.Config) {
 	login := p.Membership != nil || (p.Radiko != nil && (p.Radiko.Mail != nil || p.Radiko.Password != nil))
@@ -324,10 +326,6 @@ func (a *App) SettingsApplied(ctx context.Context, p config.Patch, prev, next co
 	if next.Membership == prev.Membership {
 		return
 	}
-	n, err := a.Store.ReviseDeadlines(ctx, next.Membership)
-	if err != nil {
-		a.log().Error("会員種別を変えたが、まだ終わっていないジョブの録音期限を付け直せない", "membership", next.Membership, "err", err)
-		return
-	}
-	a.log().Info("会員種別を変えたので、まだ終わっていないジョブの録音期限を付け直した", "from", prev.Membership, "to", next.Membership, "jobs", n)
+	a.log().Info("会員種別を変えたので、まだ終わっていないジョブの録音期限の付け直しを展開役に頼む", "from", prev.Membership, "to", next.Membership)
+	a.requestRevise()
 }

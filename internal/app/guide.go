@@ -192,6 +192,9 @@ type RadikoAreaGuide struct {
 	TTL time.Duration
 	// Now は現在時刻。nil なら time.Now。
 	Now func() time.Time
+	// OnArea があれば、認証（auth2）が通って自分のエリアが分かるたびに、そのエリア ID で呼ぶ（cmd が App.SeeOwnArea につなぐ。
+	// 自分のエリアの変化に気付くため。internal/app/own_area.go）。エリア外と判定されたときは呼ばない。
+	OnArea func(areaID string)
 
 	mu     sync.Mutex
 	area   string
@@ -280,12 +283,25 @@ func (g *RadikoAreaGuide) areaID(ctx context.Context) (string, error) {
 		g.mu.Lock()
 		g.area, g.areaAt = tok.AreaID, g.now()
 		g.mu.Unlock()
+		if g.OnArea != nil {
+			g.OnArea(tok.AreaID)
+		}
 		return tok.AreaID, nil
 	})
 	if err != nil {
 		return "", err
 	}
 	return v.(string), nil
+}
+
+// setOwnArea は、覚えている自分のエリアを area に差し替える（どの認証で気付いたとき（この RadikoAreaGuide の認証も含む）でも、
+// 自分のエリアが変わったと分かって展開役が付け直すとき。TTL を待たずに新しいエリアで番組表を引くため。
+// internal/app/own_area.go の ownAreaSetter）。付け直しが後で失敗しても戻さない（radiko が判定した今のエリアなので）。
+// 覚えた時刻も今にする。OnArea は呼ばない。
+func (g *RadikoAreaGuide) setOwnArea(area string) {
+	g.mu.Lock()
+	g.area, g.areaAt = area, g.now()
+	g.mu.Unlock()
 }
 
 // AreaAirings は AreaGuide を実装する。番組表は覚えない。同じ放送日を重ねて取りにいくときは、結果を共有する。

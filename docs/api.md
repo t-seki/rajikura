@@ -37,7 +37,7 @@ curl -i http://localhost:8080/healthz
 | メトリクス | 種類 | 意味 |
 | --- | --- | --- |
 | `rajikura_last_saved_timestamp_seconds` | gauge | 最後にジョブを保存した時刻（Unix 秒）。起動時に DB（`app_state` の `last_saved_at`）から読むので、再起動で 0 に戻らない。一度も保存していなければ 0 |
-| `rajikura_notify_failures_total{kind}` | counter | 通知先に送れなかった通知の数。作ってから 1 時間を過ぎた通知を送ろうとして送れず、「送れなかった」の印を付けたときに 1 つ数える（1 時間を過ぎる前の、送り直している間の失敗は数えない）。`kind` は通知の種類（`recorded`（録音済み）・`missing`（欠落あり）・`expired`（録音できなかった）・`skipped`（録らなかった）・`skip_planned`（録らない予定にした）・`unskipped`（録音予定に戻した）・`deadline_near`（期限間近）・`keyword_added`（キーワードで録音予定）・`keyword_limit`（キーワードの上限）・`unmatched_day`（当たらない日）・`sync`（番組表の同期の失敗）・`out_of_area`（エリア外）・`login`（radiko のログインの失敗）・`backup`（バックアップの失敗）・`wake`（スリープから起こせない）・`rescan`（再スキャンの失敗）・`recovered`（復旧））。テスト通知（`test`）は送れなくても数えず、`kind="test"` の系列も出さない（人がその場で結果を見ている）。起動時に種類ごとに 0 で出す。再起動で 0 に戻る（Prometheus の `increase()` が扱う） <!-- 足したら直す: 通知の種類 --> |
+| `rajikura_notify_failures_total{kind}` | counter | 通知先に送れなかった通知の数。作ってから 1 時間を過ぎた通知を送ろうとして送れず、「送れなかった」の印を付けたときに 1 つ数える（1 時間を過ぎる前の、送り直している間の失敗は数えない）。`kind` は通知の種類（`recorded`（録音済み）・`missing`（欠落あり）・`expired`（録音できなかった）・`skipped`（録らなかった）・`skip_planned`（録らない予定にした）・`unskipped`（録音予定に戻した）・`deadline_near`（期限間近）・`keyword_added`（キーワードで録音予定）・`keyword_limit`（キーワードの上限）・`unmatched_day`（当たらない日）・`area_changed`（自分のエリアが変わった）・`sync`（番組表の同期の失敗）・`out_of_area`（エリア外）・`login`（radiko のログインの失敗）・`backup`（バックアップの失敗）・`wake`（スリープから起こせない）・`rescan`（再スキャンの失敗）・`recovered`（復旧））。テスト通知（`test`）は送れなくても数えず、`kind="test"` の系列も出さない（人がその場で結果を見ている）。起動時に種類ごとに 0 で出す。再起動で 0 に戻る（Prometheus の `increase()` が扱う） <!-- 足したら直す: 通知の種類 --> |
 
 - メトリクスの名前とラベルは、監視との約束なので変えない（足すことはある）。`kind` の値は、通知の種類が増えると増える。
 - ラベルに番組名・番組の名前は入れない（`kind` だけ）。秘密を出さず、ラベルの組み合わせが際限なく増えないようにするため。
@@ -121,9 +121,9 @@ groups:
 
 - `GET /api/notifications`: 通知の履歴。
   - `{"notifications": [{id, kind, message, createdAt, failed, read, link}]}` を新しい順に全部。
-  - `kind` は通知の種類（`recorded`・`missing`・`expired`・`skipped`・`skip_planned`・`unskipped`・`deadline_near`・`keyword_added`・`keyword_limit`・`unmatched_day`・`sync`・`out_of_area`・`login`・`backup`・`wake`・`rescan`・`recovered`・`test`）、`failed` は「送れなかった」の印、`read` は既読。
+  - `kind` は通知の種類（`recorded`・`missing`・`expired`・`skipped`・`skip_planned`・`unskipped`・`deadline_near`・`keyword_added`・`keyword_limit`・`unmatched_day`・`area_changed`・`sync`・`out_of_area`・`login`・`backup`・`wake`・`rescan`・`recovered`・`test`）、`failed` は「送れなかった」の印、`read` は既読。
   - `link` は通知が指す Web UI の画面のパスで（接続先の URL は含まない）、ジョブの出来事（`recorded`・`missing`・`expired`・`skipped`・`skip_planned`・`unskipped`・`deadline_near`）は `/jobs/{id}`、`keyword_added`（足した先の番組）と `unmatched_day` は `/shows/{番組の名前}`（名前はパスの 1 区切りとしてエスケープし、`/` も `%2F` にする）、`keyword_limit` は `/keywords`。
-  - サービスの異常・復旧・テスト通知には付かず、キーごと出さない。
+  - 自分のエリアが変わった（`area_changed`）・サービスの異常・復旧・テスト通知には付かず、キーごと出さない。
   - 番組の名前を変えたら、その番組を指す通知の `link` も新しい名前になる。
   - 指す先のジョブ・番組が今もあるかは確かめない（無ければ開いた画面が一覧に移す。[web-ui.md の「ナビと URL」](web-ui.md#ナビと-url)）。
 - `POST /api/notifications/read`: 未読の通知を全部既読にする。200 と `{"marked": <既読にした数>}`。通知の画面が呼ぶ。
@@ -138,7 +138,7 @@ groups:
 - `GET /api/settings`: 今の設定。`{"settings": {...}, "secrets": {"<秘密の名前>": {"set": <設定済みか>, "unreadable": <復号できないか>}}, "library_set": <保存先が決まっているか>, "unreadable_secrets": [<復号できない秘密の名前>, ...], "last_backup_at": <最後に自動のバックアップを取れた時刻（RFC 3339）。まだ取れていないなら null>}`。`settings` のキーは [設定](settings.md) の表のキー（`library`・`notify` の `channel` など）で、秘密の値は含まない。秘密の名前は `notify.discord_webhook`・`notify.slack_webhook`・`notify.smtp.password`・`jellyfin.api_key`・`radiko.password`。復号できない秘密は `set` も `true`。
 - `PATCH /api/settings`: body は `settings` と同じ形の JSON で、書いた項目だけを変える。秘密は `notify.discord_webhook` などの位置に値を書き、空の文字列なら消す。Web UI の設定の画面が呼ぶ。成功すると 200 と、`GET` と同じ形の当てた後の設定。
 - 知らないキー・JSON が読めない・値の誤り（[設定](settings.md)の確かめと同じ）・保存先のフォルダを作れない・書けないときは 400 で、何も当てない。
-- 保存したら、再起動しなくてもすぐに効く（`radiko.program_cache_mb` を除く）（`GET /api/notifications/status` の `channel` も、保存した通知先の種類になる）。`membership` を変えたら、番組表の API の範囲も変わり、まだ終わっていないジョブの録音期限も付け直す（[settings.md の「会員種別と radiko のログイン」](settings.md#会員種別と-radiko-のログインmembership)）。
+- 保存したら、再起動しなくてもすぐに効く（`radiko.program_cache_mb` を除く）（`GET /api/notifications/status` の `channel` も、保存した通知先の種類になる）。`membership` を変えたら、番組表の API の範囲も変わり、まだ終わっていないジョブの録音期限も、保存を待たずに付け直す（[settings.md の「会員種別と radiko のログイン」](settings.md#会員種別と-radiko-のログインmembership)）。
 
 ### フォルダ
 

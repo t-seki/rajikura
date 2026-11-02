@@ -56,3 +56,24 @@ func (s *Store) SetLastBackupAt(ctx context.Context, at time.Time) error {
 		ON CONFLICT (key) DO UPDATE SET value = excluded.value`, keyLastBackupAt, formatTime(at))
 	return err
 }
+
+// keyOwnArea は、最後に見た自分のエリア（radiko の認証の応答のエリア ID）の app_state のキー
+// （docs/adr/0032-revise-deadlines-when-own-area-changes.md）。設定（人が変える値）ではないので、ここに置く。
+const keyOwnArea = "own_area"
+
+// OwnArea は、最後に見た自分のエリアのエリア ID を返す。まだ覚えていなければ空。
+func (s *Store) OwnArea(ctx context.Context) (string, error) {
+	var v string
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM app_state WHERE key = ?`, keyOwnArea).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return v, err
+}
+
+// SetOwnArea は、最後に見た自分のエリアを area に記録する。
+func (s *Store) SetOwnArea(ctx context.Context, area string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO app_state (key, value) VALUES (?, ?)
+		ON CONFLICT (key) DO UPDATE SET value = excluded.value`, keyOwnArea, area)
+	return err
+}

@@ -786,22 +786,34 @@ func (s *Store) LatestAttemptsFromDay(ctx context.Context, day domain.BroadcastD
 	return out, rows.Err()
 }
 
-// ReviseDeadlines は、まだ終わっていないジョブ（waiting・retrying・skipped・running）の録音期限を、会員種別 m で付け直す
-// （会員種別を保存したとき。docs/adr/0030-radiko-login-follows-chosen-membership.md）。録音期限は DB の放送回から
-// domain.JobDeadline で求める。retrying のジョブの次の試行が新しい録音期限より後なら、録音期限に寄せる（録音期限を過ぎたら、
-// 次の試行で取れた分を保存するか expired にするかを決めるため）。running のジョブは録音期限の列だけを付け直す（試行を始めたときの
-// 写しは変わらないので、試行の後の再試行・期限の判定が DB から読み直す。app.runJob）。done・expired のジョブは触らない。
-// 付け直したジョブの数を返す。
-func (s *Store) ReviseDeadlines(ctx context.Context, m domain.Membership) (int, error) {
-	n := 0
+// RevisedDeadlines は録音期限の付け直し（ReviseDeadlines）の結果。
+type RevisedDeadlines struct {
+	// Revised は録音期限を付け直したジョブの数。
+	Revised int
+	// Passed は、そのうち新しい録音期限が今（付け直した時刻）を過ぎた値になったジョブの数。
+	Passed int
+}
+
+// ReviseDeadlines は録音期限の付け直し（docs/adr/0030-radiko-login-follows-chosen-membership.md・
+// docs/adr/0032-revise-deadlines-when-own-area-changes.md）。会員種別を保存したときと、自分のエリアが変わったときの両方で使う。
+// まだ終わっていないジョブ（waiting・retrying・skipped・running）の録音期限を、今の会員種別 m と今の自分のエリアの局一覧 own
+// （nil なら分からない）で、DB の放送回から domain.ReviseJobDeadline で求め直す。録音の方式（ライブかタイムフリーか）は変えない
+// （放送回の印 job_airings.out_of_area は書き直さない。展開が触るジョブは、次の展開がその時点の自分のエリアで書き直す）。
+//
+// retrying のジョブの次の試行が新しい録音期限より後なら、録音期限に寄せる（録音期限を過ぎたら、次の試行で取れた分を保存するか
+// expired にするかを決めるため）。running のジョブは録音期限の列だけを付け直す（試行を始めたときの写しは変わらないので、試行の後の
+// 再試行・期限の判定が DB から読み直す。app.runJob）。新しい録音期限が now を過ぎていれば、期限間近を出さないように、期限間近を
+// 通知した時刻（deadline_notified_at）を now にして通知済みにする（もう通知していれば前の値のまま）。done・expired のジョブは触らない。
+func (s *Store) ReviseDeadlines(ctx context.Context, m domain.Membership, own map[string]bool, now time.Time) (RevisedDeadlines, error) {
+	var r RevisedDeadlines
 	err := s.tx(ctx, func(tx *sql.Tx) error {
-		n = 0
+		r = RevisedDeadlines{}
 		jobs, err := queryJobs(ctx, tx, `WHERE state IN ('waiting', 'retrying', 'skipped', 'running')`)
 		if err != nil {
 			return err
 		}
 		for _, j := range jobs {
-			d := domain.JobDeadline(j.Airings, m)
+			d := domain.ReviseJobDeadline(j, m, own)
 			if d.IsZero() || d.Equal(j.Deadline) {
 				continue
 			}
@@ -809,13 +821,18 @@ func (s *Store) ReviseDeadlines(ctx context.Context, m domain.Membership) (int, 
 			if j.State == domain.StateRetrying && next.After(d) {
 				next = d
 			}
-			if _, err := tx.ExecContext(ctx, `UPDATE jobs SET deadline = ?, next_attempt_at = ? WHERE id = ?`,
-				formatTime(d), formatTime(next), j.ID); err != nil {
+			passed := !d.After(now)
+			if _, err := tx.ExecContext(ctx, `UPDATE jobs SET deadline = ?, next_attempt_at = ?,
+				deadline_notified_at = CASE WHEN ? AND deadline_notified_at = '' THEN ? ELSE deadline_notified_at END WHERE id = ?`,
+				formatTime(d), formatTime(next), boolInt(passed), formatTime(now), j.ID); err != nil {
 				return fmt.Errorf("ジョブ %d の録音期限を付け直せない: %w", j.ID, err)
 			}
-			n++
+			r.Revised++
+			if passed {
+				r.Passed++
+			}
 		}
 		return nil
 	})
-	return n, err
+	return r, err
 }

@@ -30,6 +30,7 @@ const kindColor: Record<string, string> = {
   keyword_added: "indigo",
   keyword_limit: "grape",
   unmatched_day: "cyan",
+  area_changed: "violet",
   test: "gray",
 };
 

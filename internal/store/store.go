@@ -2,7 +2,8 @@
 // 当たらない日の記録（unmatched_days）は、その当たらない日を通知したかの印（notified_at）も持ち、通知と同じトランザクションで立てる（unmatched.go）。
 // キーワードの判定と、1 回の予約・番組・記録・通知の書き込みは 1 つのトランザクションで行う（keywords.go の ApplyKeywords）。
 // 通知は 1 件ずつ notifications の行にする（種類・本文・作った時刻・送った時刻・送れなかった印・既読。notify.go）。
-// ジョブの期限間近を通知した時刻（jobs.deadline_notified_at）は、期限間近を 2 度通知しないために持つ。
+// ジョブの期限間近を通知した時刻（jobs.deadline_notified_at）は、期限間近を 2 度通知しないために持つ。録音期限の付け直し
+// （ReviseDeadlines）で録音期限が過ぎた値になったジョブにも、期限間近を出さないように、付け直した時刻で立てる（通知はしていない）。
 // ジョブの id は AUTOINCREMENT で振り、消したジョブの id を別のジョブに使い回さない（docs/adr/0026-job-id-not-reused.md）。
 // 最後にジョブを保存した時刻は app_state に持ち、/metrics を再起動で 0 に戻さないために使う（app_state.go）。
 // Web UI のパスワードの bcrypt の hash も app_state に持つ（password.go。docs/adr/0016-first-password-by-setup-code.md）。

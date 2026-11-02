@@ -229,6 +229,8 @@ func TestSettingsAppliedMembership(t *testing.T) {
 	if got := e.app.membership(); got != domain.MembershipTimeFree30 {
 		t.Fatalf("membership = %s, want timefree30（保存したらすぐ効く）", got)
 	}
+	// 録音期限の付け直しは展開役が行う（保存は待たない）。
+	e.expandPending()
 	thirty := domain.JobDeadline(j.Airings, domain.MembershipTimeFree30)
 	if j := e.job(flatShow.Name); !j.Deadline.Equal(thirty) || thirty.Equal(free) {
 		t.Fatalf("deadline = %v, want %v（30 日に付け直す）", j.Deadline, thirty)
@@ -243,6 +245,7 @@ func TestSettingsAppliedMembership(t *testing.T) {
 	if _, err := s.Apply(e.ctx, config.Patch{Radiko: &config.RadikoPatch{Password: &pass2}}); err != nil {
 		t.Fatal(err)
 	}
+	e.expandPending()
 	if tok, err := c.Authenticate(e.ctx); err != nil || tok.Session != "sess2" {
 		t.Fatalf("token = %+v, %v; want a new session", tok, err)
 	}
@@ -255,6 +258,7 @@ func TestSettingsAppliedMembership(t *testing.T) {
 	if _, err := s.Apply(e.ctx, config.Patch{Membership: &freeM}); err != nil {
 		t.Fatal(err)
 	}
+	e.expandPending()
 	if j := e.job(flatShow.Name); !j.Deadline.Equal(free) {
 		t.Fatalf("deadline = %v, want %v", j.Deadline, free)
 	}

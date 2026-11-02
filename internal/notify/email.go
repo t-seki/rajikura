@@ -33,6 +33,7 @@ var emailSubjects = map[string]string{
 	KindKeywordAdded: "キーワードで録音予定",
 	KindKeywordLimit: "キーワードの上限",
 	KindUnmatchedDay: "当たらない日",
+	KindAreaChanged:  "自分のエリアが変わった",
 	KindSync:         "番組表の同期の失敗",
 	KindOutOfArea:    "エリア外",
 	KindLogin:        "radiko のログインの失敗",
