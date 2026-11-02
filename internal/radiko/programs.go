@@ -273,9 +273,20 @@ func parseStationPrograms(st xmlProgramStation, stationID string) ([]Program, er
 // EnableProgramCache を有効にしていると、最大 60 秒古い版が返りうる（cache.go）。
 // day は暦日だけを使う（放送日は 05:00〜翌 04:59 の範囲）。
 func (c *Client) Programs(ctx context.Context, stationID string, day time.Time) ([]Program, error) {
+	return c.stationPrograms(ctx, stationID, day, readNormal)
+}
+
+// ProgramsRelaxed は Programs と同じ番組表を、取り直しを緩めて返す（全国の検索と、全国の番組表の取り込みが使う。ADR 0035）。
+// EnableProgramCache を有効にしていると、放送日が終わった後（その放送日の翌朝 5 時より後）に取った分は、範囲の外に出るまで
+// radiko に尋ねずに返し、ほかは取ってから 6 時間は尋ねずに返す（cache.go）。番組表の同期・録音の前の取り直しは Programs を使う。
+func (c *Client) ProgramsRelaxed(ctx context.Context, stationID string, day time.Time) ([]Program, error) {
+	return c.stationPrograms(ctx, stationID, day, readRelaxed)
+}
+
+func (c *Client) stationPrograms(ctx context.Context, stationID string, day time.Time, mode readMode) ([]Program, error) {
 	u := fmt.Sprintf("%s/v3/program/station/date/%s/%s.xml",
 		strings.TrimRight(c.ProgramHost, "/"), day.In(JST).Format("20060102"), url.PathEscape(stationID))
-	data, err := c.getProgramXML(ctx, u, day)
+	data, err := c.getProgramXML(ctx, u, day, stationID, mode)
 	if err != nil {
 		return nil, err
 	}
@@ -297,7 +308,7 @@ type AreaStation struct {
 func (c *Client) AreaPrograms(ctx context.Context, areaID string, day time.Time) ([]AreaStation, error) {
 	u := fmt.Sprintf("%s/v3/program/date/%s/%s.xml",
 		strings.TrimRight(c.ProgramHost, "/"), day.In(JST).Format("20060102"), url.PathEscape(areaID))
-	data, err := c.getProgramXML(ctx, u, day)
+	data, err := c.getProgramXML(ctx, u, day, "", readNormal)
 	if err != nil {
 		return nil, err
 	}
@@ -366,6 +377,8 @@ type AreaList struct {
 	Areas []Area
 	// StationArea は局 ID → その局のエリア ID（full.xml の station の area_id）。
 	StationArea map[string]string
+	// Stations は full.xml の局（局 ID と局名）を、full.xml の順に重ねなしで並べたもの（全国の検索が探す局。ADR 0035）。
+	Stations []Station
 }
 
 // prefectures は都道府県の番号（エリア ID の JP の後ろ）→ 名前。JP13 = 東京都のように、エリア ID は都道府県の番号に揃う
@@ -400,6 +413,7 @@ func AreaName(areaID string) string {
 
 type xmlAreaStation struct {
 	ID     string `xml:"id"`
+	Name   string `xml:"name"`
 	AreaID string `xml:"area_id"`
 }
 
@@ -407,7 +421,7 @@ type xmlAreaStations struct {
 	Stations []xmlAreaStation `xml:"stations>station"`
 }
 
-// Areas は full.xml の局の area_id から、エリアの一覧と局→エリアの対応を作る。
+// Areas は full.xml の局の area_id から、エリアの一覧と局→エリアの対応と、局の一覧（area_id のある局）を作る。
 func (c *Client) Areas(ctx context.Context) (AreaList, error) {
 	data, err := c.getXML(ctx, strings.TrimRight(c.ProgramHost, "/")+"/v3/station/region/full.xml")
 	if err != nil {
@@ -423,6 +437,9 @@ func (c *Client) Areas(ctx context.Context) (AreaList, error) {
 		id, area := strings.TrimSpace(s.ID), strings.TrimSpace(s.AreaID)
 		if id == "" || area == "" {
 			continue
+		}
+		if _, dup := out.StationArea[id]; !dup {
+			out.Stations = append(out.Stations, Station{ID: id, Name: strings.TrimSpace(s.Name)})
 		}
 		out.StationArea[id] = area
 		if !seen[area] {

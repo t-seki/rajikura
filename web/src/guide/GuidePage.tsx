@@ -540,7 +540,7 @@ function AiringRow({
   return (
     <UnstyledButton
       onClick={(e: ReactMouseEvent) => onOpen(a, modsOf(e))}
-      aria-label={withDate ? `${a.stationName} ${dayLabel(broadcastDayOf(a.start))} ${airingLabel(a)}` : airingLabel(a, onAir)}
+      aria-label={withDate ? `${stationLabel(a)} ${dayLabel(broadcastDayOf(a.start))} ${airingLabel(a)}` : airingLabel(a, onAir)}
       aria-pressed={selected || undefined}
       data-selected={selected || undefined}
       style={{
@@ -559,7 +559,7 @@ function AiringRow({
                 {ON_AIR_LABEL}
               </Text>
             )}
-            {withDate ? `${broadcastRange(a)} ${a.stationName}` : broadcastRange(a)}
+            {withDate ? `${broadcastRange(a)} ${stationLabel(a)}` : broadcastRange(a)}
           </Text>
           <Text size="sm">{withDate ? <Highlight text={a.title} query={query} /> : a.title}</Text>
           {withDate && a.performer && (
@@ -573,6 +573,13 @@ function AiringRow({
     </UnstyledButton>
   );
 }
+
+/** 検索の結果の局名。全国の検索で自分のエリアの外の局なら、局のエリアの名前を添える（例: 「MBSラジオ（大阪府）」）。 */
+export const stationLabel = (a: Pick<GuideAiring, "stationName" | "stationAreaName">) =>
+  a.stationAreaName ? `${a.stationName}（${a.stationAreaName}）` : a.stationName;
+
+/** 全国の検索で、結果を待っている間に出す文。 */
+export const NATIONWIDE_LOADING = "全国の番組表を取っています（初めは数十秒かかります）";
 
 /** 検索の結果を、放送回の放送日（5 時区切り）ごとの見出しで区切る（結果は開始時刻の順。行の時刻は放送日の時刻）。 */
 function SearchResults({
@@ -673,9 +680,9 @@ function airingStart(param: string): Date | null {
 
 /**
  * 番組表が URL のクエリに載せる状態（ブラウザに覚えていないもの）。day は表示する放送日の範囲の中だけ、それ以外は null。
- * area は自分のエリア以外を選んだときのエリア ID（自分のエリアは空）。
+ * area は自分のエリア以外を選んだときのエリア ID（自分のエリアは空）。all は検索の対象に全国を選んでいるか（`?scope=all`）。
  */
-type GuideQuery = { day: string | null; q: string; area: string; airing: string | null };
+type GuideQuery = { day: string | null; q: string; area: string; all: boolean; airing: string | null };
 
 function parseGuideQuery(search: string, days: string[]): GuideQuery {
   const p = new URLSearchParams(search);
@@ -684,16 +691,18 @@ function parseGuideQuery(search: string, days: string[]): GuideQuery {
     day: day && days.includes(day) ? day : null,
     q: (p.get("q") ?? "").trim(),
     area: (p.get("area") ?? "").trim(),
+    all: p.get("scope") === "all",
     airing: p.get("airing") || null,
   };
 }
 
 /** 番組表の URL のクエリ（`?` から。何も無ければ空）。 */
-function guideQuery({ day, q, area, airing }: GuideQuery): string {
+function guideQuery({ day, q, area, all, airing }: GuideQuery): string {
   const p = new URLSearchParams();
   if (day) p.set("day", day);
   if (q) p.set("q", q);
   if (area) p.set("area", area);
+  if (all) p.set("scope", "all");
   if (airing) p.set("airing", airing);
   const out = p.toString();
   return out ? `?${out}` : "";
@@ -715,7 +724,12 @@ const sortedUnique = (as: GuideAiring[]) =>
  * onCreateKeyword は検索の結果の「このキーワードで録音」で、検索の語を入れたキーワードの作るダイアログを開く。
  * 会員種別がエリアフリー・ダブルプランのときだけ、放送日の隣にエリアの切り替えを出す（GET /api/guide/areas の switchable）。既定は自分のエリアで、
  * 選んだエリアの番組表（と検索）を出し、自分のエリア以外は URL の `?area=` に載せる。切り替えられないエリアを URL が指していれば、自分のエリアにする。
- * onNavigate があれば、放送日・検索の語・エリア・詳細を開いた放送回を URL のクエリ（search。`?day=`・`?q=`・`?area=`・`?airing=`）と揃える（ADR 0024）:
+ * 同じく会員種別がエリアフリー・ダブルプランのときだけ、検索の欄の横に検索の対象（「自分のエリア」「全国」）の切り替えを出す（既定は自分のエリア）。
+ * 全国を選んだら全国の検索（用語集。ADR 0035）で探し、URL の `?scope=all` に載せる（ブラウザには覚えない）。全国を選んでいる間は、
+ * エリアの切り替えで選んだエリアは検索に効かない（グリッドにだけ効く）。結果を待つ間は NATIONWIDE_LOADING を出し、番組表を一部取れなかった
+ * 局があれば、その数を出す。全国の検索の結果では「このキーワードで録音」を出さない。切り替えられない会員種別で URL が `?scope=all` を
+ * 指していれば、自分のエリアにして URL を直す。
+ * onNavigate があれば、放送日・検索の語・エリア・検索の対象・詳細を開いた放送回を URL のクエリ（search。`?day=`・`?q=`・`?area=`・`?scope=`・`?airing=`）と揃える（ADR 0024）:
  * 開いたときと、「戻る」などで search が変わったときはクエリの状態にし、状態を変えたら onNavigate でクエリを書き換える
  * （詳細を開くのは push、閉じるのは close、放送日と検索の語は replace）。今日の放送日はクエリに載せない。範囲の外の放送日は
  * 今日にし、クエリを直す。指す放送回が無ければ、詳細を開かない。
@@ -753,11 +767,17 @@ export function GuidePage({
   const [showHidden, setShowHidden] = useState(false);
   // 選んだエリアの ID（空 = 自分のエリア）。URL に切り替えられないエリアがあれば、エリアの一覧を読んで確かめるまで番組表を読まない
   const [area, setArea] = useState(initial.area);
-  // 番組表を読む前に、エリアの一覧（エリアの切り替えと過去の範囲）を待つか。URL がエリアか、7 日より前の放送日を指しているときだけ待つ
-  const [areaChecked, setAreaChecked] = useState(initial.area === "" && (initial.day === null || initial.day >= addDays(today, -DEFAULT_PAST_DAYS)));
+  // 番組表を読む前に、エリアの一覧（エリアの切り替えと過去の範囲）を待つか。URL がエリアか全国の検索か、7 日より前の放送日を指しているときだけ待つ
+  const [areaChecked, setAreaChecked] = useState(
+    initial.area === "" && !initial.all && (initial.day === null || initial.day >= addDays(today, -DEFAULT_PAST_DAYS)),
+  );
   const [areas, setAreas] = useState<GuideAreas | null>(null);
   const areaRef = useRef(area);
   areaRef.current = area;
+  // 検索の対象に全国を選んでいるか（URL の `?scope=all`。ブラウザには覚えない）
+  const [all, setAll] = useState(initial.all);
+  const allRef = useRef(all);
+  allRef.current = all;
   const [query, setQuery] = useState(initial.q);
   const [search, setSearch] = useState<SearchResult | null>(null);
   const [searching, setSearching] = useState(initial.q !== "");
@@ -817,6 +837,10 @@ export function GuidePage({
         setDay((d) => (d < addDays(today, -past) ? today : d));
         const a = areaRef.current;
         if (a && (!got.switchable || a === got.own || !got.areas.some((x) => x.id === a))) setArea("");
+        if (!got.switchable) {
+          allRef.current = false;
+          setAll(false);
+        }
         setAreaChecked(true);
       },
       () => {
@@ -825,6 +849,8 @@ export function GuidePage({
         setAreasSettled(true);
         setDay((d) => (d < addDays(today, -DEFAULT_PAST_DAYS) ? today : d));
         if (areaRef.current) setArea("");
+        allRef.current = false;
+        setAll(false);
         setAreaChecked(true);
       },
     );
@@ -833,21 +859,25 @@ export function GuidePage({
     };
   }, []);
 
-  // 選んだエリアを変えたら、流している検索も新しいエリアでやり直す（最初の描画では流さない）
+  // 選んだエリアか検索の対象を変えたら、流している検索も流し直す（最初の描画では流さない。全国を選んでいる間のエリアの変化では流さない）
   const prevArea = useRef(area);
+  const prevAll = useRef(all);
   useEffect(() => {
-    if (prevArea.current === area) return;
+    const areaChanged = prevArea.current !== area && !all;
+    const allChanged = prevAll.current !== all;
     prevArea.current = area;
+    prevAll.current = all;
+    if (!areaChanged && !allChanged) return;
     if (activeQ) void runSearch(activeQ);
-    // 流し直すのはエリアが変わったときだけ（activeQ・runSearch の変化では流さない）
-  }, [area]);
+    // 流し直すのはエリアか対象が変わったときだけ（activeQ・runSearch の変化では流さない）
+  }, [area, all]);
 
   const runSearch = useCallback(async (q: string) => {
     setActiveQ(q);
     setSearching(true);
     setError(null);
     try {
-      setSearch(await searchGuide(q, areaRef.current));
+      setSearch(await searchGuide(q, areaRef.current, allRef.current));
     } catch (e) {
       setError(message(e, "番組表を検索できない"));
     } finally {
@@ -1074,6 +1104,9 @@ export function GuidePage({
     // 切り替えられないエリアは自分のエリアにする（エリアの一覧を読む前は、そのまま持っておいて一覧で確かめる）
     const ua = areas && (!areas.switchable || u.area === areas.own || !areas.areas.some((x) => x.id === u.area)) ? "" : u.area;
     if (ua !== area) setArea(ua);
+    // 全国の検索も、選べない会員種別（一覧を読めなかったときも）なら自分のエリアにする（一覧を読む前は、そのまま持っておいて一覧で確かめる）
+    const uall = u.all && (areas ? areas.switchable : !areasSettled);
+    if (uall !== all) setAll(uall);
     if (u.q !== activeQ) {
       if (u.q) {
         setQuery(u.q);
@@ -1096,11 +1129,11 @@ export function GuidePage({
   useEffect(() => {
     if (!onNavigate) return;
     const airing = opened ? airingParam(opened) : pendingAiring;
-    const next = guideQuery({ day: day === today ? null : day, q: activeQ, area, airing });
+    const next = guideQuery({ day: day === today ? null : day, q: activeQ, area, all, airing });
     if (next === urlSearch) return;
     const was = new URLSearchParams(urlSearch).get("airing");
     onNavigate(next, !was && airing ? "push" : was && !airing ? "close" : "replace");
-  }, [day, today, activeQ, area, opened, pendingAiring]);
+  }, [day, today, activeQ, area, all, opened, pendingAiring]);
 
   const selected = stations?.find((s) => s.id === stationId) ?? stations?.[0];
   // 選択の放送回は、取り直した番組表のものに差し替える（状態を新しくする）
@@ -1202,6 +1235,17 @@ export function GuidePage({
           <Button type="submit" loading={searching}>
             検索
           </Button>
+          {areas?.switchable && (
+            <SegmentedControl
+              aria-label="検索の対象"
+              data={[
+                { value: "own", label: "自分のエリア" },
+                { value: "all", label: "全国" },
+              ]}
+              value={all ? "all" : "own"}
+              onChange={(v) => setAll(v === "all")}
+            />
+          )}
           {search && (
             <Button
               variant="default"
@@ -1216,6 +1260,11 @@ export function GuidePage({
           )}
         </Group>
       </form>
+      {searching && all && (
+        <Text size="sm" c="dimmed" role="status">
+          {NATIONWIDE_LOADING}
+        </Text>
+      )}
 
       {search ? (
         <Stack gap="xs" aria-label="検索結果">
@@ -1223,12 +1272,17 @@ export function GuidePage({
             <Text size="sm">
               「{search.q}」: {search.airings.length} 件
             </Text>
-            {!area && (
+            {!area && search.scope !== "all" && (
               <Button size="xs" variant="light" onClick={() => onCreateKeyword(search.q)}>
                 このキーワードで録音
               </Button>
             )}
           </Group>
+          {(search.failedStations ?? 0) > 0 && (
+            <Alert color="yellow" role="status">
+              {search.failedStations} 局の番組表を一部取れなかった。
+            </Alert>
+          )}
           {search.truncated && (
             <Alert color="yellow" role="status">
               500 件を超えたので、キーワードを絞ってください。
