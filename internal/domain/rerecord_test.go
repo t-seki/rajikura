@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-// 録り直しを受け付けるのは、done のタイムフリーから録るジョブで、今の会員種別で計算した録音期限の内側のものだけ。断る理由は、done でない・
-// ライブで録るジョブ・録音期限を過ぎた、で分かれる（ADR 0031）。ライブ録音の録れた分を残している間の例外は当てない。
+// 録り直しを受け付けるのは、done のタイムフリーから録るジョブで、今の会員種別と今の自分のエリアの局一覧（own）で計算した録音期限の内側のものだけ。断る理由は、done でない・
+// ライブで録るジョブ・録音期限を過ぎた、で分かれる（ADR 0036）。ライブ録音の録れた分を残している間の例外は当てない。
 func TestCheckRerecord(t *testing.T) {
 	end := jst(2026, 10, 7, 13, 0)
 	// 放送日（10/7）の終わり（翌 05:00）に 7 日を足した 10/15 05:00 が、非会員の録音期限。
@@ -40,7 +40,7 @@ func TestCheckRerecord(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := CheckRerecord(tt.job, tt.m, tt.now)
+			err := CheckRerecord(tt.job, tt.m, nil, tt.now)
 			if tt.want == nil {
 				if err != nil {
 					t.Fatalf("CheckRerecord = %v, want nil", err)
@@ -48,6 +48,36 @@ func TestCheckRerecord(t *testing.T) {
 				return
 			}
 			if !errors.Is(err, tt.want) {
+				t.Fatalf("CheckRerecord = %v, want %v", err, tt.want)
+			}
+		})
+	}
+}
+
+// 録り直しの録音期限は、今の自分のエリアの局一覧 own でも決める（ADR 0036）。録ったときは自分のエリアの局で、今はエリアの外の局に
+// なった放送回は、エリアフリー・ダブルプランで tsplus_out_ng が 0 でなければ、7 日を過ぎると断る。own が nil なら放送回の印のまま。
+func TestCheckRerecordUsesOwnStations(t *testing.T) {
+	end := jst(2026, 10, 7, 13, 0)
+	job := Job{State: StateDone, Airings: []Airing{{StationID: "FM", Start: end.Add(-time.Hour), End: end}}}
+	job.Airings[0].TimeFree.PlusOutNG = 1 // 自分のエリアの外からはタイムフリー30 で聴けない
+	later := jst(2026, 10, 16, 5, 0)      // 10/7 の放送日の終わりから 7 日を過ぎ、30 日の内側
+	inArea := map[string]bool{"FM": true}
+	outArea := map[string]bool{"TBS": true}
+	tests := []struct {
+		name string
+		m    Membership
+		own  map[string]bool
+		want error
+	}{
+		{"エリアフリーは局一覧に依らず 7 日（8 日目以降は断る）", MembershipAreaFree, inArea, ErrRerecordPastDeadline},
+		{"ダブルプラン・今はエリアの外・8 日目以降は断る", MembershipDouble, outArea, ErrRerecordPastDeadline},
+		{"ダブルプラン・今もエリアの中", MembershipDouble, inArea, nil},
+		{"局一覧が nil なら放送回の印のまま", MembershipDouble, nil, nil},
+		{"タイムフリー30 は局一覧を使わない", MembershipTimeFree30, outArea, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := CheckRerecord(job, tt.m, tt.own, later); !errors.Is(err, tt.want) {
 				t.Fatalf("CheckRerecord = %v, want %v", err, tt.want)
 			}
 		})

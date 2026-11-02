@@ -112,7 +112,7 @@ func TestChapterWaitFlow(t *testing.T) {
 	if err := s.Complete(ctx, id2, "/lib/y.m4a", nil, domain.ChapterStatus{Chapters: domain.ChaptersWaiting, CheckAt: check, Waits: waits}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Rerecord(ctx, id2, domain.MembershipFree, now); err != nil {
+	if err := s.Rerecord(ctx, id2, domain.MembershipFree, nil, now); err != nil {
 		t.Fatal(err)
 	}
 	if j := get(t, id2); j.State != domain.StateRetrying || j.Chapters != domain.ChaptersNotAdded || !j.ChapterCheckAt.IsZero() ||

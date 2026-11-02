@@ -53,8 +53,8 @@ func ParseState(s string) (State, error) {
 //	expired → retrying           人が手動で再試行した（試行回数の上限は数え直す。録音期限の内側に限るが、ライブで録るジョブで
 //	                             録れた分を作業用フォルダに残している間（LiveKeepUntil の前）は、録音期限を過ぎていてもよい）
 //	skipped → retrying           人が手動で再試行した・「録る」を選んだ（確定した録らなかったのジョブを録らせる）
-//	done → retrying              人が録り直しを選んだ（タイムフリーから録るジョブで、今の会員種別で計算した録音期限
-//	                             （RerecordDeadline）の内側に限る。CheckRerecord。ADR 0031）
+//	done → retrying              人が録り直しを選んだ（タイムフリーから録るジョブで、今の会員種別と今の自分のエリアの局一覧で
+//	                             計算した録音期限（RerecordDeadline）の内側に限る。CheckRerecord。ADR 0036）
 //	waiting → skipped            確定の前の展開が番組名の食い違いで録らないと決めた・最初の試行の時刻を過ぎた展開で
 //	                             録らないと決めた・人が「録らない」を選んだ（試行がまだ 1 度も無いもの）
 //	skipped → waiting            確定の前の展開が、番組名が直ったので録ると決めた・人が確定の前に「録る」を選んだ

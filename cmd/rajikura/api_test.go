@@ -42,6 +42,12 @@ type testAPI struct {
 // newTestAPI は API を立て、API トークンを発行する。CLI の環境は isolateClient で切り離す。
 func newTestAPI(t *testing.T) *testAPI {
 	t.Helper()
+	return newTestAPIWith(t, nil)
+}
+
+// newTestAPIWith は newTestAPI の、UI を組んだ後に tweak で書き換えられる版（tweak が nil なら newTestAPI と同じ）。
+func newTestAPIWith(t *testing.T, tweak func(*server.UI)) *testAPI {
+	t.Helper()
 	isolateClient(t)
 	db := filepath.Join(t.TempDir(), "rajikura.db")
 	st, err := store.Open(context.Background(), db)
@@ -53,6 +59,9 @@ func newTestAPI(t *testing.T) *testAPI {
 	ui := &server.UI{
 		Sessions: st, Passwords: st, Shows: st, Onces: st, Keywords: st, Jobs: st, Tokens: st, Backups: st,
 		Files: fstest.MapFS{"index.html": {Data: []byte("x")}},
+	}
+	if tweak != nil {
+		tweak(ui)
 	}
 	srv := httptest.NewServer(server.Handler(server.Health{LastPoll: time.Now}, ui))
 	t.Cleanup(srv.Close)

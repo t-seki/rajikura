@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -384,7 +385,7 @@ func recordJobs(ctx context.Context, connect func() (*client.Client, error), arg
 func rerecordJobs(ctx context.Context, connect func() (*client.Client, error), args []string, stdout, stderr io.Writer) error {
 	return jobAction(ctx, connect, args, stdout, stderr, jobOp{
 		name: "rerecord", done: "録り直しにした", failed: "録り直しにできなかった",
-		call: (*client.Client).RerecordJob, refusal: rerecordRefusal,
+		call: (*client.Client).RerecordJob, refusal: rerecordRefusal, refusalByMessage: rerecordRefusalByMessage,
 	})
 }
 
@@ -430,6 +431,9 @@ type jobOp struct {
 	call func(c *client.Client, ctx context.Context, id int64) error
 	// refusal は 409 で拒まれたわけを、ジョブの今の状態から作る。
 	refusal func(ctx context.Context, c *client.Client, id int64) string
+	// refusalByMessage は、ジョブの状態では見分けられない 409 のわけを、serve の答えの文（APIError.Message）から作る。
+	// 空を返したら refusal を使う。nil なら使わない。
+	refusalByMessage func(msg string) string
 }
 
 // jobAction は op を ID ごとに行う。ID ごとに結果を 1 行出し、拒まれた ID があってもほかの ID は続ける。1 件でも拒まれたら
@@ -472,7 +476,15 @@ func jobAction(ctx context.Context, connect func() (*client.Client, error), args
 			fmt.Fprintf(stdout, "ジョブ %d: 拒んだ（ID が無い）\n", id)
 		case client.IsStatus(err, http.StatusConflict):
 			refused++
-			fmt.Fprintf(stdout, "ジョブ %d: 拒んだ（%s）\n", id, op.refusal(ctx, c, id))
+			why := ""
+			var ae *client.APIError
+			if op.refusalByMessage != nil && errors.As(err, &ae) {
+				why = op.refusalByMessage(ae.Message)
+			}
+			if why == "" {
+				why = op.refusal(ctx, c, id)
+			}
+			fmt.Fprintf(stdout, "ジョブ %d: 拒んだ（%s）\n", id, why)
 		default:
 			return err
 		}
@@ -503,6 +515,15 @@ func retryRefusal(ctx context.Context, c *client.Client, id int64) string {
 		return "録音期限を過ぎている。ライブ録音で録れた分を残しているジョブなら、保存か検証の段階の失敗から 30 日の間は再試行できるが、それも過ぎているか、録れた分が無い"
 	}
 	return fmt.Sprintf("状態が %s で、再試行できるのは retrying・expired・skipped（録らなかった）だけ", j.State)
+}
+
+// rerecordRefusalByMessage は、自分のエリアの局一覧を取れずに拒まれた（domain.ErrRerecordAreaUnknown）ときのわけを返す
+// （ジョブの状態からは見分けられないので、serve の答えの文で見分ける）。ほかは空。
+func rerecordRefusalByMessage(msg string) string {
+	if strings.HasPrefix(msg, domain.ErrRerecordAreaUnknown.Error()) {
+		return "自分のエリアの局一覧を取れないので、いまは録り直せない。後でやり直す"
+	}
+	return ""
 }
 
 // rerecordRefusal は、録り直しを拒まれた（409）わけを、ジョブの今の状態から作る（domain.CheckRerecord と同じ）。

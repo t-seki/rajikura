@@ -168,27 +168,32 @@ var (
 	ErrRerecordLive = errors.New("ライブ録音は録り直せない")
 	// ErrRerecordPastDeadline は、録音期限を過ぎているので録り直せないこと。
 	ErrRerecordPastDeadline = errors.New("録音期限を過ぎているので録り直せない")
+	// ErrRerecordAreaUnknown は、自分のエリアの局一覧を取れない（または空）ので、録音期限を求められず録り直せないこと。
+	// CheckRerecord は返さない。局一覧を取る側（internal/server）が、store を呼ぶ前にこれで断る。
+	ErrRerecordAreaUnknown = errors.New("自分のエリアの局一覧を取れないので、いまは録り直せない")
 )
 
 // RerecordDeadline は、録り直しを受け付けるときの録音期限。ジョブの放送回と今の会員種別 m から、録音期限の付け直しと同じ
-// 関数（ReviseJobDeadline）で求める。自分のエリアの局一覧は渡さないので、エリアの外から録るかは、ジョブの放送回が持つ印を使う。
+// 関数（ReviseJobDeadline）で求める。own は今の自分のエリアの局一覧（局 ID の集合。ReviseJobDeadline の own と同じ意味）で、
+// nil ならエリアの外から録るかは、ジョブの放送回が持つ印を使う（エリアフリー・ダブルプランでない会員種別は、いつも局一覧を使わない）。
 // DB の録音期限（Job.Deadline）は、ジョブを作った時点か、終わっていないうちに付け直した時点のもので、
 // done のジョブは付け直さない（ADR 0032・0034）ので、録り直しはこちらで決める。放送回が無ければ Job.Deadline。
-func RerecordDeadline(j Job, m Membership) time.Time {
-	if d := ReviseJobDeadline(j, m, nil); !d.IsZero() {
+func RerecordDeadline(j Job, m Membership, own map[string]bool) time.Time {
+	if d := ReviseJobDeadline(j, m, own); !d.IsZero() {
 		return d
 	}
 	return j.Deadline
 }
 
-// CheckRerecord は、録り直し（ADR 0031）を受け付けるかを確かめ、受け付けなければ理由のエラーを返す。受け付けるのは、done の
-// タイムフリーから録るジョブ（Job.Live が false）で、録音期限（RerecordDeadline。今の会員種別 m で求める）の内側のものだけ。
+// CheckRerecord は、録り直し（ADR 0036）を受け付けるかを確かめ、受け付けなければ理由のエラーを返す。受け付けるのは、done の
+// タイムフリーから録るジョブ（Job.Live が false）で、録音期限（RerecordDeadline。今の会員種別 m と、今の自分のエリアの局一覧 own で
+// 求める）の内側のものだけ。
 // done でなければ ErrInvalidTransition、ライブで録るジョブなら ErrRerecordLive、録音期限を過ぎていれば ErrRerecordPastDeadline を包む。
 // ライブ録音で録れた分を残している間の例外（ManualRetryInTime）は当てない。internal/store の Rerecord と internal/server の
 // Rerecordable が、食い違わないようにこれを使う。
 // 足したら直す: ジョブの状態の移り方
-func CheckRerecord(j Job, m Membership, now time.Time) error {
-	return CheckRerecordUntil(j, RerecordDeadline(j, m), now)
+func CheckRerecord(j Job, m Membership, own map[string]bool, now time.Time) error {
+	return CheckRerecordUntil(j, RerecordDeadline(j, m, own), now)
 }
 
 // CheckRerecordUntil は CheckRerecord の、録音期限 deadline を呼び出し側が決める版。

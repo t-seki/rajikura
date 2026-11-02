@@ -2,14 +2,52 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/t-seki/rajikura/internal/app"
 	"github.com/t-seki/rajikura/internal/domain"
+	"github.com/t-seki/rajikura/internal/server"
 )
+
+// failingAreaGuide は、自分のエリアの番組表をいつも取れない AreaGuide。
+type failingAreaGuide struct{}
+
+func (failingAreaGuide) AreaAirings(context.Context, domain.BroadcastDay) ([]app.AreaStation, error) {
+	return nil, errors.New("落ちた")
+}
+
+func (failingAreaGuide) AreaAiringsOf(context.Context, string, domain.BroadcastDay) ([]app.AreaStation, error) {
+	return nil, errors.New("落ちた")
+}
+
+func (failingAreaGuide) Areas(context.Context) (app.AreaInfo, error) {
+	return app.AreaInfo{}, errors.New("落ちた")
+}
+
+// rerecord: エリアフリー・ダブルプランで自分のエリアの局一覧を取れずに拒まれたときは、「録音期限を過ぎている」ではなく、その理由を添える。
+func TestRerecordAreaUnknown(t *testing.T) {
+	api := newTestAPIWith(t, func(ui *server.UI) {
+		ui.AreaGuide = failingAreaGuide{}
+		ui.Membership = domain.MembershipDouble
+	})
+	now := time.Now()
+	a := domain.Airing{StationID: "TBS", Start: now.Add(-3 * time.Hour), End: now.Add(-2 * time.Hour)}
+	id, err := api.Store.InsertJob(context.Background(), domain.Job{ShowName: "x", Day: domain.BroadcastDayOf(now), State: domain.StateDone,
+		Airings: []domain.Airing{a}, Attempts: 2, NextAttemptAt: now.Add(-time.Hour), Deadline: now.Add(24 * time.Hour), OutputPath: "/library/x.m4a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, out, stderr := api.run(t, "rerecord", strconv.FormatInt(id, 10))
+	want := fmt.Sprintf("ジョブ %d: 拒んだ（自分のエリアの局一覧を取れないので、いまは録り直せない。後でやり直す）", id)
+	if code != 1 || !strings.Contains(out, want) {
+		t.Errorf("rerecord: %d %q %q, want %q", code, out, stderr, want)
+	}
+}
 
 // rerecord: done のタイムフリーのジョブは retrying・試行回数 0 になる。done でない・ライブ録音・録音期限を過ぎた・無い ID は
 // わけを添えて拒むが、ほかの ID は続け、1 件でも拒んだら終了コード 1。ID が無い・整数でないのは使い方の誤りで 2（ADR 0025）。
