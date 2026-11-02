@@ -34,7 +34,7 @@ type fakeRadiko struct {
 	gap                  time.Duration // gapFromSeek 以降のチャンクの PROGRAM-DATE-TIME をずらす量
 	gapFirstOnly         bool          // gap を 1 つ目の候補にだけ入れる
 	sameSegmentURL       bool
-	dropSeam             time.Time // 1 つ目の候補だけ、seek がこの時刻ちょうどの medialist から先頭の切れ目を落とす（#36 の型）
+	dropSeam             time.Time // 1 つ目の候補だけ、B（この時刻）の直前（B-86ms）に始まる切れ目を、seek=B の medialist から落とす。to=B の medialist にも載らない（切れ目が B 以降の格子に属すため）。seek=B-5s の medialist には載る（#36 の型）
 	gzipPrograms         bool
 	wantFT               string // 空でなければ ft / start_at がこの値であることを検査する
 	wantType             string // プレイリストの type（空なら b）
@@ -243,6 +243,9 @@ func (f *fakeRadiko) medialist(w http.ResponseWriter, r *http.Request) {
 	}
 	for s := from; s.Before(end); s = s.Add(5 * time.Second) {
 		pdt := s
+		if cand == "first" && !f.dropSeam.IsZero() && s.Equal(f.dropSeam) {
+			pdt = pdt.Add(-86 * time.Millisecond) // B をまたぐ切れ目。頭は B の直前
+		}
 		if !f.gapFromSeek.IsZero() && !seek.Before(f.gapFromSeek) && (!f.gapFirstOnly || q.Get("cand") == "first") {
 			pdt = pdt.Add(f.gap)
 		}
