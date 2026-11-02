@@ -175,7 +175,7 @@ func showJob(ctx context.Context, connect func() (*client.Client, error), id int
 		tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, header)
 		for _, r := range rows {
-			fmt.Fprintln(tw, strings.Join(r, "	"))
+			fmt.Fprintln(tw, strings.Join(r, "\t"))
 		}
 		return tw.Flush()
 	}
@@ -187,7 +187,7 @@ func showJob(ctx context.Context, connect func() (*client.Client, error), id int
 		}
 		airings = append(airings, []string{a.StationID, formatTime(a.Start), formatTime(a.End), oneLine(a.Title), missing})
 	}
-	if err := section("放送回", "局	開始	終わり	題	欠落", airings); err != nil {
+	if err := section("放送回", "局\t開始\t終わり\t題\t欠落", airings); err != nil {
 		return err
 	}
 	var attempts [][]string
@@ -204,7 +204,7 @@ func showJob(ctx context.Context, connect func() (*client.Client, error), id int
 		}
 		attempts = append(attempts, []string{formatTimeSec(a.StartedAt), formatTimeSec(a.EndedAt), stage, errText, d})
 	}
-	if err := section("試行の履歴", "始まり	終わり	失敗した段階	エラー	長さ", attempts); err != nil {
+	if err := section("試行の履歴", "始まり\t終わり\t失敗した段階\tエラー\t長さ", attempts); err != nil {
 		return err
 	}
 	var writes [][]string
@@ -219,7 +219,7 @@ func showJob(ctx context.Context, connect func() (*client.Client, error), id int
 		}
 		writes = append(writes, []string{formatTimeSec(w.At), by, chapterWriteResultText(w), errText})
 	}
-	return section("チャプターの書き込みの履歴", "時刻	誰が	結果	エラー", writes)
+	return section("チャプターの書き込みの履歴", "時刻\t誰が\t結果\tエラー", writes)
 }
 
 // 値の書き方は web/src/jobs/jobsApi.ts の chaptersLabels・chapterWriteByLabels・chapterWriteResultText と同じ文にする。
@@ -305,7 +305,7 @@ func formatTimeSec(t time.Time) string {
 	return t.In(domain.JST).Format("2006-01-02 15:04:05")
 }
 
-// stateLabel は一覧の状態の列。値は API の状態のまま（skipped）で、skipped には確定の前か後か（録らない予定・録らなかった）を、
+// stateLabel は一覧の状態の列と、詳細（jobs <ID>）の「状態」の行に使う。値は API の状態のまま（skipped）で、skipped には確定の前か後か（録らない予定・録らなかった）を、
 // 人が決めたジョブには「人が決めた」を、ライブで録るジョブ（API の live）には「ライブ録音」を括弧で添える。
 func stateLabel(j client.Job) string {
 	var notes []string
