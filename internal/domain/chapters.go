@@ -1,6 +1,10 @@
 package domain
 
-import "time"
+import (
+	"errors"
+	"fmt"
+	"time"
+)
 
 // Chapters は、ジョブの保存したファイルにチャプターが入ったか（用語集の「チャプター」「チャプターの取り直し」。ADR 0027・0033）。
 type Chapters string
@@ -189,7 +193,7 @@ type ChapterWriteBy string
 const (
 	// ChapterWriteByRefetch は、rajikura が自分で行うチャプターの取り直し。
 	ChapterWriteByRefetch ChapterWriteBy = "refetch"
-	// ChapterWriteByRedo は、人が指示するチャプターの入れ直し（#42 で足す入口から）。
+	// ChapterWriteByRedo は、人が指示するチャプターの入れ直し（API の POST /api/jobs/{id}/chapters・/api/jobs/chapters から）。
 	ChapterWriteByRedo ChapterWriteBy = "redo"
 )
 
@@ -217,4 +221,40 @@ type ChapterWrite struct {
 	Result ChapterWriteResult
 	Count  int
 	Error  string
+}
+
+// ErrChapterRedoLive は、ライブで録るジョブなのでチャプターを入れ直せないこと（CheckChapterRedo が返す。ライブ録音のファイルには
+// チャプターを入れない。ADR 0027）。errors.Is で見分ける。done でないジョブは ErrInvalidTransition を包んで返す。
+var ErrChapterRedoLive = errors.New("ライブ録音のジョブにはチャプターを入れ直せない")
+
+// CheckChapterRedo は、ジョブ 1 件の指定のチャプターの入れ直し（用語集。ADR 0033）を受け付けるかを確かめ、受け付けなければ理由の
+// エラーを返す。受け付けるのは、タイムフリーから録った done のジョブ（Job.Live が false）。チャプターの値は問わない（入ったの
+// ジョブも、ファイルのチャプターを置き換える）。録音期限も問わない（音声は取らず、チャプターの API だけを引くため）。
+// done でなければ ErrInvalidTransition、ライブで録るジョブなら ErrChapterRedoLive を包む。internal/store の RequestChapterRedo・
+// DueChapterRedos と internal/server の chaptersRedoable が、食い違わないようにこれを使う。
+func CheckChapterRedo(j Job) error {
+	switch {
+	case j.State != StateDone:
+		return fmt.Errorf("%w: %s にはチャプターを入れ直せない", ErrInvalidTransition, j.State)
+	case j.Live():
+		return ErrChapterRedoLive
+	}
+	return nil
+}
+
+// ChapterRedoInAll は、まとめてのチャプターの入れ直し（rajikura chapters --all）が当たるジョブか。CheckChapterRedo で受け付ける
+// ジョブのうち、チャプターの値が取りに行っていない（値なし）か入らなかったのもの。入った・待っているのジョブは飛ばす。放送日では
+// 絞らない（ADR 0033）。internal/store の RequestChapterRedoAll は、これで当たるジョブを選ぶ。
+func ChapterRedoInAll(j Job) bool {
+	return CheckChapterRedo(j) == nil && (j.Chapters == ChaptersNone || j.Chapters == ChaptersNotAdded)
+}
+
+// ChaptersAfterFailedWrite は、保存したファイルにチャプターを書き込めなかった（ファイルは前のまま）ときの、ジョブのチャプターの値
+// （ADR 0027 の決まり）。前が入ったなら、ファイルのチャプターは前のままなので入ったのまま。それ以外（待っている・入らなかった・
+// 値なし）は入らなかった。
+func ChaptersAfterFailedWrite(prev Chapters) Chapters {
+	if prev == ChaptersAdded {
+		return ChaptersAdded
+	}
+	return ChaptersNotAdded
 }

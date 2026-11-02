@@ -125,6 +125,8 @@
 // チャプターを書き込む（checkChapters・writeChapters。ADR 0033）。試行は起こさず、ジョブは done のまま。書き込みは同じフォルダの
 // partial に書き、音声のサンプルが元と一致することを確かめてから置き換え、置き換えたらライブラリの再スキャンを頼む。結果は
 // チャプターの書き込みの履歴に残し、通知はしない。
+// 取るジョブが無ければ、人が頼んだチャプターの入れ直し（API の POST /api/jobs/{id}/chapters・/api/jobs/chapters が頼みを DB に
+// 書く）を 1 件ずつ、同じ書き込みで行う（redoChapters。設定 chapters がオフでも行い、待ちは起こさない。ADR 0033）。
 //
 // 失敗したら、失敗した段階とエラーを試行として記録し、domain.RetryPolicy で次の試行を決める。
 // 格納・検証・保存の段階で落ちたら、その試行で使った放送回のファイルを捨て、次の試行で取り直す
@@ -1291,7 +1293,8 @@ func (a *App) syncDay(ctx context.Context, station string, day domain.BroadcastD
 // RunDue は実行するジョブ（タイムフリーから録るもの。ライブで録るジョブはライブの録音役が拾う）を 1 件だけ取って実行する。
 // 実行したら true。録音のループから、false を返すまで繰り返し呼ぶ（pollRound）。最初の試行の前の
 // 番組表の取り直しは展開役に頼み、終わるまで待ってから録音する（展開役が動いている間に呼ぶ）。ジョブを取る前に、チャプターを
-// 待っているジョブのチャプターの API を引く（checkChapters。同じ goroutine で、新しい goroutine は起こさない）。
+// 待っているジョブのチャプターの API を引く（checkChapters。同じ goroutine で、新しい goroutine は起こさない）。取るジョブが
+// 無ければ、人が頼んだチャプターの入れ直しを 1 件だけ行い（redoChapters）、行ったら true。
 // ジョブの失敗は試行として記録し、エラーにはしない。DB の失敗などはエラーを返す。
 // 保存先が決まっていなければ、ジョブを取らずに false を返す（録音だけを待たせる。番組表の同期と展開は展開役が続ける）。
 // 試行は、ジョブを取ったときの設定の写しで最後まで進める（runJob）。
@@ -1307,8 +1310,12 @@ func (a *App) RunDue(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	job, ok, err := a.Store.ClaimDue(ctx, a.now())
-	if err != nil || !ok {
+	if err != nil {
 		return false, err
+	}
+	if !ok {
+		// 録るジョブが無ければ、人が頼んだチャプターの入れ直しを 1 件だけ行う（ADR 0033。まとめて頼まれても、録るジョブを先にする）。
+		return a.redoChapters(ctx, a.current())
 	}
 	// 保存先は一度決まったら空にはできない（config.Apply）ので、ここで読む写しにも保存先がある。
 	return true, a.runJob(ctx, a.current(), job)

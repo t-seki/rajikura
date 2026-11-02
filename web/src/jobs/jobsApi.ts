@@ -80,6 +80,13 @@ export interface JobSummary {
   recordable: boolean;
   /** いま「録り直す」を受け付けるか（録音済みのタイムフリーのジョブで、録音期限を過ぎていない。ADR 0025）。 */
   rerecordable: boolean;
+  /**
+   * いま「チャプターを入れ直す」を受け付けるか（タイムフリーから録った録音済みのジョブ。チャプターが入ったジョブも。ADR 0033）。
+   * この版より前の serve では無い。
+   */
+  chaptersRedoable?: boolean;
+  /** チャプターの入れ直しを頼んで、rajikura serve の録音のループがまだ書き込んでいない間だけ true。 */
+  chaptersRedoRequested?: boolean;
   /** チャプターが入ったか。取りに行っていないジョブ（ライブ録音、設定がオフ、まだ保存していないなど）では無い。一覧にも付く。 */
   chapters?: JobChapters;
   outputPath: string;
@@ -200,6 +207,11 @@ export const skipJob = (id: number) => call<JobSummary>("POST", `/api/jobs/${id}
 export const recordJob = (id: number) => call<JobSummary>("POST", `/api/jobs/${id}/record`);
 /** 「録り直す」。録音済みのジョブを radiko から録り直させる（再試行待ちにする）。前に保存したファイルと同じ名前なら上書きする（ADR 0025）。 */
 export const rerecordJob = (id: number) => call<JobSummary>("POST", `/api/jobs/${id}/rerecord`);
+/**
+ * 「チャプターを入れ直す」。録音済みのジョブの保存したファイルに、radiko から音声を取り直さずにチャプターを書き込ませる（ADR 0033）。
+ * 受け付けたところで返り、書き込みは rajikura serve の録音のループが後で行う（結果はチャプターの値と書き込みの履歴に出る）。
+ */
+export const redoJobChapters = (id: number) => call<JobSummary>("POST", `/api/jobs/${id}/chapters`);
 
 /** 録音のファイルを返す URL（`<audio src>` に渡す。同じオリジンなので cookie が付く）。 */
 export const jobAudioUrl = (id: number) => `/api/jobs/${id}/audio`;

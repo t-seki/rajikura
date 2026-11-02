@@ -677,12 +677,15 @@ func (a *App) checkChapters(ctx context.Context, cur live) error {
 //   - 書き込みは rewriteChapters（同じフォルダの partial に書き、音声のサンプルが元と一致することを確かめてから置き換える。
 //     どこかで失敗したら partial を消して元のファイルを残す。保存先にファイルが無ければ書かない）。
 //   - 置き換えたら、保存のときと同じくライブラリの再スキャンを頼む（rescan）。
-//   - チャプターの値は ADR 0027 の決まりで付け直す（全部取れて書き込めたら入った、それ以外は入らなかった。書き込めなかったときは、
-//     前の値が待っているなら入らなかった、そうでなければ前のまま（ファイルは前のまま））。待ちは消す。
-//   - 結果は、チャプターの書き込みの履歴に 1 行残す（Store.FinishChapterWrite）。通知はしない（書き込めなくても元のファイルが残る）。
-//     音声のサンプルが元と一致しなかったときは Error、ほかの失敗は Warn でログに出す。
+//   - チャプターの値は ADR 0027 の決まりで付け直す（全部取れて書き込めたら入った、一部だけ取れて書き込めたら入らなかった。取れずに
+//     書かなかった・書き込めなかったときは、ファイルは前のままなので、前の値が入ったなら入ったのまま、それ以外（待っている・
+//     入らなかった・値なし）は入らなかった。domain.ChaptersAfterFailedWrite）。待ちは消し、起こさない。
+//   - 結果は、チャプターの書き込みの履歴に 1 行残す（Store.FinishChapterWrite。チャプターの入れ直しなら Store.FinishChapterRedo で、
+//     頼みの印も消す）。通知はしない（書き込めなくても元のファイルが残る）。音声のサンプルが元と一致しなかったときは Error、
+//     ほかの失敗は Warn でログに出す。
 //
-// DB に書けなければエラーを返す（書き込みの失敗はエラーにしない）。
+// 設定 chapters は見ない（チャプターの取り直しは checkChapters が見る。チャプターの入れ直しは、設定がオフでも行う。ADR 0033）。
+// DB に書けなければエラーを返す（書き込みの失敗はエラーにしない）。取り消されたら何も書かずに返す（入れ直しの頼みは残る）。
 // 足したら直す: 保存の後の処理
 func (a *App) writeChapters(ctx context.Context, cur live, log *slog.Logger, job domain.Job, by domain.ChapterWriteBy) error {
 	airings := job.SavedAirings()
@@ -695,17 +698,14 @@ func (a *App) writeChapters(ctx context.Context, cur live, log *slog.Logger, job
 	written := false
 	if len(chapters) == 0 {
 		w.Result = domain.ChapterNotFetched
+		ch = domain.ChaptersAfterFailedWrite(job.Chapters)
 		log.Info("チャプターを取れなかったので、保存したファイルに書き込まない", "path", job.OutputPath)
 	} else if n, err := a.rewriteChapters(ctx, cur, log, job, airings, chapters); err != nil {
 		if ctx.Err() != nil {
 			return nil
 		}
 		w.Result, w.Error = domain.ChapterWriteFailed, err.Error()
-		if job.Chapters != domain.ChaptersWaiting {
-			ch = job.Chapters
-		} else {
-			ch = domain.ChaptersNotAdded
-		}
+		ch = domain.ChaptersAfterFailedWrite(job.Chapters)
 		if errors.Is(err, media.ErrAudioMismatch) {
 			log.Error("チャプターを書き込んだファイルの音声が元と一致しないので、元のファイルを残す", "path", job.OutputPath, "err", err)
 		} else {
@@ -716,13 +716,38 @@ func (a *App) writeChapters(ctx context.Context, cur live, log *slog.Logger, job
 		log.Info("保存したファイルにチャプターを書き込んだ", "path", job.OutputPath, "count", n, "chapters", ch)
 	}
 	w.At = a.now()
-	if _, err := a.Store.FinishChapterWrite(context.WithoutCancel(ctx), w, ch); err != nil {
+	var err error
+	if by == domain.ChapterWriteByRedo {
+		_, err = a.Store.FinishChapterRedo(context.WithoutCancel(ctx), w, ch, job.ChapterRedoAt)
+	} else {
+		_, err = a.Store.FinishChapterWrite(context.WithoutCancel(ctx), w, ch)
+	}
+	if err != nil {
 		return err
 	}
 	if written {
 		a.rescan(ctx, cur, log)
 	}
 	return nil
+}
+
+// redoChapters は、人が頼んだチャプターの入れ直し（用語集。ADR 0033）を 1 件だけ行い、行ったら true を返す。頼まれたジョブ
+// （Store.DueChapterRedos。タイムフリーから録った done のもの）のうち、頼んだ時刻の古いものの保存したファイルに、保存した放送回の
+// チャプターを radiko から取って書き込む（writeChapters。音声は取らず、試行は起こさない）。設定 chapters がオフでも行い、
+// チャプターの待ちは起こさない。タイムフリーの録音のループ（RunDue）が、録るジョブが無いときに呼ぶ（まとめて頼まれても、
+// 1 件ごとに録るジョブを先に拾う）。DB に書けなければエラーを返す。
+func (a *App) redoChapters(ctx context.Context, cur live) (bool, error) {
+	jobs, err := a.Store.DueChapterRedos(ctx)
+	if err != nil || len(jobs) == 0 {
+		return false, err
+	}
+	job := jobs[0]
+	log := a.log().With("job", job.ID, "show", job.ShowName, "day", job.Day, "part", job.Part)
+	log.Info("チャプターの入れ直しを頼まれたので、保存したファイルに書き込む", "path", job.OutputPath, "chapters", job.Chapters)
+	if err := a.writeChapters(ctx, cur, log, job, domain.ChapterWriteByRedo); err != nil {
+		return false, err
+	}
+	return ctx.Err() == nil, nil
 }
 
 // rewriteChapters は、job の保存したファイルのチャプターを chapters（Input は airings の並びの番号）に置き換え、置いた件数を返す

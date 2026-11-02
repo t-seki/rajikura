@@ -1,5 +1,6 @@
-// Package client は、CLI（rajikura jobs・retry・skip・record・rerecord・backup）が serve の HTTP API を呼ぶためのクライアント。
-// jobs・retry・skip・record・rerecord はジョブを扱う（GET /api/jobs、GET /api/jobs/{id}、POST /api/jobs/{id}/retry・skip・record・rerecord）。
+// Package client は、CLI（rajikura jobs・retry・skip・record・rerecord・chapters・backup）が serve の HTTP API を呼ぶためのクライアント。
+// jobs・retry・skip・record・rerecord・chapters はジョブを扱う（GET /api/jobs、GET /api/jobs/{id}、
+// POST /api/jobs/{id}/retry・skip・record・rerecord・chapters、POST /api/jobs/chapters）。
 // backup は DB のバックアップを受け取る（GET /api/backup。backup.go）。
 // CLI は DB を開かず、この API だけを使う（docs/adr/0009-cli-over-http.md）。
 // 足したら直す: CLI のサブコマンド
@@ -197,6 +198,23 @@ func (c *Client) SkipJob(ctx context.Context, id int64) error {
 // （done でない・ライブ録音・録音期限を過ぎた）は 409 の APIError。
 func (c *Client) RerecordJob(ctx context.Context, id int64) error {
 	return c.do(ctx, http.MethodPost, "/api/jobs/"+strconv.FormatInt(id, 10)+"/rerecord", nil, nil)
+}
+
+// RedoJobChapters は、ジョブのチャプターの入れ直しを頼む（POST /api/jobs/{id}/chapters。ADR 0033）。書き込みは serve の録音の
+// ループが後で行う。無いジョブは 404、受け付けないジョブ（done でない・ライブ録音）は 409 の APIError。
+func (c *Client) RedoJobChapters(ctx context.Context, id int64) error {
+	return c.do(ctx, http.MethodPost, "/api/jobs/"+strconv.FormatInt(id, 10)+"/chapters", nil, nil)
+}
+
+// RedoAllChapters は、まとめてのチャプターの入れ直しを頼み（POST /api/jobs/chapters。ADR 0033）、受け付けたジョブの数を返す。
+func (c *Client) RedoAllChapters(ctx context.Context) (int, error) {
+	var res struct {
+		Accepted int `json:"accepted"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/api/jobs/chapters", nil, &res); err != nil {
+		return 0, err
+	}
+	return res.Accepted, nil
 }
 
 // RecordJob は skipped のジョブを「録る」に戻す（POST /api/jobs/{id}/record。ADR 0019）。無いジョブは 404、受け付けない状態
