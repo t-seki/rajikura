@@ -101,7 +101,8 @@ type Match = { status: "loading" } | { status: "done"; once: Once | null } | { s
  * 録らない予定・録らなかったのジョブがある放送回では、誰がなぜ止めたかと「録る」（録らない予定は録音予定に戻し、録らなかったは
  * 手動再試行）を出す（ADR 0019）。録らない予定・録らなかったの放送回でジョブが無いもの（展開の前、連結する番組で一部だけ
  * 番組名が違ったとき）は、予約なしの放送回と同じく「この回を録音」などを出す。
- * loadDay は、足す先の番組がその放送日にもう当てている放送回を数えるために、その放送日の番組表を返す。
+ * loadDay は、足す先の番組がその放送日にもう当てている放送回を数えるために、その放送日の番組表を返す。親は、パートを探す番組表と
+ * 同じエリアのものを渡す（全国の検索の結果から開いたなら局のエリア、それ以外は選んでいるエリア）。
  */
 export function AiringPanel({
   airing,
@@ -208,7 +209,7 @@ function AiringDetail({
   const expiredTarget = expiredLive || expiredExcluded || targets.some((a) => reserveExpired(a));
   const [shows, setShows] = useState<Show[] | null>(null);
   const [showsError, setShowsError] = useState<string | null>(null);
-  // その放送日の番組表の全局の放送回（足す先の番組がもう当てている放送回を数える）。読めなければ空
+  // 親が渡す番組表（パート探しと同じエリア）の、その放送日の全局の放送回（足す先の番組がもう当てている放送回を数える）。読めなければ空
   const [dayAirings, setDayAirings] = useState<GuideAiring[] | null>(null);
   const [match, setMatch] = useState<Match>({ status: "loading" });
 
