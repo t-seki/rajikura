@@ -34,6 +34,7 @@ type fakeRadiko struct {
 	gap                  time.Duration // gapFromSeek 以降のチャンクの PROGRAM-DATE-TIME をずらす量
 	gapFirstOnly         bool          // gap を 1 つ目の候補にだけ入れる
 	sameSegmentURL       bool
+	dropSeam             time.Time // 1 つ目の候補だけ、seek がこの時刻ちょうどの medialist から先頭の切れ目を落とす（#36 の型）
 	gzipPrograms         bool
 	wantFT               string // 空でなければ ft / start_at がこの値であることを検査する
 	wantType             string // プレイリストの type（空なら b）
@@ -49,6 +50,7 @@ type fakeRadiko struct {
 	authSessions  []string        // auth2 に付いた radiko_session（付かなければ空）を順に
 	rejectSession map[string]bool // auth2 で 401 にするセッション
 	playlistPaths []string        // マスタの要求のパスを順に
+	medialistReqs []string        // medialist の要求を「候補(first/second) seek l」で順に
 }
 
 func newFake(t *testing.T) *fakeRadiko {
@@ -151,7 +153,7 @@ func (f *fakeRadiko) memberLogin(w http.ResponseWriter, r *http.Request) {
 
 func (f *fakeRadiko) streamXML(w http.ResponseWriter, r *http.Request) {
 	first := f.srv.URL + "/tf/playlist.m3u8"
-	if f.gapFirstOnly {
+	if f.gapFirstOnly || !f.dropSeam.IsZero() {
 		// medialist で 2 つ目の候補と見分けられるようにする。
 		first += "?cand=first"
 	}
@@ -226,9 +228,20 @@ func (f *fakeRadiko) medialist(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad time", http.StatusBadRequest)
 		return
 	}
+	cand := "second"
+	if q.Get("cand") == "first" {
+		cand = "first"
+	}
+	f.mu.Lock()
+	f.medialistReqs = append(f.medialistReqs, fmt.Sprintf("%s %s %s", cand, q.Get("seek"), q.Get("l")))
+	f.mu.Unlock()
 	var b bytes.Buffer
 	b.WriteString("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:5\n")
-	for s := seek; s.Before(end); s = s.Add(5 * time.Second) {
+	from := seek
+	if cand == "first" && !f.dropSeam.IsZero() && seek.Equal(f.dropSeam) {
+		from = seek.Add(5 * time.Second)
+	}
+	for s := from; s.Before(end); s = s.Add(5 * time.Second) {
 		pdt := s
 		if !f.gapFromSeek.IsZero() && !seek.Before(f.gapFromSeek) && (!f.gapFirstOnly || q.Get("cand") == "first") {
 			pdt = pdt.Add(f.gap)
