@@ -71,6 +71,7 @@ func serve(ctx context.Context, boot config.Boot, opts serveOptions, stdout, std
 		client.ProgramHost = boot.RadikoProgramHost
 	}
 	// 番組表のキャッシュは、会員種別によらず、会員種別の最大の録音期限（30 日）の前から持つ（会員種別を保存したらすぐ効くように）。
+	// エリアフリー・ダブルプランでは、全国の検索のために全国の局の番組表も、ここに gzip のまま持つ（ADR 0035）。
 	client.EnableProgramCache(domain.MaxAvailableDays(domain.MembershipDouble), int64(cfg.RadikoProgramCacheMB)<<20, log)
 	// radiko のログインは、認証のたびに設定の最新の写しからログイン情報を読む。会員種別かログイン情報を保存するときは、
 	// 保存の前に radiko のログインを試す（ADR 0034）。
@@ -79,15 +80,17 @@ func serve(ctx context.Context, boot config.Boot, opts serveOptions, stdout, std
 	mt := metrics.New()
 	mt.InitNotifyKinds(app.NotifyKinds...)
 	// エリアの日別番組表は、Web UI の番組表とキーワードの照合（展開役）で共有する（エリア ID と取得中のものを 1 つにまとめる）。
+	// 全国の検索の番組表（全国の番組表の取り込み役と、Web UI の全国の検索）も同じものを通す。
 	areaGuide := app.NewRadikoAreaGuide(client)
 	a := &app.App{
-		Store:     st,
-		Guide:     app.RadikoGuide{Client: client},
-		Fetcher:   client,
-		WorkDir:   boot.WorkDir(),
-		AreaGuide: areaGuide,
-		Log:       log,
-		Metrics:   mt,
+		Store:      st,
+		Guide:      app.RadikoGuide{Client: client},
+		Fetcher:    client,
+		WorkDir:    boot.WorkDir(),
+		AreaGuide:  areaGuide,
+		Nationwide: areaGuide,
+		Log:        log,
+		Metrics:    mt,
 		// 保存先・通知先などは、使うときに設定の最新の写しを読む。
 		Live: settings.Runtime,
 	}
@@ -118,6 +121,7 @@ func serve(ctx context.Context, boot config.Boot, opts serveOptions, stdout, std
 		Keywords:      st,
 		Guide:         a.Guide,
 		AreaGuide:     areaGuide,
+		Nationwide:    areaGuide,
 		Jobs:          st,
 		Tokens:        st,
 		Notifications: st,

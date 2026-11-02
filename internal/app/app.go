@@ -3,7 +3,7 @@
 //
 // # goroutine の分け方
 //
-// Serve は goroutine を 4 本持つ（ほかに、cmd が HTTP の待ち受けを持ち、ライブの録音役がライブで録るジョブごとに
+// Serve は goroutine を 5 本持つ（ほかに、cmd が HTTP の待ち受けを持ち、ライブの録音役がライブで録るジョブごとに
 // goroutine を起こす）。
 //
 //   - 展開役（runExpander）: ジョブへの展開（syncDay）は、展開役だけが行う（2 つの展開が同時に走らない）。
@@ -23,13 +23,17 @@
 //     録っている間も、タイムフリーの録音と通知の判定は止まらない。録音のループはライブで録るジョブを拾わない。
 //     見回りのたびに、ライブで録るジョブの最初の試行の 3 分前にスリープ中の PC を起こすタイマー（Waker。Windows だけ）を
 //     掛け直す（live.go の「スリープ中の PC を起こす」）。
+//   - 全国の番組表の取り込み役（runNationwide）: 会員種別がエリアフリー・ダブルプランのあいだ、起動の直後と 6 時間ごとに、全国の局の
+//     番組表を番組表のキャッシュに取り込む（全国の検索のため。並列で取りにいく数は 8 本まで。DB には書かない。nationwide.go・ADR 0035）。
+//     展開役とは別なので、取り込みの間も展開役は待たされない。会員種別を保存したら起こされ、エリアフリー・ダブルプランでなくなったら
+//     取り込みを止めて全国の分をキャッシュから捨てる。
 //
 // # 起動時
 //
 //  1. 回復: running のタイムフリーから録るジョブを retrying に戻す（前回のプロセスが途中で終わった）。ライブで録るジョブは
 //     running のまま残し、ライブの録音役が繋ぎ直す。
 //  2. 保存先の *.partial.m4a と *.partial.jpg を掃除する。
-//  3. ライブの録音役を起こす（番組表の同期を待たない）。
+//  3. ライブの録音役と、全国の番組表の取り込み役を起こす（番組表の同期を待たない）。
 //  4. 番組表を同期する（展開役に頼み、終わるまで待ってから録音のループを始める）。
 //
 // 足したら直す: ジョブの状態の移り方
@@ -247,6 +251,10 @@ type App struct {
 	MaxAttemptsFree int
 	// AreaGuide はエリアの日別番組表の取得元（キーワードを番組表に当てる。keyword.go）。nil ならキーワードを当てない。
 	AreaGuide AreaGuide
+	// Nationwide は全国の検索の番組表の取得元（全国の番組表の取り込み役が使う。nationwide.go）。nil なら取り込まない。
+	Nationwide NationwideGuide
+	// NationwideInterval は全国の番組表を取り込み直す間。0 なら DefaultNationwideInterval。
+	NationwideInterval time.Duration
 	// KeywordMaxPending は、キーワードごとの、足した放送回のうちまだ録音を終えていない回の数の上限
 	// （設定の keyword_max_pending）。0 以下なら domain.DefaultKeywordMaxPending。
 	KeywordMaxPending int
@@ -326,6 +334,8 @@ type App struct {
 	expandWake chan struct{}
 	// recordWake は、録音のループを次の見回りを待たずに起こす（WakeRecorder）。
 	recordWake chan struct{}
+	// nationwideWake は、全国の番組表の取り込み役を起こす（会員種別を保存したとき。wakeNationwide）。
+	nationwideWake chan struct{}
 	// expandMu は expandRequests を守る（RequestExpand は HTTP の goroutine から呼ばれる）。
 	expandMu sync.Mutex
 	// expandRequests は、積まれてまだ展開していない依頼の番組。
@@ -516,6 +526,16 @@ func (a *App) Serve(ctx context.Context) error {
 		cancel()
 		<-liveDone
 	}()
+	// 全国の番組表の取り込み役も、番組表の同期を待たずに起こす（展開役とは別の goroutine。nationwide.go）。
+	nationwideDone := make(chan struct{})
+	go func() {
+		defer close(nationwideDone)
+		a.runNationwide(ectx)
+	}()
+	defer func() {
+		cancel()
+		<-nationwideDone
+	}()
 	if err := a.startupSync(ctx); err != nil {
 		return err
 	}
@@ -613,6 +633,7 @@ func (a *App) initExpander() {
 		a.expandTasks = make(chan expandTask)
 		a.expandWake = make(chan struct{}, 1)
 		a.recordWake = make(chan struct{}, 1)
+		a.nationwideWake = make(chan struct{}, 1)
 	})
 }
 

@@ -249,7 +249,7 @@ func TestProgramCacheDropsEntriesThatLeaveRange(t *testing.T) {
 func TestProgramCacheEvictsLeastRecentlyUsed(t *testing.T) {
 	cs := newCacheServer(t)
 	now := jst(2026, 10, 13, 12, 0, 0)
-	size := int64(len(cacheXML))
+	size := gzLen(t, cacheXML)
 	c := cacheClient(cs, &now, 7, size*2) // 2 件まで入る
 	ctx := context.Background()
 	d1, d2, d3 := cacheDay, cacheDay.AddDate(0, 0, 1), cacheDay.AddDate(0, 0, 2)
@@ -335,7 +335,7 @@ func TestProgramCacheConditionalGetFailure(t *testing.T) {
 func TestProgramCacheConcurrent(t *testing.T) {
 	cs := newCacheServer(t)
 	now := jst(2026, 10, 13, 12, 0, 0)
-	c := cacheClient(cs, &now, 7, int64(len(cacheXML))*3)
+	c := cacheClient(cs, &now, 7, gzLen(t, cacheXML)*3)
 	var wg sync.WaitGroup
 	for i := 0; i < 16; i++ {
 		wg.Add(1)

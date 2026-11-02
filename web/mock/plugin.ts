@@ -43,7 +43,11 @@ function answer(req: IncomingMessage, res: ServerResponse): boolean {
     // 切り替えられない会員種別（非会員）の応答。READMEのスクリーンショットにエリアの切り替えを出さないため
     return json(res, { own: "JP13", switchable: false, pastDays: 7, areas: [{ id: "JP13", name: "東京都" }, { id: "JP27", name: "大阪府" }] } satisfies GuideAreas), true;
   }
-  if (path === "/api/guide/search") return json(res, { q: url.searchParams.get("q") ?? "", airings: [], truncated: false } satisfies SearchResult), true;
+  if (path === "/api/guide/search") {
+    // 全国の検索（scope=all）は、本物と同じく scope と failedStations を足す（結果はどちらも空）
+    const all = url.searchParams.get("scope") === "all" ? ({ scope: "all", failedStations: 0 } as const) : {};
+    return json(res, { q: url.searchParams.get("q") ?? "", airings: [], truncated: false, ...all } satisfies SearchResult), true;
+  }
   if (path === "/api/stations") return json(res, stations satisfies Station[]), true;
   if (path === "/api/shows") return json(res, shows satisfies Show[]), true;
   const show = /^\/api\/shows\/([^/]+)$/.exec(path);

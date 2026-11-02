@@ -36,6 +36,8 @@ export type GuideAiring = {
   notAvailable: boolean;
   /** タイムフリー30 の対象外（tsplus_in_ng。自分のエリアの外の局は tsplus_out_ng。サーバーが決める）で、録音期限が 7 日になる放送回か。会員種別がタイムフリー30・ダブルプランのときだけ立つ。 */
   timeFree30Excluded: boolean;
+  /** 全国の検索の結果で、局が自分のエリアの局一覧に無いときの、局のエリアの名前（都道府県名）。自分のエリアの局と、全国の検索でない結果には付かない。 */
+  stationAreaName?: string;
 };
 
 export type GuideStation = { id: string; name: string; airings: GuideAiring[] };
@@ -43,7 +45,11 @@ export type GuideStation = { id: string; name: string; airings: GuideAiring[] };
 /** GET /api/guide の応答。 */
 export type GuideResult = { day: string; stations: GuideStation[] };
 
-export type SearchResult = { q: string; airings: GuideAiring[]; truncated: boolean };
+/**
+ * GET /api/guide/search の応答。scope と failedStations は全国の検索（scope=all）のときだけ付く。
+ * failedStations は、番組表を一部（ある放送日を 1 つでも）取れなかった局の数。
+ */
+export type SearchResult = { q: string; airings: GuideAiring[]; truncated: boolean; scope?: "all"; failedStations?: number };
 
 type ErrorBody = {
   error?: string;
@@ -86,8 +92,12 @@ const withArea = (params: Record<string, string>, area: string) =>
 export const getGuide = (day: string, area = "") =>
   getJSON<GuideResult>(`/api/guide?${withArea({ day }, area)}`, "番組表を読めない");
 
-export const searchGuide = (q: string, area = "") =>
-  getJSON<SearchResult>(`/api/guide/search?${withArea({ q }, area)}`, "番組表を検索できない");
+/** 番組表の検索。all なら全国の検索（scope=all。area は付けない）、そうでなければエリア（area。空なら自分のエリア）の検索。 */
+export const searchGuide = (q: string, area = "", all = false) =>
+  getJSON<SearchResult>(
+    `/api/guide/search?${all ? new URLSearchParams({ q, scope: "all" }) : withArea({ q }, area)}`,
+    "番組表を検索できない",
+  );
 
 /** 番組表で選べるエリアの一覧。 */
 export const getGuideAreas = () => getJSON<GuideAreas>("/api/guide/areas", "エリアの一覧を読めない");

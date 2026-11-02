@@ -178,6 +178,8 @@ type AreaInfo struct {
 	Areas []Area
 	// StationArea は局 ID → その局のエリア ID。
 	StationArea map[string]string
+	// Stations は radiko の全局（full.xml の局の一覧の順。全国の検索が探す局。nationwide.go）。
+	Stations []radiko.Station
 }
 
 // DefaultAreaTTL は RadikoAreaGuide がエリア ID とエリアの一覧を覚えておく時間。
@@ -340,7 +342,7 @@ func (g *RadikoAreaGuide) Areas(ctx context.Context) (AreaInfo, error) {
 }
 
 func areaInfo(own string, l radiko.AreaList) AreaInfo {
-	out := AreaInfo{Own: own, StationArea: l.StationArea}
+	out := AreaInfo{Own: own, StationArea: l.StationArea, Stations: l.Stations}
 	for _, a := range l.Areas {
 		out.Areas = append(out.Areas, Area{ID: a.ID, Name: a.Name})
 	}

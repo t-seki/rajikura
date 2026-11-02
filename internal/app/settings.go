@@ -399,6 +399,7 @@ type LoginAdopter interface {
 // 会員種別が変わったら、まだ終わっていないジョブ（waiting・retrying・skipped・running）の録音期限の付け直しを展開役に頼み、
 // 待たずに戻る（ADR 0032・0034。自分のエリアが変わったときと同じ reviseDeadlines を、展開役が reviseForMembership で呼ぶ）。
 // エリアフリー・ダブルプランなら覚えている自分のエリアの局一覧を取って使い、取れなければ付け直さずに依頼を残す（own_area.go）。
+// 会員種別が変わったら、全国の番組表の取り込み役も起こす（取り込みの始め・止めと範囲の合わせ。nationwide.go・ADR 0035）。
 // 足したら直す: サービスの異常
 func (a *App) SettingsApplied(ctx context.Context, p config.Patch, prev, next config.Config, login *radiko.LoginAttempt) {
 	if loginChanged(p) {
@@ -421,4 +422,6 @@ func (a *App) SettingsApplied(ctx context.Context, p config.Patch, prev, next co
 	}
 	a.log().Info("会員種別を変えたので、まだ終わっていないジョブの録音期限の付け直しを展開役に頼む", "from", prev.Membership, "to", next.Membership)
 	a.requestRevise()
+	// 全国の番組表の取り込み役を起こす（エリアフリー・ダブルプランになったら取り込み、でなくなったら止めて全国の分を捨てる。nationwide.go）。
+	a.wakeNationwide()
 }

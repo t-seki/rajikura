@@ -8,9 +8,14 @@ package server
 //   - GET /api/guide/areas: 番組表で選べるエリアの一覧 {own, switchable, pastDays, areas: [{id, name}]}。own は自分のエリア ID、
 //     switchable はエリアを切り替えられるか（会員種別がエリアフリー・ダブルプラン）、pastDays は番組表で選べる過去の日数（下の N）。エリアの名前は full.xml に無いので、
 //     エリア ID の番号から都道府県名を引く（radiko.AreaName）。radiko から取れないときは 502
-//   - GET /api/guide/search?q=&area=: 表示する範囲の放送日すべての番組表から、番組名・出演者・説明を見る、空白区切りの語の AND
+//   - GET /api/guide/search?q=&area=&scope=: 表示する範囲の放送日すべての番組表から、番組名・出演者・説明を見る、空白区切りの語の AND
 //     （domain.KeywordMatcher。domain.NormalizeTitle で正規化してから部分一致を見る）に当たる放送回を、開始時刻の順に返す（{q, airings, truncated}）。q が正規化して空なら 400。
-//     一致が多すぎるときは先頭の searchLimit 件にして truncated を true にする
+//     一致が多すぎるときは先頭の searchLimit 件にして truncated を true にする。
+//     scope=all は全国の検索（用語集。ADR 0035）で、radiko の全局の局ごとの日別の番組表（app.NationwideGuide）から探す。会員種別が
+//     エリアフリー・ダブルプランのときだけ指せ（そうでなければ 400）、area と一緒には指せない（400）。scope の all のほかの値も 400。
+//     取れなかった局があっても取れた分を返し、応答に scope（"all"）と failedStations（ある放送日を 1 つでも取れなかった局の数）を足す。
+//     全部取れなかったときだけ 502。放送回には、局が自分のエリアの局一覧に無ければ stationAreaName（局のエリアの都道府県名）を付ける。
+//     同じ時刻・同じ番組名の放送回が複数の局に出ても、まとめずに局ごとに返す
 //
 // 表示する範囲は、今日の N 日前から 7 日先までの放送日（N は今の会員種別の最大の録音期限の日数。非会員・エリアフリーは 7、
 // タイムフリー30・ダブルプランは 30。domain.MaxAvailableDays）。範囲の外の放送日は 400。
@@ -55,6 +60,7 @@ import (
 
 	"github.com/t-seki/rajikura/internal/app"
 	"github.com/t-seki/rajikura/internal/domain"
+	"github.com/t-seki/rajikura/internal/radiko"
 )
 
 const (
@@ -219,6 +225,9 @@ type guideAiringJSON struct {
 	NotAvailable     bool                  `json:"notAvailable"`
 	// TimeFree30Excluded は、タイムフリー30 の対象外で録音期限が 7 日になる放送回か（会員種別がタイムフリー30・ダブルプランのときだけ）。
 	TimeFree30Excluded bool `json:"timeFree30Excluded"`
+	// StationAreaName は、全国の検索の結果で、局が自分のエリアの局一覧に無いときの、局のエリアの名前（都道府県名。radiko.AreaName）。
+	// 自分のエリアの局と、全国の検索でない結果では付けない。
+	StationAreaName string `json:"stationAreaName,omitempty"`
 }
 
 type guideStationJSON struct {
@@ -352,6 +361,34 @@ func (u *UI) guideDay(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"day": day.String(), "stations": out})
 }
 
+// guideScope は検索の API の scope を読む。省いたら（空なら）自分のエリア（all は false）。all は全国の検索で、会員種別が
+// エリアフリー・ダブルプランのときだけ指せ、area とは一緒に指せない。all のほかの値も断る。断ったら応答を書いて ok を false にする。
+func (u *UI) guideScope(w http.ResponseWriter, r *http.Request) (all bool, ok bool) {
+	raw := strings.TrimSpace(r.URL.Query().Get("scope"))
+	switch {
+	case raw == "":
+		return false, true
+	case raw != "all":
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "scope は all だけを指せる: " + raw})
+	case !u.membership().AreaFree():
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "全国の検索は、エリアフリーの会員だけが使える"})
+	case strings.TrimSpace(r.URL.Query().Get("area")) != "":
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "scope=all と area は一緒に指せない"})
+	case u.Nationwide == nil:
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "全国の検索を使えない"})
+	default:
+		return true, true
+	}
+	return false, false
+}
+
+// searchHit は検索に当たった放送回と、その局の名前と、全国の検索で自分のエリアの外の局ならそのエリアの名前。
+type searchHit struct {
+	airing      domain.Airing
+	stationName string
+	areaName    string
+}
+
 func (u *UI) guideSearch(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
 	matcher := domain.NewKeywordMatcher(q, "")
@@ -359,31 +396,72 @@ func (u *UI) guideSearch(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "q が空"})
 		return
 	}
-	area, ok := u.guideArea(w, r)
+	all, ok := u.guideScope(w, r)
 	if !ok {
 		return
+	}
+	area := ""
+	if !all {
+		if area, ok = u.guideArea(w, r); !ok {
+			return
+		}
 	}
 	first, last := u.guideRange()
 	var days []domain.BroadcastDay
 	for d := first; d.String() <= last.String(); d = d.AddDays(1) {
 		days = append(days, d)
 	}
-	// 放送日ごとの番組表を並列に引く（覚えていないものは radiko に取りにいく）。
-	results := make([][]app.AreaStation, len(days))
-	errs := make([]error, len(days))
-	var wg sync.WaitGroup
-	for i, d := range days {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			results[i], errs[i] = u.AreaGuide.AreaAiringsOf(r.Context(), area, d)
-		}()
-	}
-	wg.Wait()
-	for i, err := range errs {
+	var found []searchHit
+	failedStations := 0
+	if all {
+		// 全国の検索（ADR 0035）。取れなかった局があっても取れた分を返し、全部取れなかったときだけ 502。
+		nw, err := u.Nationwide.NationwideAirings(r.Context(), days, matcher.Match)
+		if err == nil && nw.Stations > 0 && nw.FailedStations == nw.Stations {
+			err = errors.New("全国の局の番組表をどれも取れない")
+		}
 		if err != nil {
-			u.areaError(w, days[i], err)
+			u.log().Warn("全国の番組表を取れない", "err", err)
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "radiko から番組表を取れない"})
 			return
+		}
+		if nw.FailedStations > 0 {
+			u.log().Warn("全国の検索で、番組表を一部取れなかった局がある", "failed_stations", nw.FailedStations, "stations", nw.Stations)
+		}
+		failedStations = nw.FailedStations
+		for _, h := range nw.Airings {
+			sh := searchHit{airing: h.Airing, stationName: h.Station.Name}
+			if !h.Station.Own {
+				sh.areaName = radiko.AreaName(h.Station.AreaID)
+			}
+			found = append(found, sh)
+		}
+	} else {
+		// 放送日ごとの番組表を並列に引く（覚えていないものは radiko に取りにいく）。
+		results := make([][]app.AreaStation, len(days))
+		errs := make([]error, len(days))
+		var wg sync.WaitGroup
+		for i, d := range days {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				results[i], errs[i] = u.AreaGuide.AreaAiringsOf(r.Context(), area, d)
+			}()
+		}
+		wg.Wait()
+		for i, err := range errs {
+			if err != nil {
+				u.areaError(w, days[i], err)
+				return
+			}
+		}
+		for _, stations := range results {
+			for _, st := range stations {
+				for _, a := range st.Airings {
+					if matcher.Match(a) {
+						found = append(found, searchHit{airing: a, stationName: st.Name})
+					}
+				}
+			}
 		}
 	}
 	res, err := u.loadShows(r.Context())
@@ -391,21 +469,17 @@ func (u *UI) guideSearch(w http.ResponseWriter, r *http.Request) {
 		u.internalError(w, "番組を読めない", err)
 		return
 	}
-	// 放送日をまたぐ放送回（深夜）が隣の日の番組表にも出うるので、Key で重ねを除く。
+	// 放送日をまたぐ放送回（深夜）が隣の日の番組表にも出うるので、Key で重ねを除く。同じ時刻・同じ番組名でも、局が違えばまとめない。
 	seen := map[string]bool{}
 	var hits []guideAiringJSON
-	for _, stations := range results {
-		for _, st := range stations {
-			for _, a := range st.Airings {
-				if seen[a.Key()] {
-					continue
-				}
-				seen[a.Key()] = true
-				if matcher.Match(a) {
-					hits = append(hits, res.view(a, st.Name))
-				}
-			}
+	for _, h := range found {
+		if seen[h.airing.Key()] {
+			continue
 		}
+		seen[h.airing.Key()] = true
+		v := res.view(h.airing, h.stationName)
+		v.StationAreaName = h.areaName
+		hits = append(hits, v)
 	}
 	sort.SliceStable(hits, func(a, b int) bool {
 		if c := hits[a].Start.Compare(hits[b].Start); c != 0 {
@@ -420,5 +494,10 @@ func (u *UI) guideSearch(w http.ResponseWriter, r *http.Request) {
 	if hits == nil {
 		hits = []guideAiringJSON{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"q": q, "airings": hits, "truncated": truncated})
+	out := map[string]any{"q": q, "airings": hits, "truncated": truncated}
+	if all {
+		out["scope"] = "all"
+		out["failedStations"] = failedStations
+	}
+	writeJSON(w, http.StatusOK, out)
 }

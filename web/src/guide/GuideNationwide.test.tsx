@@ -1,0 +1,234 @@
+// 番組表の全国の検索（用語集。ADR 0035）。会員種別がエリアフリー・ダブルプランのときだけ「自分のエリア」「全国」の切り替えを出し、
+// 全国を選んだら URL の ?scope=all に載せる（ADR 0024。Shell を通す）。
+
+import { MantineProvider } from "@mantine/core";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Shell } from "../Shell";
+import type { GuideAiring, GuideAreas, SearchResult } from "./api";
+import { broadcastDayOf } from "./format";
+import { NATIONWIDE_LOADING } from "./GuidePage";
+
+type Handler = () => { status: number; body?: unknown } | Promise<{ status: number; body?: unknown }>;
+
+function mockApi(routes: Record<string, Handler>) {
+  const calls: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      const key = `${init?.method ?? "GET"} ${url}`;
+      calls.push(key);
+      const h = routes[key];
+      if (!h) throw new Error(`想定外の呼び出し: ${key}`);
+      const { status, body } = await h();
+      return new Response(status === 204 ? null : JSON.stringify(body ?? {}), { status });
+    }),
+  );
+  return calls;
+}
+
+const today = broadcastDayOf(new Date());
+const base = { performer: "", description: "", descriptionParts: [], notAvailable: false, timeFree30Excluded: false, state: "none" as const };
+const airing = (stationId: string, stationName: string, title: string, stationAreaName?: string): GuideAiring => ({
+  ...base,
+  stationId,
+  stationName,
+  title,
+  stationAreaName,
+  start: `${today}T14:00:00+09:00`,
+  end: `${today}T15:00:00+09:00`,
+});
+const areasOf = (switchable: boolean): Handler => () => ({
+  status: 200,
+  body: {
+    own: "JP13",
+    switchable,
+    pastDays: 7,
+    areas: [
+      { id: "JP13", name: "東京都" },
+      { id: "JP27", name: "大阪府" },
+    ],
+  } satisfies GuideAreas,
+});
+
+const ownSearch = `GET /api/guide/search?${new URLSearchParams({ q: "番組" })}`;
+const allSearch = `GET /api/guide/search?${new URLSearchParams({ q: "番組", scope: "all" })}`;
+const allResult = (failedStations = 0): SearchResult => ({
+  q: "番組",
+  scope: "all",
+  failedStations,
+  truncated: false,
+  airings: [airing("TBS", "TBSラジオ", "ネットの番組"), airing("MBS", "MBSラジオ", "ネットの番組", "大阪府")],
+});
+
+const common: Record<string, Handler> = {
+  [`GET /api/guide?day=${today}`]: () => ({
+    status: 200,
+    body: { day: today, stations: [{ id: "TBS", name: "TBSラジオ", airings: [airing("TBS", "TBSラジオ", "東京の番組")] }] },
+  }),
+  [ownSearch]: () => ({ status: 200, body: { q: "番組", airings: [airing("TBS", "TBSラジオ", "東京の番組")], truncated: false } }),
+  [allSearch]: () => ({ status: 200, body: allResult() }),
+  "GET /api/shows": () => ({ status: 200, body: [] }),
+  "GET /api/stations": () => ({ status: 200, body: [{ id: "TBS", name: "TBSラジオ" }] }),
+  "GET /api/notifications/status": () => ({ status: 200, body: { unread: 0, failed: 0, anomalies: [] } }),
+  "GET /api/settings": () => ({ status: 200, body: { settings: {}, secrets: {} } }),
+};
+
+const renderShell = () =>
+  render(
+    <MantineProvider>
+      <Shell onLogout={async () => {}} version="v0.0.0" />
+    </MantineProvider>,
+  );
+
+const here = () => window.location.pathname + window.location.search;
+
+beforeEach(() => {
+  window.localStorage.clear();
+  window.history.replaceState(null, "", "/");
+});
+afterEach(() => vi.unstubAllGlobals());
+
+describe("番組表の全国の検索", () => {
+  it("非会員・タイムフリー30（切り替えられない会員種別）では、検索の対象の切り替えを出さず、自分のエリアを探す", async () => {
+    const calls = mockApi({ ...common, "GET /api/guide/areas": areasOf(false) });
+    const user = userEvent.setup();
+    renderShell();
+    await within(await screen.findByTestId("guide-list")).findByRole("button", { name: /東京の番組/ });
+    expect(screen.queryByRole("radio", { name: "全国" })).not.toBeInTheDocument();
+    await user.type(screen.getByRole("textbox", { name: "番組名・出演者・説明で探す" }), "番組");
+    await user.click(screen.getByRole("button", { name: "検索" }));
+    await waitFor(() => expect(screen.getByLabelText("検索結果")).toHaveTextContent("東京の番組"));
+    expect(calls).toContain(ownSearch);
+    expect(calls).not.toContain(allSearch);
+  });
+
+  it("全国を選ぶと全国の局から探し、URL の ?scope=all に載せる。局名にエリアの名前を添え、「このキーワードで録音」を出さない", async () => {
+    let release = () => {};
+    const waiting = new Promise<void>((r) => (release = r));
+    const calls = mockApi({
+      ...common,
+      "GET /api/guide/areas": areasOf(true),
+      [allSearch]: async () => {
+        await waiting;
+        return { status: 200, body: allResult() };
+      },
+    });
+    const user = userEvent.setup();
+    renderShell();
+    await within(await screen.findByTestId("guide-list")).findByRole("button", { name: /東京の番組/ });
+    // 既定は自分のエリア
+    expect(await screen.findByRole("radio", { name: "自分のエリア" })).toBeChecked();
+    await user.click(screen.getByText("全国"));
+    await waitFor(() => expect(here()).toBe("/?scope=all"));
+
+    await user.type(screen.getByRole("textbox", { name: "番組名・出演者・説明で探す" }), "番組");
+    await user.click(screen.getByRole("button", { name: "検索" }));
+    // 取り終えるまでは、待っていることを出す
+    expect(await screen.findByText(NATIONWIDE_LOADING)).toBeInTheDocument();
+    release();
+    const results = await screen.findByLabelText("検索結果");
+    await waitFor(() => expect(results).toHaveTextContent("MBSラジオ（大阪府）"));
+    // 自分のエリアの局にはエリアの名前を添えない
+    expect(results).not.toHaveTextContent("TBSラジオ（");
+    expect(screen.queryByText(NATIONWIDE_LOADING)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "このキーワードで録音" })).not.toBeInTheDocument();
+    expect(calls).toContain(allSearch);
+    await waitFor(() => expect(here()).toBe(`/?${new URLSearchParams({ q: "番組", scope: "all" })}`));
+
+    // 自分のエリアに戻すと、流している検索を自分のエリアで流し直し、URL から外す
+    await user.click(screen.getByText("自分のエリア"));
+    await waitFor(() => expect(screen.getByLabelText("検索結果")).toHaveTextContent("東京の番組"));
+    expect(screen.getByRole("button", { name: "このキーワードで録音" })).toBeInTheDocument();
+    await waitFor(() => expect(here()).toBe(`/?${new URLSearchParams({ q: "番組" })}`));
+  });
+
+  it("全国の検索を待つ間に自分のエリアへ戻したら、全国の遅い応答が後から返っても自分のエリアの結果を残す", async () => {
+    let release = () => {};
+    const waiting = new Promise<void>((r) => (release = r));
+    let allDone = false;
+    mockApi({
+      ...common,
+      "GET /api/guide/areas": areasOf(true),
+      [allSearch]: async () => {
+        await waiting;
+        allDone = true;
+        return { status: 200, body: allResult() };
+      },
+    });
+    const user = userEvent.setup();
+    renderShell();
+    await within(await screen.findByTestId("guide-list")).findByRole("button", { name: /東京の番組/ });
+    await user.click(await screen.findByText("全国"));
+    await user.type(screen.getByRole("textbox", { name: "番組名・出演者・説明で探す" }), "番組");
+    await user.click(screen.getByRole("button", { name: "検索" }));
+    expect(await screen.findByText(NATIONWIDE_LOADING)).toBeInTheDocument();
+
+    // 待つ間に自分のエリアへ戻すと、自分のエリアで流し直す
+    await user.click(screen.getByText("自分のエリア"));
+    await waitFor(() => expect(screen.getByLabelText("検索結果")).toHaveTextContent("東京の番組"));
+
+    // 全国の遅い応答が後から返っても、捨てる
+    release();
+    await waitFor(() => expect(allDone).toBe(true));
+    await new Promise((r) => setTimeout(r, 50));
+    const results = screen.getByLabelText("検索結果");
+    expect(results).toHaveTextContent("東京の番組");
+    expect(results).not.toHaveTextContent("ネットの番組");
+    expect(screen.getByRole("button", { name: "このキーワードで録音" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "検索" })).not.toHaveAttribute("data-loading");
+  });
+
+  it("検索中に「検索をやめる」を押したら、遅い応答が後から返っても結果を出さない", async () => {
+    let release = () => {};
+    const waiting = new Promise<void>((r) => (release = r));
+    let allDone = false;
+    mockApi({
+      ...common,
+      "GET /api/guide/areas": areasOf(true),
+      [allSearch]: async () => {
+        await waiting;
+        allDone = true;
+        return { status: 200, body: allResult() };
+      },
+    });
+    const user = userEvent.setup();
+    renderShell();
+    await within(await screen.findByTestId("guide-list")).findByRole("button", { name: /東京の番組/ });
+    // 自分のエリアで探した後、全国に切り替えて流し直す（全国の応答は待たせる）
+    await user.type(screen.getByRole("textbox", { name: "番組名・出演者・説明で探す" }), "番組");
+    await user.click(screen.getByRole("button", { name: "検索" }));
+    await waitFor(() => expect(screen.getByLabelText("検索結果")).toHaveTextContent("東京の番組"));
+    await user.click(screen.getByText("全国"));
+    expect(await screen.findByText(NATIONWIDE_LOADING)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "検索をやめる" }));
+    expect(screen.queryByLabelText("検索結果")).not.toBeInTheDocument();
+    expect(screen.queryByText(NATIONWIDE_LOADING)).not.toBeInTheDocument();
+
+    release();
+    await waitFor(() => expect(allDone).toBe(true));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByLabelText("検索結果")).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "番組名・出演者・説明で探す" })).toHaveValue("");
+    await within(await screen.findByTestId("guide-list")).findByRole("button", { name: /東京の番組/ });
+  });
+
+  it("番組表を一部取れなかった局があれば、その数を出す", async () => {
+    window.history.replaceState(null, "", `/?${new URLSearchParams({ q: "番組", scope: "all" })}`);
+    mockApi({ ...common, "GET /api/guide/areas": areasOf(true), [allSearch]: () => ({ status: 200, body: allResult(2) }) });
+    renderShell();
+    expect(await screen.findByText("2 局の番組表を一部取れなかった。")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "全国" })).toBeChecked();
+  });
+
+  it("選べない会員種別で ?scope=all を開いたら、自分のエリアで探して URL を直す", async () => {
+    window.history.replaceState(null, "", `/?${new URLSearchParams({ q: "番組", scope: "all" })}`);
+    const calls = mockApi({ ...common, "GET /api/guide/areas": areasOf(false) });
+    renderShell();
+    await waitFor(() => expect(screen.getByLabelText("検索結果")).toHaveTextContent("東京の番組"));
+    expect(calls).not.toContain(allSearch);
+    await waitFor(() => expect(here()).toBe(`/?${new URLSearchParams({ q: "番組" })}`));
+  });
+});

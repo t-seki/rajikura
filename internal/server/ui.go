@@ -46,6 +46,8 @@ type UI struct {
 	// AreaGuide はエリアの日別番組表の取得元（guide.go）。nil なら番組表の API と、1 回の予約を足す API
 	// （onces.go。放送回を番組表で確かめる）を載せない。
 	AreaGuide app.AreaGuide
+	// Nationwide は全国の検索の番組表の取得元（guide.go の GET /api/guide/search?scope=all）。nil なら scope=all は 400。
+	Nationwide app.NationwideGuide
 	// Membership は会員種別（1 回の予約の録音期限の判定。onces.go）。Settings があれば使わず、設定の写しから読む。
 	// どちらも無ければ非会員。
 	Membership domain.Membership

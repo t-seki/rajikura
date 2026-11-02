@@ -12,7 +12,7 @@ import (
 func TestAreas(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`<region>
-<stations region_id="kinki"><station><id>ABC</id><area_id>JP27</area_id></station><station><id>KBS</id><area_id>JP26</area_id></station></stations>
+<stations region_id="kinki"><station><id>ABC</id><name>ABCラジオ</name><area_id>JP27</area_id></station><station><id>KBS</id><area_id>JP26</area_id></station></stations>
 <stations region_id="kanto"><station><id>TBS</id><area_id>JP13</area_id></station><station><id>QRR</id><area_id>JP13</area_id></station>
 <station><id>NOAREA</id></station><station><id>X</id><area_id>ZZ</area_id></station></stations>
 </region>`))
@@ -30,6 +30,14 @@ func TestAreas(t *testing.T) {
 	}
 	if got.StationArea["ABC"] != "JP27" || got.StationArea["QRR"] != "JP13" || got.StationArea["NOAREA"] != "" || len(got.StationArea) != 5 {
 		t.Errorf("StationArea = %v", got.StationArea)
+	}
+	// 局の一覧は full.xml の順（area_id の無い局は除く）。
+	var ids []string
+	for _, s := range got.Stations {
+		ids = append(ids, s.ID)
+	}
+	if want := []string{"ABC", "KBS", "TBS", "QRR", "X"}; !slices.Equal(ids, want) || got.Stations[0].Name != "ABCラジオ" {
+		t.Errorf("Stations = %+v, want %v", got.Stations, want)
 	}
 }
 
