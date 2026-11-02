@@ -50,6 +50,7 @@ type nationwideSearchResp struct {
 		StationID       string `json:"stationId"`
 		StationName     string `json:"stationName"`
 		StationAreaName string `json:"stationAreaName"`
+		StationAreaID   string `json:"stationAreaId"`
 		Title           string `json:"title"`
 		State           string `json:"state"`
 	} `json:"airings"`
@@ -85,14 +86,19 @@ func TestGuideSearchNationwide(t *testing.T) {
 			t.Fatalf("%s: 応答 = %+v", mm, got)
 		}
 		areas := map[string]string{}
+		areaIDs := map[string]string{}
 		for _, a := range got.Airings {
 			areas[a.StationID] = a.StationAreaName
+			areaIDs[a.StationID] = a.StationAreaID
 			if a.Title != "ネットの番組" || a.State != "none" || a.StationName == "" {
 				t.Errorf("%s: 放送回 = %+v", mm, a)
 			}
 		}
 		if areas["TBS"] != "" || areas["MBS"] != "大阪府" || areas["ABC"] != "大阪府" {
 			t.Errorf("%s: 局のエリアの名前 = %v", mm, areas)
+		}
+		if areaIDs["TBS"] != "" || areaIDs["MBS"] != "JP27" || areaIDs["ABC"] != "JP27" {
+			t.Errorf("%s: 局のエリアの ID = %v", mm, areaIDs)
 		}
 		// 表示する範囲の全部の放送日を探す（エリアフリーは 15 日、ダブルプランは 38 日）。
 		want := map[domain.Membership]int{domain.MembershipAreaFree: 15, domain.MembershipDouble: 38}[mm]

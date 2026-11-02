@@ -889,15 +889,17 @@ export function GuidePage({
     }
   }, []);
 
-  // 詳細が分割番組のパートを探すための、その放送日の番組表。いま開いている日ならそのまま使う。
-  const stationsRef = useRef<{ day: string; stations: GuideStation[] } | null>(null);
+  // 詳細が分割番組のパートを探すための、その放送日の番組表。a はパートを探すエリア（空なら自分のエリア）で、既定は選んでいるエリア。
+  // 全国の検索の結果から開いた詳細は、選んでいるエリアでなく局のエリア（stationAreaId。無ければ自分のエリア）を渡す。
+  // いま開いている日の番組表は、日もエリアも同じときだけそのまま使う。
+  const stationsRef = useRef<{ day: string; area: string; stations: GuideStation[] } | null>(null);
   useEffect(() => {
-    stationsRef.current = stations ? { day, stations } : null;
-  }, [day, stations]);
-  const dayForParts = useCallback(async (d: string) => {
+    stationsRef.current = stations ? { day, area, stations } : null;
+  }, [day, area, stations]);
+  const dayForParts = useCallback(async (d: string, a: string = areaRef.current) => {
     const cur = stationsRef.current;
-    if (cur && cur.day === d) return cur.stations;
-    return (await getGuide(d, areaRef.current)).stations;
+    if (cur && cur.day === d && cur.area === a) return cur.stations;
+    return (await getGuide(d, a)).stations;
   }, []);
 
   // 開いたときの URL に検索の語があれば、検索を流す
@@ -933,7 +935,8 @@ export function GuidePage({
     }
     const d = broadcastDayOf(a.start);
     setSel({ stationId: a.stationId, day: d, rows: [a], picked: [a.start], anchor: a.start, auto: false, pending: true, fromSearch });
-    dayForParts(d).then(
+    const partsArea = fromSearch && search?.scope === "all" ? (a.stationAreaId ?? "") : areaRef.current;
+    dayForParts(d, partsArea).then(
       (st) => {
         if (my !== groupToken.current) return;
         const group = autoGroup(a, st.find((s) => s.id === a.stationId)?.airings ?? []).filter(
