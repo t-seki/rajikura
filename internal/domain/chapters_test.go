@@ -71,11 +71,11 @@ func TestCheckChapters(t *testing.T) {
 			ChapterKeepWaiting, j.ChapterWaits},
 		{"一方だけ取れた", map[string]ChapterFetch{flat1.Key(): ChapterGot, flat2.Key(): ChapterPending}, now,
 			ChapterKeepWaiting, map[string]AiringChapterWait{flat1.Key(): AiringChapterReady, flat2.Key(): AiringChapterPending}},
-		{"全部取れた", map[string]ChapterFetch{flat1.Key(): ChapterGot, flat2.Key(): ChapterGot}, now, ChapterRefetchNow, nil},
-		{"取れたものと空", map[string]ChapterFetch{flat1.Key(): ChapterGot, flat2.Key(): ChapterAbsent}, now, ChapterRefetchNow, nil},
+		{"全部取れた", map[string]ChapterFetch{flat1.Key(): ChapterGot, flat2.Key(): ChapterGot}, now, ChapterWriteNow, nil},
+		{"取れたものと空", map[string]ChapterFetch{flat1.Key(): ChapterGot, flat2.Key(): ChapterAbsent}, now, ChapterWriteNow, nil},
 		{"どちらも空", map[string]ChapterFetch{flat1.Key(): ChapterAbsent, flat2.Key(): ChapterAbsent}, now, ChapterGiveUp, nil},
 		{"打ち切りでどちらもまだ", map[string]ChapterFetch{flat1.Key(): ChapterPending, flat2.Key(): ChapterPending}, cutoff, ChapterGiveUp, nil},
-		{"打ち切りで一方だけ取れた", map[string]ChapterFetch{flat1.Key(): ChapterGot, flat2.Key(): ChapterPending}, cutoff, ChapterRefetchNow, nil},
+		{"打ち切りで一方だけ取れた", map[string]ChapterFetch{flat1.Key(): ChapterGot, flat2.Key(): ChapterPending}, cutoff, ChapterWriteNow, nil},
 		{"録音期限を過ぎた", map[string]ChapterFetch{flat1.Key(): ChapterGot, flat2.Key(): ChapterGot}, j.Deadline, ChapterGiveUp, nil},
 	}
 	for _, tt := range tests {
@@ -99,7 +99,55 @@ func TestCheckChapters(t *testing.T) {
 	// 前の見回りで取れるようになった放送回は引き直さず、そのまま取れるようになったとして数える。
 	ready := j
 	ready.ChapterWaits = map[string]AiringChapterWait{flat1.Key(): AiringChapterReady, flat2.Key(): AiringChapterPending}
-	if got, _ := CheckChapters(ready, map[string]ChapterFetch{flat2.Key(): ChapterGot}, now); got != ChapterRefetchNow {
+	if got, _ := CheckChapters(ready, map[string]ChapterFetch{flat2.Key(): ChapterGot}, now); got != ChapterWriteNow {
 		t.Errorf("前に取れるようになった放送回: got %v", got)
+	}
+}
+
+// 書き込みの前に取った結果は、全部取れたら入った、それ以外（一部だけ・全部取れない）は入らなかった。待ちは起こさない（ADR 0033）。
+func TestChaptersAfterWrite(t *testing.T) {
+	tests := []struct {
+		fetched []ChapterFetch
+		want    Chapters
+	}{
+		{[]ChapterFetch{ChapterGot, ChapterGot}, ChaptersAdded},
+		{[]ChapterFetch{ChapterGot, ChapterPending}, ChaptersNotAdded},
+		{[]ChapterFetch{ChapterAbsent}, ChaptersNotAdded},
+		{nil, ChaptersNotAdded},
+	}
+	for _, tt := range tests {
+		if got := ChaptersAfterWrite(tt.fetched); got != tt.want {
+			t.Errorf("ChaptersAfterWrite(%v) = %q, want %q", tt.fetched, got, tt.want)
+		}
+	}
+}
+
+// パートの長さは、保存のときに残した長さが全部の放送回にあればそれ、1 つでも無ければ全部を番組表の放送時間で代える（ADR 0033）。
+func TestChapterParts(t *testing.T) {
+	as := []Airing{flat1, flat2}
+	guide := []time.Duration{flat1.End.Sub(flat1.Start), flat2.End.Sub(flat2.Start)}
+	stored := map[string]time.Duration{flat1.Key(): 59 * time.Minute, flat2.Key(): 50 * time.Minute}
+	if got := ChapterParts(as, stored); got[0] != 59*time.Minute || got[1] != 50*time.Minute {
+		t.Errorf("残した長さ: %v", got)
+	}
+	for name, lengths := range map[string]map[string]time.Duration{
+		"残していない":  nil,
+		"一部だけ残した": {flat1.Key(): 59 * time.Minute},
+	} {
+		if got := ChapterParts(as, lengths); got[0] != guide[0] || got[1] != guide[1] {
+			t.Errorf("%s: %v, want %v", name, got, guide)
+		}
+	}
+}
+
+// 保存したファイルの放送回は、欠落した放送回を除いたもの（並びは Airings のまま）。
+func TestSavedAirings(t *testing.T) {
+	j := chapterJob()
+	if got := j.SavedAirings(); len(got) != 2 {
+		t.Errorf("欠落なし: %v", got)
+	}
+	j.Missing = []Airing{flat1}
+	if got := j.SavedAirings(); len(got) != 1 || got[0].Key() != flat2.Key() {
+		t.Errorf("flat1 が欠落: %v", got)
 	}
 }

@@ -444,10 +444,6 @@ func (a *App) notifyDeadlineNear(ctx context.Context) error {
 			// （放送中の途中経過も知らせない）。録れなければ、録音できなかったで知らせる。
 			continue
 		}
-		if j.ChapterRefetch {
-			// チャプターの取り直しの試行は通知しない（録音は済んでいて、録れなくても録音済みに戻す。ADR 0027）。
-			continue
-		}
 		msg := fmt.Sprintf("【期限間近】%s をまだ録音できていない（状態 %s、試行 %d 回、次の試行 %s、録音期限 %s）。",
 			jobLabel(j), j.State, j.Attempts, fmtTime(j.NextAttemptAt), fmtTime(j.Deadline))
 		if e := a.lastError(ctx, j.ID); e != "" {

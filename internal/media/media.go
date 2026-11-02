@@ -1,4 +1,6 @@
 // Package media は、入手した ADTS（AAC）を再エンコードせずに m4a へ格納し（タグ・カバー画像・チャプターも書く）、長さを測る。
+// 保存した m4a のチャプターだけを書き直し（WriteChapters）、書き直したファイルの音声のサンプルが元と同じかを確かめる（SameAudio。
+// ADR 0033）。ADTS の入力ごとの長さ（InputLengths。連結したファイルのパートの長さ）も出す。
 // 作り方は 2 つあり、設定 muxer で選ぶ（ADR 0013）。どちらも同じ形の箱を書く（チャプターの形は chapter.go。ADR 0027）。
 //
 //   - [Tools]: ffmpeg / ffprobe を子プロセスとして呼ぶ（ADR 0001: ffmpeg にネットワークを触らせない。
@@ -180,6 +182,65 @@ func (t *Tools) RemuxWithChapters(ctx context.Context, inputs []string, out stri
 	}
 	return nil
 }
+
+// WriteChapters は [Builtin.WriteChapters] と同じく、保存した m4a in のチャプターを chs に置き換えた m4a を out に書き、置いた
+// チャプターの数を返す（ADR 0033）。チャプターの置き方（パートの長さ parts でずらす）は builtin と同じく in を Go で読んで決め、
+// 書き直しは ffmpeg に頼む。ffmpeg には in の音声（とカバー画像）・タグをそのまま写させ（-map 0:a・-map_metadata 0・-c copy）、
+// チャプターは ffmetadata のファイルから移させる（-map_chapters。前のチャプターは写さない）。置くチャプターが無ければ、
+// チャプターの無いファイルを書く（-map_chapters -1）。out は上書きされる。
+func (t *Tools) WriteChapters(ctx context.Context, in, out string, chs []Chapter, parts []time.Duration) (int, error) {
+	src, err := os.Open(in)
+	if err != nil {
+		return 0, fmt.Errorf("media: write chapters: %w", err)
+	}
+	m, err := readM4A(src)
+	src.Close()
+	if err != nil {
+		return 0, fmt.Errorf("media: write chapters: %s: %w", in, err)
+	}
+	placed := m.place(chs, parts)
+	dir, err := os.MkdirTemp("", "rajikura-chapters-")
+	if err != nil {
+		return 0, fmt.Errorf("media: write chapters: %w", err)
+	}
+	defer os.RemoveAll(dir)
+	args := []string{"-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", in}
+	if len(placed) > 0 {
+		meta := filepath.Join(dir, "chapters.txt")
+		if err := os.WriteFile(meta, []byte(ffmetadata(placed, m.durationMs())), 0o600); err != nil {
+			return 0, fmt.Errorf("media: write chapters: %w", err)
+		}
+		args = append(args, "-f", "ffmetadata", "-i", meta)
+	}
+	args = append(args, "-map", "0:a")
+	if m.cover {
+		args = append(args, "-map", "0:v")
+	}
+	args = append(args, "-map_metadata", "0")
+	if len(placed) > 0 {
+		args = append(args, "-map_chapters", "1")
+	} else {
+		args = append(args, "-map_chapters", "-1")
+	}
+	args = append(args, "-c", "copy")
+	if m.cover {
+		args = append(args, "-disposition:v:0", "attached_pic")
+	}
+	args = append(args, "-f", "mp4", out)
+	if _, err := run(ctx, t.FFmpeg, args...); err != nil {
+		os.Remove(out)
+		return 0, fmt.Errorf("media: write chapters: %w", err)
+	}
+	return len(placed), nil
+}
+
+// InputLengths は [Builtin.InputLengths] と同じ（ADTS を Go で読む。ffmpeg は使わない）。
+func (t *Tools) InputLengths(ctx context.Context, inputs []string) ([]time.Duration, error) {
+	return inputLengths(ctx, inputs)
+}
+
+// SameAudio は [Builtin.SameAudio] と同じ（m4a を Go で読む。ffmpeg は使わない）。
+func (t *Tools) SameAudio(ctx context.Context, a, b string) error { return sameAudio(ctx, a, b) }
 
 // filesReader は files の中身を順に読む io.ReadCloser。ファイルは 1 つずつ開いて閉じる。
 // Close は、別の goroutine が Write で止まっている間にも呼べる（開いているファイルを閉じ、

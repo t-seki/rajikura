@@ -12,8 +12,15 @@ package media
 // チャプターが 0 件なら、どちらも書かない（今までと同じファイル）。
 
 import (
+	"bufio"
+	"bytes"
 	"cmp"
+	"context"
 	"encoding/binary"
+	"errors"
+	"fmt"
+	"io"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -277,6 +284,95 @@ func writeChapterTrak(bw *boxWriter, trackID uint32, chs []placedChapter, durati
 			})
 		})
 	})
+}
+
+// inputLengths は、ADTS ファイル inputs ごとの長さを、フレームの数とコアのサンプリング周波数から出す（[Builtin.InputLengths]・
+// [Tools.InputLengths]。どちらの muxer でも、ファイルの中で入力が占める長さは同じ）。
+func inputLengths(ctx context.Context, inputs []string) ([]time.Duration, error) {
+	frames, cfg, err := scanADTS(ctx, inputs)
+	if err != nil {
+		return nil, fmt.Errorf("media: input lengths: %w", err)
+	}
+	rate := time.Duration(cfg.sampleRate())
+	out := make([]time.Duration, len(inputs))
+	for i, n := range inputSampleCounts(frames, len(inputs)) {
+		out[i] = time.Duration(n) * time.Second / rate
+	}
+	return out, nil
+}
+
+// ErrAudioMismatch は、2 つの m4a の音声のサンプルが、数かバイト列で違うこと（sameAudio）。errors.Is で見分ける。
+var ErrAudioMismatch = errors.New("media: audio samples differ")
+
+// sameAudio は、m4a a と b の音声のトラックのサンプルが、数とバイト列で同じかを確かめる（チャプターを書き直したファイルが
+// 元のファイルと同じ音声を持つことの確かめ。ADR 0033）。違えば ErrAudioMismatch を包んだエラー、読めなければそのエラー。
+// 比べるのはサンプルの並びとバイト列だけで、チャンクの切り方・位置やタイムスケールは比べない。
+func sameAudio(ctx context.Context, a, b string) error {
+	open := func(p string) (*os.File, *m4aFile, error) {
+		f, err := os.Open(p)
+		if err != nil {
+			return nil, nil, err
+		}
+		m, err := readM4A(f)
+		if err != nil {
+			f.Close()
+			return nil, nil, fmt.Errorf("%s: %w", p, err)
+		}
+		return f, m, nil
+	}
+	fa, ma, err := open(a)
+	if err != nil {
+		return fmt.Errorf("media: same audio: %w", err)
+	}
+	defer fa.Close()
+	fb, mb, err := open(b)
+	if err != nil {
+		return fmt.Errorf("media: same audio: %w", err)
+	}
+	defer fb.Close()
+	if na, nb := len(ma.sound.sizes), len(mb.sound.sizes); na != nb {
+		return fmt.Errorf("%w: %d samples vs %d", ErrAudioMismatch, na, nb)
+	}
+	for i := range ma.sound.sizes {
+		if ma.sound.sizes[i] != mb.sound.sizes[i] {
+			return fmt.Errorf("%w: size of sample %d (%d vs %d)", ErrAudioMismatch, i, ma.sound.sizes[i], mb.sound.sizes[i])
+		}
+	}
+	// サンプルの大きさが同じなので、つないだバイト列の長さも同じ（readSound がチャンクの大きさをサンプルの大きさから出す）。
+	var total uint64
+	for _, s := range ma.sound.sizes {
+		total += uint64(s)
+	}
+	ra, rb := chunkReader(fa, ma.sound.chunks), chunkReader(fb, mb.sound.chunks)
+	ba, bb := make([]byte, 1<<16), make([]byte, 1<<16)
+	for pos, i := uint64(0), 0; pos < total; i++ {
+		if i%64 == 0 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
+		n := int(min(uint64(len(ba)), total-pos))
+		if _, err := io.ReadFull(ra, ba[:n]); err != nil {
+			return fmt.Errorf("media: same audio: %s: %w", a, err)
+		}
+		if _, err := io.ReadFull(rb, bb[:n]); err != nil {
+			return fmt.Errorf("media: same audio: %s: %w", b, err)
+		}
+		if !bytes.Equal(ba[:n], bb[:n]) {
+			return fmt.Errorf("%w: sample data differs in bytes %d-%d", ErrAudioMismatch, pos, pos+uint64(n))
+		}
+		pos += uint64(n)
+	}
+	return nil
+}
+
+// chunkReader は、f のチャンク chunks の中身（音声のサンプルのバイト列）を順につないで読む。
+func chunkReader(f *os.File, chunks []m4aChunk) io.Reader {
+	rs := make([]io.Reader, len(chunks))
+	for i, c := range chunks {
+		rs[i] = io.NewSectionReader(f, int64(c.offset), int64(c.size))
+	}
+	return bufio.NewReaderSize(io.MultiReader(rs...), 1<<20)
 }
 
 // chplPayload は moov/udta/chpl の中身（箱のヘッダーを除く）を作る。

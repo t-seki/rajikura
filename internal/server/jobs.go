@@ -22,6 +22,8 @@ type Jobs interface {
 	ListJobsFromDay(ctx context.Context, day domain.BroadcastDay, states ...domain.State) ([]domain.Job, error)
 	GetJob(ctx context.Context, id int64) (domain.Job, error)
 	Attempts(ctx context.Context, jobID int64) ([]domain.Attempt, error)
+	// ChapterWrites は、ジョブの保存したファイルへのチャプターの書き込みの履歴（ADR 0033）。
+	ChapterWrites(ctx context.Context, jobID int64) ([]domain.ChapterWrite, error)
 	LatestAttemptsFromDay(ctx context.Context, day domain.BroadcastDay) (map[int64]domain.Attempt, error)
 	ManualRetry(ctx context.Context, id int64, now time.Time) error
 	SkipByPerson(ctx context.Context, id int64, now time.Time) error
@@ -194,10 +196,24 @@ type attemptView struct {
 	DurationSeconds float64 `json:"durationSeconds"`
 }
 
+// chapterWriteView は、チャプターの書き込みの履歴の 1 行（domain.ChapterWrite。ADR 0033）。
+type chapterWriteView struct {
+	At time.Time `json:"at"`
+	// By は誰が（refetch: チャプターの取り直し、redo: チャプターの入れ直し）。
+	By string `json:"by"`
+	// Result は結果（written: 書き込んだ、not_fetched: 取れなかったので書かなかった、failed: 書き込めなかった）。Count は
+	// 書き込んだチャプターの件数（written のときだけ。ほかは 0）、Error は書き込めなかった理由（failed のときだけ。ほかは空）。
+	Result string `json:"result"`
+	Count  int    `json:"count"`
+	Error  string `json:"error"`
+}
+
 type jobDetail struct {
 	jobSummary
 	Airings    []airingView  `json:"airings"`
 	AttemptLog []attemptView `json:"attemptLog"`
+	// ChapterWrites は、保存したファイルへのチャプターの書き込みの履歴（書き込んだ順。試行の履歴とは別。無ければ空の配列）。
+	ChapterWrites []chapterWriteView `json:"chapterWrites"`
 	// DurationSeconds は、成功した試行で測った長さ（秒）。記録が無ければ 0。
 	DurationSeconds float64 `json:"durationSeconds"`
 }
@@ -354,7 +370,16 @@ func (u *UI) getJob(w http.ResponseWriter, r *http.Request) {
 	for _, a := range j.Missing {
 		missing[a.Key()] = true
 	}
-	d := jobDetail{jobSummary: summarize(j, lastOf(as), u.membership(), u.now()), Airings: []airingView{}, AttemptLog: []attemptView{}}
+	cws, err := u.Jobs.ChapterWrites(r.Context(), id)
+	if err != nil {
+		u.internalError(w, "チャプターの書き込みの履歴を読めない", err)
+		return
+	}
+	d := jobDetail{jobSummary: summarize(j, lastOf(as), u.membership(), u.now()), Airings: []airingView{}, AttemptLog: []attemptView{},
+		ChapterWrites: []chapterWriteView{}}
+	for _, c := range cws {
+		d.ChapterWrites = append(d.ChapterWrites, chapterWriteView{At: c.At, By: string(c.By), Result: string(c.Result), Count: c.Count, Error: c.Error})
+	}
 	u.withProgress(&d.jobSummary, j)
 	for _, a := range j.Airings {
 		d.Airings = append(d.Airings, airingView{

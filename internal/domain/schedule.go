@@ -30,7 +30,7 @@ var retryIntervals = []time.Duration{15 * time.Minute, time.Hour, 3 * time.Hour,
 
 // FirstAttemptAt は、タイムフリーから録るジョブの最初の試行の時刻。
 // ジョブの最後の放送回の終了時刻 + max(局の tf_max_delay, 150 秒) + 2 分（設定 chapters に依らない。チャプターが取れなければ、
-// 保存の後にチャプターの取り直しで入れる。ADR 0027）。
+// 保存の後にチャプターの取り直しで保存したファイルに書き込む。ADR 0027・0033）。
 func FirstAttemptAt(lastEnd time.Time, tfMaxDelay time.Duration) time.Time {
 	return lastEnd.Add(max(tfMaxDelay, minTFDelay) + firstAttemptMargin)
 }

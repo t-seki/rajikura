@@ -30,9 +30,10 @@ rajikura の設計の決定と、その理由をまとめる。どの ADR も、
 | [0024](0024-web-ui-url-per-screen.md) | Web UI は画面ごとに URL を分け、ルーティングに wouter を使う | 画面の URL と、通知から画面を開くリンク |
 | [0025](0025-rerecord-done-job-separately-from-manual-retry.md) | 録音済みのジョブの録り直しは、手動再試行とは別の操作にする（置き換え済み（→ 0031）） | 録り直しの受け付けと、前のファイルの扱い |
 | [0026](0026-job-id-not-reused.md) | ジョブの id は使い回さない | `jobs.id` を AUTOINCREMENT にする |
-| [0027](0027-chapters-refetched-by-rerecording.md) | チャプターはタイムフリーからの録音の保存のときに取り、取れなければできるのを待って録り直して入れる | チャプターの取り方・形と、チャプターの取り直し |
+| [0027](0027-chapters-refetched-by-rerecording.md) | チャプターはタイムフリーからの録音の保存のときに取り、取れなければできるのを待って録り直して入れる（置き換え済み（→ 0033）） | チャプターの取り方・形と、チャプターの取り直し |
 | [0028](0028-publish-as-oss-under-radiko-terms.md) | radiko の規約の第 4 条を承知で、ソースを公開した OSS として配る | 公開の立場と、守ること |
 | [0029](0029-weekly-until-over-title-based-handover.md) | 番組の切り替えは毎週の予約の終了日で前もって決め、矛盾を番組名で振り分けない | 毎週の予約の終了日 |
 | [0030](0030-radiko-login-follows-chosen-membership.md) | radiko のログインは人が選んだ会員種別に従い、拒まれたら非会員として録る | 会員種別の決め方、radiko のログインのセッションと、拒まれたときの扱い |
 | [0031](0031-rerecord-deadline-follows-current-membership.md) | 録音済みのジョブの録り直しは手動再試行とは別の操作にし、受け付けるかは今の会員種別の録音期限で決める | 録り直しの受け付けと、前のファイルの扱い、録り直しの録音期限 |
 | [0032](0032-revise-deadlines-when-own-area-changes.md) | 自分のエリアが変わったら、まだ終わっていないジョブの録音期限を、会員種別と同じ付け直しで直す | 録音期限の写しの付け直しと、自分のエリアの変化への気付き方 |
+| [0033](0033-chapters-written-into-saved-file.md) | チャプターは音声を取り直さず、保存したファイルに書き込む。人もチャプターの入れ直しで書き込ませられる | チャプターの取り方・形、チャプターの取り直しと入れ直しの書き込み方 |
