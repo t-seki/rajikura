@@ -14,7 +14,7 @@ package server
 //     scope=all は全国の検索（用語集。ADR 0035）で、radiko の全局の局ごとの日別の番組表（app.NationwideGuide）から探す。会員種別が
 //     エリアフリー・ダブルプランのときだけ指せ（そうでなければ 400）、area と一緒には指せない（400）。scope の all のほかの値も 400。
 //     取れなかった局があっても取れた分を返し、応答に scope（"all"）と failedStations（ある放送日を 1 つでも取れなかった局の数）を足す。
-//     全部取れなかったときだけ 502。放送回には、局が自分のエリアの局一覧に無ければ stationAreaName（局のエリアの都道府県名）を付ける。
+//     全部取れなかったときだけ 502。放送回には、局が自分のエリアの局一覧に無ければ stationAreaName（局のエリアの都道府県名）と stationAreaId（局のエリアの ID）を付ける。
 //     同じ時刻・同じ番組名の放送回が複数の局に出ても、まとめずに局ごとに返す
 //
 // 表示する範囲は、今日の N 日前から 7 日先までの放送日（N は今の会員種別の最大の録音期限の日数。非会員・エリアフリーは 7、
@@ -228,6 +228,9 @@ type guideAiringJSON struct {
 	// StationAreaName は、全国の検索の結果で、局が自分のエリアの局一覧に無いときの、局のエリアの名前（都道府県名。radiko.AreaName）。
 	// 自分のエリアの局と、全国の検索でない結果では付けない。
 	StationAreaName string `json:"stationAreaName,omitempty"`
+	// StationAreaID は、StationAreaName と同じ条件で付ける、局のエリアの ID（full.xml の局の area_id）。画面が、全国の検索の結果から開いた詳細で
+	// ほかのパートを探す番組表のエリアに使う。area_id が空のときは付けない。
+	StationAreaID string `json:"stationAreaId,omitempty"`
 }
 
 type guideStationJSON struct {
@@ -387,6 +390,7 @@ type searchHit struct {
 	airing      domain.Airing
 	stationName string
 	areaName    string
+	areaID      string
 }
 
 func (u *UI) guideSearch(w http.ResponseWriter, r *http.Request) {
@@ -432,6 +436,7 @@ func (u *UI) guideSearch(w http.ResponseWriter, r *http.Request) {
 			sh := searchHit{airing: h.Airing, stationName: h.Station.Name}
 			if !h.Station.Own {
 				sh.areaName = radiko.AreaName(h.Station.AreaID)
+				sh.areaID = h.Station.AreaID
 			}
 			found = append(found, sh)
 		}
@@ -479,6 +484,7 @@ func (u *UI) guideSearch(w http.ResponseWriter, r *http.Request) {
 		seen[h.airing.Key()] = true
 		v := res.view(h.airing, h.stationName)
 		v.StationAreaName = h.areaName
+		v.StationAreaID = h.areaID
 		hits = append(hits, v)
 	}
 	sort.SliceStable(hits, func(a, b int) bool {

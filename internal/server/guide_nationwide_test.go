@@ -50,6 +50,7 @@ type nationwideSearchResp struct {
 		StationID       string `json:"stationId"`
 		StationName     string `json:"stationName"`
 		StationAreaName string `json:"stationAreaName"`
+		StationAreaID   string `json:"stationAreaId"`
 		Title           string `json:"title"`
 		State           string `json:"state"`
 	} `json:"airings"`
@@ -85,14 +86,19 @@ func TestGuideSearchNationwide(t *testing.T) {
 			t.Fatalf("%s: 応答 = %+v", mm, got)
 		}
 		areas := map[string]string{}
+		areaIDs := map[string]string{}
 		for _, a := range got.Airings {
 			areas[a.StationID] = a.StationAreaName
+			areaIDs[a.StationID] = a.StationAreaID
 			if a.Title != "ネットの番組" || a.State != "none" || a.StationName == "" {
 				t.Errorf("%s: 放送回 = %+v", mm, a)
 			}
 		}
 		if areas["TBS"] != "" || areas["MBS"] != "大阪府" || areas["ABC"] != "大阪府" {
 			t.Errorf("%s: 局のエリアの名前 = %v", mm, areas)
+		}
+		if areaIDs["TBS"] != "" || areaIDs["MBS"] != "JP27" || areaIDs["ABC"] != "JP27" {
+			t.Errorf("%s: 局のエリアの ID = %v", mm, areaIDs)
 		}
 		// 表示する範囲の全部の放送日を探す（エリアフリーは 15 日、ダブルプランは 38 日）。
 		want := map[domain.Membership]int{domain.MembershipAreaFree: 15, domain.MembershipDouble: 38}[mm]
@@ -105,6 +111,30 @@ func TestGuideSearchNationwide(t *testing.T) {
 	e.call("GET", "/api/guide/search?q="+urlQuery("ネット"), "", 200, &own)
 	if own.Scope != "" || own.FailedStations != nil || len(own.Airings) != 0 {
 		t.Fatalf("自分のエリアの検索 = %+v", own)
+	}
+}
+
+// stationAreaId は全国の検索だけに付く。自分のエリアの検索と、選んだエリアの検索の放送回には付かない。
+func TestGuideSearchNoStationAreaIDOutsideNationwide(t *testing.T) {
+	e, _, _ := newNationwideUI(t)
+	e.area.others = map[string]map[string][]app.AreaStation{"JP27": {"2026-10-07": {
+		{ID: "ABC", Name: "ABCラジオ", Airings: []domain.Airing{
+			{StationID: "ABC", Start: jst(2026, 10, 7, 20, 0), End: jst(2026, 10, 7, 21, 0), Title: "ネットの番組"},
+		}},
+	}}}
+	for _, path := range []string{"/api/guide/search?q=" + urlQuery("単発"), "/api/guide/search?q=" + urlQuery("ネット") + "&area=JP27"} {
+		var raw struct {
+			Airings []map[string]any `json:"airings"`
+		}
+		e.call("GET", path, "", 200, &raw)
+		if len(raw.Airings) == 0 {
+			t.Fatalf("%s: 放送回が無い", path)
+		}
+		for _, a := range raw.Airings {
+			if _, ok := a["stationAreaId"]; ok {
+				t.Errorf("%s: stationAreaId が付いている: %v", path, a)
+			}
+		}
 	}
 }
 

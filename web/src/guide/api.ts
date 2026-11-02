@@ -38,6 +38,8 @@ export type GuideAiring = {
   timeFree30Excluded: boolean;
   /** 全国の検索の結果で、局が自分のエリアの局一覧に無いときの、局のエリアの名前（都道府県名）。自分のエリアの局と、全国の検索でない結果には付かない。 */
   stationAreaName?: string;
+  /** stationAreaName と同じ条件で付く、局のエリアの ID。全国の検索の結果から開いた詳細が、ほかのパートを探す番組表のエリアに使う。 */
+  stationAreaId?: string;
 };
 
 export type GuideStation = { id: string; name: string; airings: GuideAiring[] };

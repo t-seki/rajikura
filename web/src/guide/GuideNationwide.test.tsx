@@ -231,4 +231,81 @@ describe("番組表の全国の検索", () => {
     expect(calls).not.toContain(allSearch);
     await waitFor(() => expect(here()).toBe(`/?${new URLSearchParams({ q: "番組" })}`));
   });
+  // 全国の検索の結果から開いた分割番組の詳細は、局のエリアの番組表からほかのパートを探す（#53）。
+  describe("分割番組のほかのパート", () => {
+    const part = (stationId: string, stationName: string, hour: number, stationAreaId?: string): GuideAiring => ({
+      ...base,
+      stationId,
+      stationName,
+      title: `ネットの番組（${hour}時台）`,
+      stationAreaId,
+      start: `${today}T${hour}:00:00+09:00`,
+      end: `${today}T${hour + 1}:00:00+09:00`,
+    });
+    const guideOf = (airings: GuideAiring[]): Handler => () => ({
+      status: 200,
+      body: { day: today, stations: [{ id: airings[0].stationId, name: airings[0].stationName, airings }] },
+    });
+    const partsLabel = "パート 2 件（自動で選びました）";
+
+    it("自分のエリアの外の局の分割番組は、stationAreaId のエリアの番組表から組む", async () => {
+      window.history.replaceState(null, "", `/?${new URLSearchParams({ q: "番組", scope: "all" })}`);
+      const mbs = [part("MBS", "MBSラジオ", 14, "JP27"), part("MBS", "MBSラジオ", 15, "JP27")];
+      const calls = mockApi({
+        ...common,
+        "GET /api/guide/areas": areasOf(true),
+        [allSearch]: () => ({ status: 200, body: { ...allResult(), airings: [mbs[0]] } }),
+        [`GET /api/guide?${new URLSearchParams({ day: today, area: "JP27" })}`]: guideOf(mbs),
+      });
+      const user = userEvent.setup();
+      renderShell();
+      await user.click(await within(await screen.findByLabelText("検索結果")).findByRole("button", { name: /14時台/ }));
+      const dialog = await screen.findByRole("dialog");
+      expect(await within(dialog).findByText(partsLabel)).toBeInTheDocument();
+      expect(calls).toContain(`GET /api/guide?${new URLSearchParams({ day: today, area: "JP27" })}`);
+    });
+
+    it("ほかのエリアを選んだまま自分のエリアの局（stationAreaId なし）の分割番組を開くと、area を付けない番組表から組む", async () => {
+      window.history.replaceState(null, "", `/?${new URLSearchParams({ area: "JP27" })}`);
+      const tbs = [part("TBS", "TBSラジオ", 14), part("TBS", "TBSラジオ", 15)];
+      const calls = mockApi({
+        ...common,
+        "GET /api/guide/areas": areasOf(true),
+        [`GET /api/guide?${new URLSearchParams({ day: today, area: "JP27" })}`]: guideOf([part("MBS", "MBSラジオ", 10, "JP27")]),
+        [`GET /api/guide?day=${today}`]: guideOf(tbs),
+        [allSearch]: () => ({ status: 200, body: { ...allResult(), airings: [tbs[0]] } }),
+      });
+      const user = userEvent.setup();
+      renderShell();
+      await user.click(await screen.findByText("全国"));
+      await user.type(screen.getByRole("textbox", { name: "番組名・出演者・説明で探す" }), "番組");
+      await user.click(screen.getByRole("button", { name: "検索" }));
+      await user.click(await within(await screen.findByLabelText("検索結果")).findByRole("button", { name: /14時台/ }));
+      const dialog = await screen.findByRole("dialog");
+      expect(await within(dialog).findByText(partsLabel)).toBeInTheDocument();
+      expect(calls).toContain(`GET /api/guide?day=${today}`);
+    });
+
+    it("選んだエリアの検索から開いた詳細は、今どおり選んでいるエリアの番組表から組む", async () => {
+      window.history.replaceState(null, "", `/?${new URLSearchParams({ q: "番組", area: "JP27" })}`);
+      const mbs = [part("MBS", "MBSラジオ", 14), part("MBS", "MBSラジオ", 15)];
+      const areaGuide = `GET /api/guide?${new URLSearchParams({ day: today, area: "JP27" })}`;
+      const calls = mockApi({
+        ...common,
+        "GET /api/guide/areas": areasOf(true),
+        [areaGuide]: guideOf(mbs),
+        [`GET /api/guide/search?${new URLSearchParams({ q: "番組", area: "JP27" })}`]: () => ({
+          status: 200,
+          body: { q: "番組", airings: [mbs[0]], truncated: false },
+        }),
+      });
+      const user = userEvent.setup();
+      renderShell();
+      await user.click(await within(await screen.findByLabelText("検索結果")).findByRole("button", { name: /14時台/ }));
+      const dialog = await screen.findByRole("dialog");
+      expect(await within(dialog).findByText(partsLabel)).toBeInTheDocument();
+      expect(calls.filter((c) => c === areaGuide).length).toBeGreaterThan(0);
+      expect(calls).not.toContain(`GET /api/guide?day=${today}`);
+    });
+  });
 });
