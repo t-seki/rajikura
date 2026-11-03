@@ -550,7 +550,7 @@ function AdvancedSection({ view, onChanged }: SectionProps) {
           <Switch label="出演者を 250 バイトに切り詰める" checked={truncate} onChange={(e) => setTruncate(e.currentTarget.checked)} />
           <Switch
             label="タイムフリーの録音にチャプターを入れる"
-            description="radiko が放送の後に作るチャプターを取って m4a に入れる。取れなければチャプター無しで保存し、まだできていないだけなら、番組の終了から 6 時間まで待ち、できたらもう一度録音して入れる"
+            description="radiko が放送の後に作るチャプターを取って m4a に入れる。取れなければチャプター無しで保存し、まだできていないだけなら、最後の放送回の終了から 6 時間まで待ち、できたら音声は取り直さず、保存したファイルに書き込む"
             checked={chapters}
             onChange={(e) => setChapters(e.currentTarget.checked)}
           />
