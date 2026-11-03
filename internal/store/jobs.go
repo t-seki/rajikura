@@ -935,8 +935,9 @@ type RevisedDeadlines struct {
 //
 // retrying のジョブの次の試行が新しい録音期限より後なら、録音期限に寄せる（録音期限を過ぎたら、次の試行で取れた分を保存するか
 // expired にするかを決めるため）。running のジョブは録音期限の列だけを付け直す（試行を始めたときの写しは変わらないので、試行の後の
-// 再試行・期限の判定が DB から読み直す。app.runJob）。新しい録音期限が now を過ぎていれば、期限間近を出さないように、期限間近を
-// 通知した時刻（deadline_notified_at）を now にして通知済みにする（もう通知していれば前の値のまま）。done・expired のジョブは触らない。
+// 再試行・期限の判定が DB から読み直す。app.runJob）。期限間近を通知した時刻（deadline_notified_at）は書かない
+// （録音期限を過ぎたジョブには DeadlineNearJobs が期限間近を出さない。docs/adr/0037-deadline-near-not-for-passed-deadline.md）。
+// done・expired のジョブは触らない。
 func (s *Store) ReviseDeadlines(ctx context.Context, m domain.Membership, own map[string]bool, now time.Time) (RevisedDeadlines, error) {
 	var r RevisedDeadlines
 	err := s.tx(ctx, func(tx *sql.Tx) error {
@@ -955,9 +956,8 @@ func (s *Store) ReviseDeadlines(ctx context.Context, m domain.Membership, own ma
 				next = d
 			}
 			passed := !d.After(now)
-			if _, err := tx.ExecContext(ctx, `UPDATE jobs SET deadline = ?, next_attempt_at = ?,
-				deadline_notified_at = CASE WHEN ? AND deadline_notified_at = '' THEN ? ELSE deadline_notified_at END WHERE id = ?`,
-				formatTime(d), formatTime(next), boolInt(passed), formatTime(now), j.ID); err != nil {
+			if _, err := tx.ExecContext(ctx, `UPDATE jobs SET deadline = ?, next_attempt_at = ? WHERE id = ?`,
+				formatTime(d), formatTime(next), j.ID); err != nil {
 				return fmt.Errorf("ジョブ %d の録音期限を付け直せない: %w", j.ID, err)
 			}
 			r.Revised++
