@@ -140,6 +140,32 @@ groups:
 
 - `GET /api/settings`: 今の設定。`{"settings": {...}, "secrets": {"<秘密の名前>": {"set": <設定済みか>, "unreadable": <復号できないか>}}, "library_set": <保存先が決まっているか>, "unreadable_secrets": [<復号できない秘密の名前>, ...], "last_backup_at": <最後に自動のバックアップを取れた時刻（RFC 3339）。まだ取れていないなら null>, "radiko_login": null}`（`radiko_login` は `PATCH` の答えでだけ値が入る。下の `PATCH`）。`settings` のキーは [設定](settings.md) の表のキー（`library`・`notify` の `channel` など）で、秘密の値は含まない。秘密の名前は `notify.discord_webhook`・`notify.slack_webhook`・`notify.smtp.password`・`jellyfin.api_key`・`radiko.password`。復号できない秘密は `set` も `true`。
 - `PATCH /api/settings`: body は `settings` と同じ形の JSON で、書いた項目だけを変える。秘密は `notify.discord_webhook` などの位置に値を書き、空の文字列なら消す。Web UI の設定の画面が呼ぶ。成功すると 200 と、`GET` と同じ形の当てた後の設定。
+- `PATCH` の本文の例。`radiko`・`notify`・`jellyfin` の下のキーは、その名前のオブジェクトの中に書く。
+
+  ```json
+  {
+    "library": "/srv/media/radio",
+    "truncate_artist": true,
+    "max_attempts_free": 10,
+    "keyword_max_pending": 10,
+    "backup_dir": "/srv/backups/rajikura",
+    "backup_keep": 7,
+    "muxer": "builtin",
+    "ffmpeg": "",
+    "ffprobe": "",
+    "chapters": true,
+    "radiko": {"program_cache_mb": 64},
+    "notify": {"channel": "discord", "success": true, "discord_webhook": "https://discord.com/api/webhooks/..."},
+    "jellyfin": {"url": "http://jellyfin:8096", "library": "ラジオ", "api_key": "..."}
+  }
+  ```
+
+- 通知先をメール（Gmail）にする本文の例（`password` は Google アカウントの「アプリ パスワード」。[notifications.md の「メール」](notifications.md#メール)）:
+
+  ```json
+  {"notify": {"channel": "email", "success": true, "smtp": {"host": "smtp.gmail.com", "port": 587, "username": "you@gmail.com", "from": "you@gmail.com", "to": ["you@gmail.com"], "password": "<アプリ パスワード>"}}}
+  ```
+
 - 知らないキー・JSON が読めない・値の誤り（[設定](settings.md)の確かめと同じ）・保存先のフォルダを作れない・書けないときは 400 で、何も当てない。
 - `membership`・`radiko.mail`・`radiko.password` のどれかを書き、当てた後の `membership` が `free` でなければ、保存する前に radiko のログインを 1 回試す（[settings.md の「会員種別と radiko のログイン」](settings.md#会員種別と-radiko-のログインmembership)）。
   - radiko が拒んだら 400 と `{"error": "..."}` で、何も当てない（値の誤りと同じ形）。
@@ -161,6 +187,12 @@ groups:
 
 - `GET /api/backup`: その場で DB のバックアップを作って返す。200 で、本文は SQLite の DB のファイル、`Content-Type` は `application/vnd.sqlite3`、`Content-Disposition` は `attachment; filename="rajikura-<日時>.db"`（日時は日本時間の `YYYYMMDD-HHMMSS`）。ログインのセッションは空にしてあり、秘密の鍵は含まない。[`backup`](cli.md#backup) と設定の画面の「ダウンロード」が呼ぶ。 <!-- glossary-ok: ダウンロード -->
 - 作れなければ 500。
+- 例（`<serve の URL>` は serve のアドレス）:
+
+  ```bash
+  curl -fsS -H 'Authorization: Bearer <発行したトークン>' -o rajikura-backup.db '<serve の URL>/api/backup'
+  ```
+
 - 作ったバックアップは、返すまで作業用フォルダ（`work/backup-*/`）に置き、返したら消す。
 
 ### 番組

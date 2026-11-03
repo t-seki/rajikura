@@ -7,7 +7,7 @@
 # Windows は ffmpeg を入れない。runner に有ればテストが走り、無ければ skip を許す（失敗にしない）。skip されたテストは一覧にして出すだけ。
 # トリガは PR（pull_request）と main への push に絞る。全ブランチの push も拾うと、PR のブランチに push するたびに同じ変更で 2 回走るため。同じ ref の古い実行は concurrency で捨てる。
 # web の job で、フロントエンド（web/）の型チェック・テスト・ビルドを Linux で回す。
-# 別の job で、docs と README.md と GLOSSARY.md の定義文が GLOSSARY.md の _Avoid_ に当たらないことと、その検査の例文テスト（scripts/check-glossary_test.sh）を Linux で流す。同じ job で、docs と README.md がバッククォートで名指しするコードのパス（internal/・cmd/）と `型.メソッド` が実在することと、その例文テスト（scripts/check-code-refs_test.sh）も流す。同じ job で、Go のソースのコメントが名指しする .go のファイルが実在することと、その例文テスト（scripts/check-go-comment-refs_test.sh）も流す。同じ job で、docs/development.md の「足したら直す列挙」の印（直す場所に置く項の名前）が列挙の項と合うことと、その例文テスト（scripts/check-fix-markers_test.sh）も流す。
+# 別の job で、docs と README.md と GLOSSARY.md の定義文が GLOSSARY.md の _Avoid_ に当たらないことと、その検査の例文テスト（scripts/check-glossary_test.sh）を Linux で流す。同じ job で、docs と README.md がバッククォートで名指しするコードのパス（internal/・cmd/）と `型.メソッド` が実在することと、その例文テスト（scripts/check-code-refs_test.sh）も流す。同じ job で、Go のソースのコメントが名指しする .go のファイルが実在することと、その例文テスト（scripts/check-go-comment-refs_test.sh）も流す。同じ job で、docs/development.md の「足したら直す列挙」の印（直す場所に置く項の名前）が列挙の項と合うことと、その例文テスト（scripts/check-fix-markers_test.sh）も流す。同じ job で、使う人向けの docs に rajikura の API のパス（/api/…）が書かれていないことと、その例文テスト（scripts/check-user-docs_test.sh）も流す。
 name: CI
 
 on:
@@ -32,6 +32,8 @@ jobs:
   #   コメント末尾の code-ref-ok: 名指し は書いた名指しだけを外す）と、その例文テスト（scripts/check-go-comment-refs_test.sh）。
   # - 足したら直す列挙の印: git が追うファイルの印の名前が docs/development.md の「足したら直す列挙」の項の名前と合い、どの項の印も
   #   1 つ以上あるか（scripts/check-fix-markers.sh。docs/adr/ と列挙の節の中は数えない）と、その例文テスト（scripts/check-fix-markers_test.sh）。
+  # - 使う人向けの docs の API のパス: README.md と使う人向けの docs に rajikura の API のパス（/api/…）が無いか（scripts/check-user-docs.sh。
+  #   免除の印は無い。外の URL の中の /api/ は当てない。対象の一覧は docs/development.md の「docs の書き方」と揃える）と、その例文テスト（scripts/check-user-docs_test.sh）。
   glossary:
     runs-on: ubuntu-latest
     steps:
@@ -54,6 +56,10 @@ jobs:
         run: scripts/check-fix-markers.sh
       - name: 足したら直す列挙の印の検査の例文テスト
         run: scripts/check-fix-markers_test.sh
+      - name: 使う人向けの docs に API のパス（/api/…）が無いこと
+        run: scripts/check-user-docs.sh
+      - name: 使う人向けの docs の API のパスの検査の例文テスト
+        run: scripts/check-user-docs_test.sh
 
   go:
     strategy:
