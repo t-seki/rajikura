@@ -61,6 +61,9 @@ check miss '`timeFree30ExcludedX` は別の名前'
 check miss 'https://example.com/?timeFree30Excluded=1 を開く'
 check miss 'macOS と iPhone と localStorage の話'
 check miss '放送回の除外は設定で決める'
+# 今は当たらない欄（#67 で当たる側に変える前提の例。当たるようにしたら hit に直す）
+check miss '`switchable` が true なら切り替えられる'
+check miss '`createdAt` に作った時刻が入る'
 # 検証の記録の言い回し
 check hit  '本物の radiko では確かめていない。' '確かめていない'
 check hit  '本物のアカウントで確かめたことはまだ無い。' '確かめたことはまだ無い'
@@ -73,5 +76,5 @@ check miss '`【録音済み】○○・放送日 2026-10-14（42 分）`'
 check miss '保存先を確かめてから保存する。長さを検証する。'
 check miss '日付は 2026-10-14 の形で書く'
 
-echo "通った:$passed 件、失敗: $failed 件"
+echo "通った: $passed 件、失敗: $failed 件"
 if [ "$fail" -ne 0 ]; then exit 1; fi

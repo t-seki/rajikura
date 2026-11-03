@@ -33,7 +33,7 @@ jobs:
   # - 足したら直す列挙の印: git が追うファイルの印の名前が docs/development.md の「足したら直す列挙」の項の名前と合い、どの項の印も
   #   1 つ以上あるか（scripts/check-fix-markers.sh。docs/adr/ と列挙の節の中は数えない）と、その例文テスト（scripts/check-fix-markers_test.sh）。
   # - 使う人向けの docs の実装の仕様と検証の記録: README.md と使う人向けの docs に rajikura の API のパス（/api/…）・docs/api.md が挙げる API の欄の名前・
-  #   検証の記録の言い回しが無いか（scripts/check-user-docs.sh。免除の印は無い。外の URL の中の /api/ と欄の名前は当てない。対象の一覧は docs/development.md の「docs の書き方」と揃える）と、その例文テスト（scripts/check-user-docs_test.sh）。
+  #   検証の記録の言い回しが無いか（scripts/check-user-docs.sh。免除の印は無い。外の URL の中の /api/ と欄の名前は当てない。小文字 1 語の欄などは当たらない（#67）。対象の一覧は docs/development.md の「docs の書き方」と揃える）と、その例文テスト（scripts/check-user-docs_test.sh）。
   glossary:
     runs-on: ubuntu-latest
     steps:
