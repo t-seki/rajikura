@@ -203,3 +203,71 @@ func TestChaptersAfterFailedWrite(t *testing.T) {
 		}
 	}
 }
+
+// 書き込みの前にチャプターを取り直した結果から、書くか・やり直すか・書かずに終えるかを決める（ADR 0038）。取れていたはずの放送回が
+// 一時的に取れなければ書かない。チャプターの取り直しは、やり直しの上限（最後の放送回の終了から 12 時間）の前はやり直し、上限以後は
+// 諦める。チャプターの入れ直しは、前が入ったジョブだけ止め、やり直さない。
+func TestDecideChapterWrite(t *testing.T) {
+	j := chapterJob()
+	limit := flat2.End.Add(12 * time.Hour)
+	now := flat2.End.Add(time.Hour)
+	// flat1 は待っていて、取れるようになった（Ready）。flat2 は保存のときに取れて待たなかった。
+	waitsReady := map[string]AiringChapterWait{flat1.Key(): AiringChapterReady}
+	// flat1 は打ち切りの時点でまだ取れていない（Pending のまま）。flat2 は待たなかった。
+	waitsPending := map[string]AiringChapterWait{flat1.Key(): AiringChapterPending}
+	ok, pend, abs := ChapterGot, ChapterPending, ChapterAbsent
+	refetch, redo := ChapterWriteByRefetch, ChapterWriteByRedo
+	tests := []struct {
+		name    string
+		by      ChapterWriteBy
+		prev    Chapters
+		waits   map[string]AiringChapterWait
+		fetched []ChapterFetch
+		now     time.Time
+		want    ChapterWriteVerdict
+	}{
+		{"取り直し: 全部取れた", refetch, ChaptersWaiting, waitsReady, []ChapterFetch{ok, ok}, now, ChapterWriteProceed},
+		{"取り直し: 取れたものと空だけ", refetch, ChaptersWaiting, waitsReady, []ChapterFetch{ok, abs}, now, ChapterWriteProceed},
+		{"取り直し: 取れていたはずでない放送回だけが一時的に取れない", refetch, ChaptersWaiting, waitsPending, []ChapterFetch{pend, ok}, now, ChapterWriteProceed},
+		{"取り直し: 全部空", refetch, ChaptersWaiting, waitsReady, []ChapterFetch{abs, abs}, now, ChapterWriteProceed},
+		{"取り直し: 待っていて取れるようになった放送回が一時的に取れない、上限の前", refetch, ChaptersWaiting, waitsReady, []ChapterFetch{pend, ok}, now, ChapterWriteRetry},
+		{"取り直し: 待たなかった放送回が一時的に取れない、上限の前", refetch, ChaptersWaiting, waitsReady, []ChapterFetch{ok, pend}, now, ChapterWriteRetry},
+		{"取り直し: 上限の 1 分前", refetch, ChaptersWaiting, waitsReady, []ChapterFetch{ok, pend}, limit.Add(-time.Minute), ChapterWriteRetry},
+		{"取り直し: 上限ちょうど", refetch, ChaptersWaiting, waitsReady, []ChapterFetch{ok, pend}, limit, ChapterWriteSkip},
+		{"取り直し: 上限の後でも、取れていたはずでない放送回だけなら書く", refetch, ChaptersWaiting, waitsPending, []ChapterFetch{pend, ok}, limit.Add(time.Hour), ChapterWriteProceed},
+		{"取り直し: waits が nil なら Job.ChapterWaits", refetch, ChaptersWaiting, nil, []ChapterFetch{pend, ok}, now, ChapterWriteProceed},
+		{"入れ直し: 前が入った、全部取れた", redo, ChaptersAdded, nil, []ChapterFetch{ok, ok}, now, ChapterWriteProceed},
+		{"入れ直し: 前が入った、どれかが一時的に取れない", redo, ChaptersAdded, nil, []ChapterFetch{ok, pend}, now, ChapterWriteSkip},
+		{"入れ直し: 前が入った、上限の前でもやり直さない", redo, ChaptersAdded, nil, []ChapterFetch{pend, pend}, limit.Add(-time.Minute), ChapterWriteSkip},
+		{"入れ直し: 前が入った、取れたものと空だけ", redo, ChaptersAdded, nil, []ChapterFetch{ok, abs}, now, ChapterWriteProceed},
+		{"入れ直し: 前が値なし、一部が一時的に取れない", redo, ChaptersNone, nil, []ChapterFetch{pend, ok}, now, ChapterWriteProceed},
+		{"入れ直し: 前が入らなかった、一部が一時的に取れない", redo, ChaptersNotAdded, nil, []ChapterFetch{pend, ok}, now, ChapterWriteProceed},
+		{"入れ直し: 前が待っている、一部が一時的に取れない", redo, ChaptersWaiting, nil, []ChapterFetch{pend, ok}, now, ChapterWriteProceed},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			jj := j
+			jj.Chapters = tt.prev
+			jj.ChapterWaits = waitsPending
+			if got := DecideChapterWrite(jj, tt.by, tt.waits, tt.fetched, tt.now); got != tt.want {
+				t.Errorf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// 書き込みのやり直しの次の時刻は、今の 30 分後。上限より後なら上限。
+func TestNextChapterRetry(t *testing.T) {
+	j := chapterJob()
+	limit := j.ChapterRetryLimit()
+	if want := flat2.End.Add(12 * time.Hour); !limit.Equal(want) {
+		t.Fatalf("limit = %v, want %v", limit, want)
+	}
+	now := flat2.End.Add(time.Hour)
+	if got := NextChapterRetry(j, now); !got.Equal(now.Add(30 * time.Minute)) {
+		t.Errorf("got %v", got)
+	}
+	if got := NextChapterRetry(j, limit.Add(-10*time.Minute)); !got.Equal(limit) {
+		t.Errorf("got %v, want %v", got, limit)
+	}
+}

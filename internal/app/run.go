@@ -609,8 +609,8 @@ func (a *App) fetchChapters(ctx context.Context, log *slog.Logger, airings []dom
 // checkChapters は、チャプターを待っている done のジョブ（domain.ChaptersWaiting）のうち、次にチャプターの API を引く時刻を
 // 過ぎたものについて、待っている放送回のチャプターの API だけを引く（音声は取らない。ADR 0027）。タイムフリーの録音のループ
 // （RunDue）が、ジョブを拾う前に呼ぶ。引いた結果で、待ち続けるか、チャプターの取り直しで保存したファイルにチャプターを書き込むか
-// （domain.CheckChapters。書き込みは writeChapters。試行は起こさず、ジョブは done のまま。ADR 0033）、待つのをやめて入らなかったに
-// するかを決める。設定 chapters がオフなら、引かずに待ちを消す（入らなかったにする）。
+// （domain.CheckChapters。書き込みは writeChapters。試行は起こさず、ジョブは done のまま。ADR 0033。書き込みの前の取得で、取れて
+// いたはずの放送回が一時的に取れなければ、書かずに待ちを残してやり直す。ADR 0038）、待つのをやめて入らなかったにするかを決める。設定 chapters がオフなら、引かずに待ちを消す（入らなかったにする）。
 // どれも通知しない（打ち切りはログに 1 行）。1 件のジョブで DB に書けなければ、エラーを返す（残りは次の見回りで引く）。
 // 足したら直す: ジョブの状態の移り方
 func (a *App) checkChapters(ctx context.Context, cur live) error {
@@ -652,7 +652,7 @@ func (a *App) checkChapters(ctx context.Context, cur live) error {
 		switch next, ch := domain.CheckChapters(job, results, now); next {
 		case domain.ChapterWriteNow:
 			log.Info("チャプターができたので、チャプターの取り直しで保存したファイルに書き込む")
-			if err := a.writeChapters(ctx, cur, log, job, domain.ChapterWriteByRefetch); err != nil {
+			if err := a.writeChapters(ctx, cur, log, job, domain.ChapterWriteByRefetch, ch.Waits); err != nil {
 				return err
 			}
 		case domain.ChapterGiveUp:
@@ -673,7 +673,12 @@ func (a *App) checkChapters(ctx context.Context, cur live) error {
 // （チャプターの取り直し・チャプターの入れ直し。用語集。ADR 0033）。by は誰が起こしたか。音声は取り直さず、試行も起こさない（状態・
 // 試行回数・欠落の印・保存先は変えない）。録音のループだけが呼ぶ（保存先のファイルを書く者を 1 つに保つ）。
 //
-//   - 1 つも取れなければ書かない（取れなかったので書かなかった）。一部だけ取れたら、取れた分を書く。
+//   - 取れていたはずの放送回が一時的に取れなかったら書かない（domain.DecideChapterWrite。ADR 0038）。チャプターの取り直しなら、
+//     やり直しの上限（Job.ChapterRetryLimit）の前は、履歴に残さず、待ち（印と待っている放送回）をそのまま残して、次に引く時刻を
+//     domain.NextChapterRetry にし、次の見回りでもう一度書き込みに入る（書き込みのやり直し）。上限以後と、チャプターの入れ直しは、
+//     やり直さずに取れなかったので書かなかったにする。waits は、チャプターの取り直しで CheckChapters が返した待ちの様子
+//     （nil なら job.ChapterWaits）。
+//   - 取れていたはずの放送回のほかで、1 つも取れなければ書かない（取れなかったので書かなかった）。一部だけ取れたら、取れた分を書く。
 //   - 書き込みは rewriteChapters（同じフォルダの partial に書き、音声のサンプルが元と一致することを確かめてから置き換える。
 //     どこかで失敗したら partial を消して元のファイルを残す。保存先にファイルが無ければ書かない）。
 //   - 置き換えたら、保存のときと同じくライブラリの再スキャンを頼む（rescan）。
@@ -687,7 +692,7 @@ func (a *App) checkChapters(ctx context.Context, cur live) error {
 // 設定 chapters は見ない（チャプターの取り直しは checkChapters が見る。チャプターの入れ直しは、設定がオフでも行う。ADR 0033）。
 // DB に書けなければエラーを返す（書き込みの失敗はエラーにしない）。取り消されたら何も書かずに返す（入れ直しの頼みは残る）。
 // 足したら直す: 保存の後の処理
-func (a *App) writeChapters(ctx context.Context, cur live, log *slog.Logger, job domain.Job, by domain.ChapterWriteBy) error {
+func (a *App) writeChapters(ctx context.Context, cur live, log *slog.Logger, job domain.Job, by domain.ChapterWriteBy, waits map[string]domain.AiringChapterWait) error {
 	airings := job.SavedAirings()
 	chapters, fetched := a.fetchChapters(ctx, log, airings)
 	if ctx.Err() != nil {
@@ -696,10 +701,24 @@ func (a *App) writeChapters(ctx context.Context, cur live, log *slog.Logger, job
 	w := domain.ChapterWrite{JobID: job.ID, By: by}
 	ch := domain.ChaptersAfterWrite(fetched)
 	written := false
-	if len(chapters) == 0 {
+	verdict := domain.DecideChapterWrite(job, by, waits, fetched, a.now())
+	if verdict == domain.ChapterWriteRetry {
+		var pending []string
+		for i, f := range fetched {
+			if f == domain.ChapterPending {
+				pending = append(pending, airings[i].StationID+" "+airings[i].Start.Format(time.RFC3339))
+			}
+		}
+		next := domain.NextChapterRetry(job, a.now())
+		log.Info("取れていたはずのチャプターが一時的に取れないので、書かずに待ちを残してやり直す", "pending", pending, "next", next, "limit", job.ChapterRetryLimit())
+		_, err := a.Store.UpdateChapterWait(context.WithoutCancel(ctx), job.ID,
+			domain.ChapterStatus{Chapters: domain.ChaptersWaiting, CheckAt: next, Waits: job.ChapterWaits})
+		return err
+	}
+	if verdict == domain.ChapterWriteSkip || len(chapters) == 0 {
 		w.Result = domain.ChapterNotFetched
 		ch = domain.ChaptersAfterFailedWrite(job.Chapters)
-		log.Info("チャプターを取れなかったので、保存したファイルに書き込まない", "path", job.OutputPath)
+		log.Info("チャプターを取れなかったので、保存したファイルに書き込まない", "path", job.OutputPath, "skipped", verdict == domain.ChapterWriteSkip)
 	} else if n, err := a.rewriteChapters(ctx, cur, log, job, airings, chapters); err != nil {
 		if ctx.Err() != nil {
 			return nil
@@ -744,7 +763,7 @@ func (a *App) redoChapters(ctx context.Context, cur live) (bool, error) {
 	job := jobs[0]
 	log := a.log().With("job", job.ID, "show", job.ShowName, "day", job.Day, "part", job.Part)
 	log.Info("チャプターの入れ直しを頼まれたので、保存したファイルに書き込む", "path", job.OutputPath, "chapters", job.Chapters)
-	if err := a.writeChapters(ctx, cur, log, job, domain.ChapterWriteByRedo); err != nil {
+	if err := a.writeChapters(ctx, cur, log, job, domain.ChapterWriteByRedo, nil); err != nil {
 		return false, err
 	}
 	return ctx.Err() == nil, nil

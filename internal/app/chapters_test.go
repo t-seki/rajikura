@@ -674,15 +674,17 @@ func TestChapterRefetchWriteFailureKeepsFile(t *testing.T) {
 	}
 }
 
-// 書き込もうとしたときにチャプターを 1 つも取れなければ（できたはずのものが取れなくなった）、ファイルは書かず、取れなかったので
-// 書かなかったと履歴に残し、入らなかったにする。
-func TestChapterRefetchNotFetched(t *testing.T) {
+// 書き込もうとしたときに、取れていたはずの放送回が一時的に取れなければ（引いたときは取れ、書き込む前に取ると取れない）、ファイルは
+// 書かず、書き込みの履歴にも残さず、待ち（印・待っている放送回）を残して、次に引く時刻を 30 分後にする。取れるようになった次の
+// 見回りで書き込む（書き込みのやり直し。ADR 0038）。
+func TestChapterRefetchRetriesWhenTransientFailure(t *testing.T) {
 	e, f, j := newChapterWaitEnv(t)
 	f.set(flat1.start, &chapterResult{chapters: []radiko.Chapter{{From: 0, TitleLong: "前半"}}})
 	// 引いたときは取れ、書き込む前に取ると取れない。
 	e.app.Fetcher = &flakyChapters{chapterFetcher: f, okCalls: 1}
 	before, _ := os.ReadFile(j.OutputPath)
-	e.clock.Set(afterBroadcast.Add(30 * time.Minute))
+	at := afterBroadcast.Add(30 * time.Minute)
+	e.clock.Set(at)
 	e.runDue()
 	if n := e.writeCount(); n != 0 {
 		t.Errorf("WriteChapters が呼ばれた: %d", n)
@@ -690,11 +692,69 @@ func TestChapterRefetchNotFetched(t *testing.T) {
 	if after, _ := os.ReadFile(j.OutputPath); !bytes.Equal(after, before) {
 		t.Error("ファイルが変わった")
 	}
-	if got := e.job(flatShow.Name); got.State != domain.StateDone || got.Chapters != domain.ChaptersNotAdded {
-		t.Errorf("job = %+v", got)
+	got := e.job(flatShow.Name)
+	if got.State != domain.StateDone || got.Chapters != domain.ChaptersWaiting || !got.ChapterCheckAt.Equal(at.Add(30*time.Minute)) ||
+		!maps.Equal(got.ChapterWaits, j.ChapterWaits) {
+		t.Errorf("job = %+v（待ちを残す）", got)
 	}
-	if ws := e.chapterWrites(j.ID); len(ws) != 1 || ws[0].Result != domain.ChapterNotFetched {
+	if ws := e.chapterWrites(j.ID); len(ws) != 0 {
+		t.Errorf("書き込みの履歴 = %+v（やり直しで書かなかった回は残さない）", ws)
+	}
+	// 取れるようになった次の見回りで書く。
+	e.app.Fetcher = f
+	e.clock.Set(at.Add(30 * time.Minute))
+	e.runDue()
+	got = e.job(flatShow.Name)
+	if got.Chapters != domain.ChaptersAdded || !got.ChapterCheckAt.IsZero() || len(got.ChapterWaits) != 0 {
+		t.Errorf("job = %+v（書いた後）", got)
+	}
+	if ws := e.chapterWrites(j.ID); len(ws) != 1 || ws[0].Result != domain.ChapterWritten || ws[0].Count != 2 {
 		t.Errorf("書き込みの履歴 = %+v", ws)
+	}
+}
+
+// 取れていたはずの放送回が一時的に取れないままやり直しの上限（最後の放送回の終了から 12 時間）になったら、書かずに諦める。ファイルは
+// 前のまま、書き込みの履歴は取れなかったので書かなかった 1 行だけ、印は入らなかった、待ちは消える。上限の前は待ち続け、通知しない。
+func TestChapterRefetchGivesUpAtRetryLimit(t *testing.T) {
+	e, f, j := newChapterWaitEnv(t)
+	f.set(flat1.start, &chapterResult{chapters: []radiko.Chapter{{From: 0, TitleLong: "前半"}}})
+	f.set(flat2.start, nil) // 保存のときに取れた flat2 が、書き込みの前の取得で 404 を返し続ける
+	before, _ := os.ReadFile(j.OutputPath)
+	kinds := e.kinds()
+	limit := flat2.end.Add(12 * time.Hour)
+	for now := afterBroadcast.Add(10 * time.Minute); now.Before(limit); now = now.Add(10 * time.Minute) {
+		e.clock.Set(now)
+		if e.runDue() {
+			t.Fatalf("%v に試行した", now)
+		}
+		got := e.job(flatShow.Name)
+		if got.Chapters != domain.ChaptersWaiting || e.writeCount() != 0 || len(e.chapterWrites(j.ID)) != 0 {
+			t.Fatalf("上限の前（%v）に待ちをやめた: %+v, writes %d", now, got, e.writeCount())
+		}
+	}
+	e.clock.Set(limit)
+	e.runDue()
+	got := e.job(flatShow.Name)
+	if got.State != domain.StateDone || got.Chapters != domain.ChaptersNotAdded || !got.ChapterCheckAt.IsZero() || len(got.ChapterWaits) != 0 {
+		t.Fatalf("上限の後: %+v", got)
+	}
+	if e.writeCount() != 0 {
+		t.Errorf("WriteChapters が呼ばれた: %d", e.writeCount())
+	}
+	if after, _ := os.ReadFile(j.OutputPath); !bytes.Equal(after, before) {
+		t.Error("ファイルが変わった")
+	}
+	if ws := e.chapterWrites(j.ID); len(ws) != 1 || ws[0].By != domain.ChapterWriteByRefetch || ws[0].Result != domain.ChapterNotFetched {
+		t.Errorf("書き込みの履歴 = %+v", ws)
+	}
+	n := f.count()
+	e.clock.Set(limit.Add(24 * time.Hour))
+	e.runDue()
+	if f.count() != n {
+		t.Errorf("諦めた後に取りに行った: %q", f.calls[n:])
+	}
+	if after := e.kinds(); !slices.Equal(after, kinds) {
+		t.Errorf("通知した: %v → %v", kinds, after)
 	}
 }
 

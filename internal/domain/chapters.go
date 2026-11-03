@@ -120,7 +120,9 @@ const (
 //   - 録音期限を過ぎていれば、待つのをやめる（ADR 0027 の待つかの決め方のまま。ADR 0033）。
 //   - 取れた放送回は AiringChapterReady にし、待っても入らない（ChapterAbsent）ものは待つのをやめる。
 //   - まだ取れていない放送回が無くなれば、取れるようになった放送回があれば書き込み、無ければ待つのをやめる。
-//   - 打ち切り（ChapterCutoff）を過ぎていれば、取れるようになった放送回が 1 つでもあれば書き込み（1 回）、無ければ待つのをやめる。
+//   - 打ち切り（ChapterCutoff）を過ぎていれば、取れるようになった放送回が 1 つでもあれば書き込み、無ければ待つのをやめる。
+//     書き込みに入るときの ChapterStatus は、書き込みの前の取得で「取れていたはずの放送回」を決める待ちの様子
+//     （Waits。取れた放送回は AiringChapterReady、待っても入らない放送回は持たない。DecideChapterWrite。ADR 0038）を返す。
 //   - それ以外は待ち続け、次に引く時刻を now の ChapterCheckInterval 後（打ち切りより後なら打ち切りの時刻）にする。
 func CheckChapters(j Job, results map[string]ChapterFetch, now time.Time) (ChapterCheckResult, ChapterStatus) {
 	if !now.Before(j.Deadline) {
@@ -145,11 +147,83 @@ func CheckChapters(j Job, results map[string]ChapterFetch, now time.Time) (Chapt
 	}
 	if !pending || !now.Before(j.ChapterCutoff()) {
 		if ready {
-			return ChapterWriteNow, ChapterStatus{Chapters: ChaptersWaiting}
+			return ChapterWriteNow, ChapterStatus{Chapters: ChaptersWaiting, Waits: waits}
 		}
 		return ChapterGiveUp, ChapterStatus{Chapters: ChaptersNotAdded}
 	}
 	return ChapterKeepWaiting, ChapterStatus{Chapters: ChaptersWaiting, CheckAt: nextChapterCheck(j, now), Waits: waits}
+}
+
+// ChapterRetryFor は、書き込みのやり直し（取れていたはずの放送回が書き込みの前に一時的に取れなかったときに、書かずに待ちを残して
+// やり直すこと）をやめる時刻を、待つのを打ち切る時刻（ChapterCutoff）からどれだけ後にするか。待っている間の打ち切りと同じ長さ
+// （最後の放送回の終了から 12 時間。設定にしない決め打ちの値。ADR 0038）。
+const ChapterRetryFor = ChapterCheckFor
+
+// ChapterRetryLimit は、ジョブ j の書き込みのやり直しの上限の時刻（ChapterCutoff の ChapterRetryFor 後）。
+func (j Job) ChapterRetryLimit() time.Time {
+	return j.ChapterCutoff().Add(ChapterRetryFor)
+}
+
+// NextChapterRetry は、書き込みのやり直しで次にチャプターの API を引く時刻（now の ChapterCheckInterval 後。やり直しの上限より
+// 後なら上限の時刻。ADR 0038）。
+func NextChapterRetry(j Job, now time.Time) time.Time {
+	next, limit := now.Add(ChapterCheckInterval), j.ChapterRetryLimit()
+	if next.After(limit) {
+		return limit
+	}
+	return next
+}
+
+// ChapterWriteVerdict は、書き込みの前にチャプターを取り直した結果から決めた、書き込みの扱い（DecideChapterWrite が返す）。
+type ChapterWriteVerdict int
+
+const (
+	// ChapterWriteProceed は、取れた分を書く（1 つも取れなければ書かない。ChaptersAfterWrite・ChapterNotFetched の決まり）。
+	ChapterWriteProceed ChapterWriteVerdict = iota
+	// ChapterWriteRetry は、書かずに待ちを残し、次の見回りでもう一度書き込みに入る（書き込みのやり直し。履歴には残さない）。
+	ChapterWriteRetry
+	// ChapterWriteSkip は、書かない（ファイルは前のまま）。履歴は取れなかったので書かなかった。やり直さない。
+	ChapterWriteSkip
+)
+
+// DecideChapterWrite は、保存したファイルへの書き込みの前に、保存した放送回 j.SavedAirings() の並びでチャプターを取り直した
+// 結果 fetched から、書くか・やり直すか・書かずに終えるかを決める（ADR 0038）。
+//
+// 取れていたはずの放送回が 1 つでも一時的に取れなかった（ChapterPending）と、書くとファイルに入っていたその放送回のチャプターが
+// 消えるか、取れるようになったチャプターが入らないので、書かない。取れていたはずの放送回は by で決まる。
+//   - ChapterWriteByRefetch: 待ち waits（CheckChapters が返した Waits。nil なら j.ChapterWaits）に無い放送回（保存のときに待たなかった
+//     放送回、待っても入らなかった放送回）と、AiringChapterReady の放送回。まだ取れていない（AiringChapterPending のまま）
+//     放送回は含めない。
+//   - ChapterWriteByRedo: j.Chapters が入ったときだけ、保存した全部の放送回。それ以外は無し（取れた分を書く）。
+//
+// 書かないときは、チャプターの取り直しなら now がやり直しの上限（Job.ChapterRetryLimit）より前の間はやり直し
+// （ChapterWriteRetry）、上限以後は書かずに諦める（ChapterWriteSkip）。チャプターの入れ直しはやり直さない
+// （ChapterWriteSkip。人が頼み直せる）。
+func DecideChapterWrite(j Job, by ChapterWriteBy, waits map[string]AiringChapterWait, fetched []ChapterFetch, now time.Time) ChapterWriteVerdict {
+	if waits == nil {
+		waits = j.ChapterWaits
+	}
+	airings := j.SavedAirings()
+	blocked := false
+	for i, f := range fetched {
+		if f != ChapterPending || i >= len(airings) {
+			continue
+		}
+		switch by {
+		case ChapterWriteByRedo:
+			blocked = blocked || j.Chapters == ChaptersAdded
+		default:
+			w, waited := waits[airings[i].Key()]
+			blocked = blocked || !waited || w == AiringChapterReady
+		}
+	}
+	switch {
+	case !blocked:
+		return ChapterWriteProceed
+	case by == ChapterWriteByRefetch && now.Before(j.ChapterRetryLimit()):
+		return ChapterWriteRetry
+	}
+	return ChapterWriteSkip
 }
 
 // ChaptersAfterWrite は、保存したファイルにチャプターを書き込む前に、保存した放送回ごとにチャプターを取った結果 fetched から、
