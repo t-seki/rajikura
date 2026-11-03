@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/t-seki/rajikura/internal/domain"
+	"github.com/t-seki/rajikura/internal/notify"
 )
 
 // 会員種別を保存したら、まだ終わっていないジョブ（waiting・retrying・skipped・running）の録音期限を付け直す。done・expired は触らない。
@@ -185,5 +186,88 @@ func TestReviseDeadlinesOwnArea(t *testing.T) {
 	}
 	if j := get(retrying); !j.Deadline.Equal(thirty) {
 		t.Errorf("retrying: deadline = %v, want %v", j.Deadline, thirty)
+	}
+}
+
+// 録音期限の付け直しは deadline_notified_at を書かない。付け直しで過ぎた値になったジョブも、録音期限を過ぎたジョブには期限間近を出さず、
+// 後の付け直しで録音期限が延びれば、延びた録音期限の 24 時間前を過ぎたときに出る。期限間近を通知した後に延びたジョブには、もう出さない
+// （docs/adr/0037-deadline-near-not-for-passed-deadline.md）。
+func TestReviseDeadlinesNearAfterExtend(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openTemp(t)
+	day := domain.NewBroadcastDay(2026, 10, 5)
+	tbs := domain.Airing{StationID: "TBS", Start: jst(2026, 10, 5, 10, 0), End: jst(2026, 10, 5, 11, 0), Title: "番組",
+		TimeFree: domain.TimeFreeFlags{OutNG: 1}}
+	thirty := jst(2026, 11, 5, 5, 0)
+	insert := func(name string, deadline time.Time) int64 {
+		t.Helper()
+		id, err := s.InsertJob(ctx, domain.Job{ShowName: name, Day: day, State: domain.StateRetrying,
+			NextAttemptAt: jst(2026, 10, 5, 11, 30), Deadline: deadline, Airings: []domain.Airing{tbs}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	revised := insert("revised", thirty)
+	notified := insert("notified", thirty)
+	notifiedAt := func(id int64) string {
+		t.Helper()
+		var got string
+		if err := s.db.QueryRowContext(ctx, `SELECT deadline_notified_at FROM jobs WHERE id = ?`, id).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	near := func(now time.Time) map[int64]bool {
+		t.Helper()
+		jobs, err := s.DeadlineNearJobs(ctx, now, 24*time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := map[int64]bool{}
+		for _, j := range jobs {
+			m[j.ID] = true
+		}
+		return m
+	}
+	if _, err := s.AddDeadlineNearNotification(ctx, notified, Notification{Kind: notify.KindDeadlineNear, Message: "期限間近", CreatedAt: jst(2026, 11, 4, 6, 0), Deliver: true}); err != nil {
+		t.Fatal(err)
+	}
+	marked := notifiedAt(notified)
+	if marked == "" {
+		t.Fatal("前提: 通知した印が立っていない")
+	}
+
+	// 自分のエリアが TBS を含まなくなる: 録音期限は放送の終了の 5 分後（過ぎた値）になる。印は書かない。
+	now := jst(2026, 10, 6, 12, 0)
+	if got, err := s.ReviseDeadlines(ctx, domain.MembershipDouble, map[string]bool{"QRR": true}, now); err != nil || got.Passed != 2 {
+		t.Fatalf("revised = %+v, %v; want 過ぎた値 2 件", got, err)
+	}
+	if got := notifiedAt(revised); got != "" {
+		t.Errorf("付け直しで過ぎた値にしたジョブの deadline_notified_at = %q, want 空", got)
+	}
+	if got := notifiedAt(notified); got != marked {
+		t.Errorf("通知したジョブの deadline_notified_at = %q, want %q（そのまま）", got, marked)
+	}
+	if got := near(now); len(got) != 0 {
+		t.Errorf("録音期限を過ぎたジョブが期限間近の対象: %v", got)
+	}
+
+	// 自分のエリアが元に戻る: 録音期限が 30 日に延びる。
+	if got, err := s.ReviseDeadlines(ctx, domain.MembershipDouble, map[string]bool{"TBS": true}, now); err != nil || got.Revised != 2 || got.Passed != 0 {
+		t.Fatalf("revised = %+v, %v; want 2 件、過ぎた値は 0", got, err)
+	}
+	// 付け直さずに録音期限を過ぎたジョブ（deadline_notified_at は空）。
+	lapsed := insert("lapsed", jst(2026, 10, 6, 5, 0))
+	// 延びた録音期限が 24 時間より先なら、まだ入らない。
+	if got := near(jst(2026, 11, 4, 4, 0)); len(got) != 0 {
+		t.Errorf("24 時間より先: %v, want 入らない", got)
+	}
+	// 録音期限の 24 時間前を過ぎたら、付け直しで過ぎた値にしたジョブだけ入る（通知したジョブと、付け直さずに過ぎたジョブは入らない）。
+	if got := near(jst(2026, 11, 4, 6, 0)); len(got) != 1 || !got[revised] || got[lapsed] {
+		t.Errorf("24 時間以内: %v, want revised だけ", got)
+	}
+	if got := notifiedAt(notified); got != marked {
+		t.Errorf("通知したジョブの deadline_notified_at = %q, want %q（そのまま）", got, marked)
 	}
 }
