@@ -103,6 +103,27 @@ func TestCheckChapters(t *testing.T) {
 	if got, _ := CheckChapters(ready, map[string]ChapterFetch{flat2.Key(): ChapterGot}, now); got != ChapterWriteNow {
 		t.Errorf("前に取れるようになった放送回: got %v", got)
 	}
+
+	// 書き込みのやり直しの間（次に引く時刻が打ち切りより後）は、打ち切りの後でも、まだ取れていない放送回があれば諦めず待ち続け、
+	// 次に引く時刻は NextChapterRetry。上限で諦める。次に引く時刻が打ち切り以前（打ち切りを待つだけ）なら、打ち切りで諦める（ADR 0038）。
+	retry := j
+	retry.ChapterCheckAt = cutoff.Add(30 * time.Minute)
+	pend := map[string]ChapterFetch{flat1.Key(): ChapterPending, flat2.Key(): ChapterPending}
+	at := cutoff.Add(30 * time.Minute)
+	if got, st := CheckChapters(retry, pend, at); got != ChapterKeepWaiting || !st.CheckAt.Equal(NextChapterRetry(retry, at)) || !maps.Equal(st.Waits, j.ChapterWaits) {
+		t.Errorf("やり直しの間: got %v, %+v", got, st)
+	}
+	if got, _ := CheckChapters(retry, pend, retry.ChapterRetryLimit().Add(-time.Minute)); got != ChapterKeepWaiting {
+		t.Errorf("上限の 1 分前: got %v", got)
+	}
+	if got, _ := CheckChapters(retry, pend, retry.ChapterRetryLimit()); got != ChapterGiveUp {
+		t.Errorf("上限: got %v", got)
+	}
+	waitOnly := j
+	waitOnly.ChapterCheckAt = cutoff
+	if got, _ := CheckChapters(waitOnly, pend, cutoff); got != ChapterGiveUp {
+		t.Errorf("打ち切りを待つだけ: got %v", got)
+	}
 }
 
 // 書き込みの前に取った結果は、全部取れたら入った、それ以外（一部だけ・全部取れない）は入らなかった。待ちは起こさない（ADR 0033）。
