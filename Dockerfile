@@ -15,7 +15,7 @@
 # イメージの中のバイナリは配布物の Linux のバイナリと同じなので、イメージにも同じ一覧が入る（別のファイルは置かない）。
 
 # Web UI（web/）を Node でビルドする。pnpm の版は mise.toml から読む（Node の版は、このイメージの tag を mise.toml に揃える。ずれると CI の web の job が落ちる）。
-FROM node:24.22.1-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS web
+FROM node:24.22.2-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85 AS web
 WORKDIR /app
 COPY mise.toml ./
 RUN npm install -g "pnpm@$(sed -n 's/^pnpm = "\(.*\)"/\1/p' mise.toml)"
