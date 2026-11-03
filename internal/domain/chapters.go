@@ -125,6 +125,8 @@ const (
 //     （Waits。取れた放送回は AiringChapterReady、待っても入らない放送回は持たない。DecideChapterWrite。ADR 0038）を返す。
 //   - 取れるようになった放送回が無いまま打ち切りを過ぎていても、書き込みのやり直しの間（Job.inChapterRetry。打ち切りの後、
 //     ChapterRetryLimit の前）は、まだ取れていない放送回があれば待ち続け、次に引く時刻を NextChapterRetry にする（ADR 0038）。
+//     打ち切りより前に始まったやり直しは、次に引く時刻が打ち切りを超えないので、待っていた放送回が打ち切りまで取れないままなら
+//     打ち切りの時点で諦める（ADR 0038 の帰結）。
 //   - それ以外は待ち続け、次に引く時刻を now の ChapterCheckInterval 後（打ち切りより後なら打ち切りの時刻）にする。
 func CheckChapters(j Job, results map[string]ChapterFetch, now time.Time) (ChapterCheckResult, ChapterStatus) {
 	if !now.Before(j.Deadline) {
@@ -164,7 +166,8 @@ func CheckChapters(j Job, results map[string]ChapterFetch, now time.Time) (Chapt
 // inChapterRetry は、待っているジョブ j が、打ち切り（ChapterCutoff）の後の書き込みのやり直しの間か（now が打ち切り以後で
 // やり直しの上限（ChapterRetryLimit）と録音期限の前、かつ次に引く時刻が打ち切りより後）。打ち切りを待つだけの間は次に引く時刻が
 // 打ち切りを超えない（nextChapterCheck）ので、次に引く時刻が打ち切りより後なら、書き込みのやり直しで置いた時刻（NextChapterRetry）
-// と分かる。新しい印や列は足さない（ADR 0038）。
+// と分かる。新しい印や列は足さない。打ち切りより前に始まったやり直しは、次に引く時刻が打ち切りを超えないので、ここでは真に
+// ならない（打ち切りまで取れないままなら打ち切りの時点で諦める。ADR 0038 の帰結）。
 func (j Job) inChapterRetry(now time.Time) bool {
 	return !now.Before(j.ChapterCutoff()) && now.Before(j.ChapterRetryLimit()) && now.Before(j.Deadline) && j.ChapterCheckAt.After(j.ChapterCutoff())
 }
