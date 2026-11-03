@@ -27,11 +27,7 @@
   rajikura -url '<serve の URL>' -token '<発行したトークン>' backup -o rajikura-backup.db
   ```
 
-- API: API トークンで呼ぶ（AI やスクリプトから取るとき。[api.md の「バックアップ」](api.md#バックアップ)）。
-
-  ```bash
-  curl -fsS -H 'Authorization: Bearer <発行したトークン>' -o rajikura-backup.db '<serve の URL>/api/backup'
-  ```
+- API: API トークンで呼ぶ（AI やスクリプトから取るとき。口と `curl` の例は [api.md の「バックアップ」](api.md#バックアップ)）。
 
 秘密の鍵のファイル（データのフォルダの `rajikura.key`）は、一度別の場所に写しておく（任意）。
 

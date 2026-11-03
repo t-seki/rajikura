@@ -45,7 +45,7 @@ rajikura licenses                                                  # 含むソ�
 3. CLI の設定ファイル `client.toml`: Windows は `%AppData%\rajikura\client.toml`、Linux は `~/.config/rajikura/client.toml`（`XDG_CONFIG_HOME` があれば `$XDG_CONFIG_HOME/rajikura/client.toml`）。場所を変えるフラグは無い。
 
 ```toml
-url = "https://rajikura.example"   # serve の URL（http:// か https://）。パスを付ければ、その下の /api/ を呼ぶ
+url = "https://rajikura.example"   # serve の URL（http:// か https://）。パスを付ければ、その下の API を呼ぶ
 token = "rjk_..."                  # Web UI で発行した API トークン
 ```
 
@@ -84,7 +84,7 @@ token = "rjk_..."                  # Web UI で発行した API トークン
 
 #### jobs ID
 
-`jobs <ID>` は、ジョブ 1 件の詳細を、人が読む形で出す（Web UI のジョブの画面の詳細と同じ範囲。プレーヤーと進捗は出さない。機械向けの出力は無く、スクリプトや AI は `GET /api/jobs/{id}`（[api.md](api.md)）を直接呼ぶ）。
+`jobs <ID>` は、ジョブ 1 件の詳細を、人が読む形で出す（Web UI のジョブの画面の詳細と同じ範囲。プレーヤーと進捗は出さない。機械向けの出力は無く、スクリプトや AI は API を直接呼ぶ（[api.md の「ジョブ」](api.md#ジョブ)））。
 
 ```bash
 rajikura -url '<serve の URL>' -token '<発行したトークン>' jobs <ID>

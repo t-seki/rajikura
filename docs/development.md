@@ -128,7 +128,7 @@ pnpm screenshots
 - 使う人向けの docs（`README.md`・`docs/getting-started.md`・`docs/cli.md`・`docs/settings.md`・`docs/notifications.md`・`docs/web-ui.md`・`docs/shows.md`・`docs/recording.md`・`docs/backup.md`・`docs/windows.md`・`docs/kikidame.md`）と、API を呼ぶ人向けの `docs/api.md` には、今どう動き、どう使うかだけを書く。理由と経緯は ADR に置き、リンクで指す。
 - 使う人向けの docs に書かないもの:
   - 検証の記録（「実機」で確かめた話、「未確認」の書き方の多く）、計測値、テストファイルの名前、作者の機器、「人の経験による」の書き方。使う人の判断に効く制限だけを、事実の 1 文で残す
-  - 実装の仕様（aria-label、localStorage のキー、内部の関数名・型名、送る周期、内部で叩く API の口など）。API を呼ぶ人に要るもの（API の口・欄）は `docs/api.md` に置く
+  - 実装の仕様（aria-label、localStorage のキー、内部の関数名・型名、送る周期、内部で叩く API の口など）。API を呼ぶ人に要るもの（API の口・欄・本文の例）は `docs/api.md` に置く。使う人向けの docs に rajikura の API のパス（`/api/…`）を書くと、`scripts/check-user-docs.sh` が CI の Linux で落とす（外の URL の中の `/api/` は当てない。対象の一覧は上の項と揃え、どちらかを直したらもう一方も直す。例文テストは `scripts/check-user-docs_test.sh`）
   - 廃止したものの「無い」の文。新しい読者は、前にあったことを知らない
   - 決めた・確かめた日、「人が申告した」、設計の議論や PR の話。決まりの 1 文と ADR・issue へのリンクにする
 - 1 段落は 1 つの事柄にし、目安は 200 字まで（検査にはしない）。箇条書きの 1 項目にも事柄を 1 つだけ書く。

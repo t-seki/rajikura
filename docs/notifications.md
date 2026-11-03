@@ -10,7 +10,7 @@
 
 ## 通知先
 
-Web UI の設定の画面の「通知」か、`PATCH /api/settings` の `notify` で変える（[settings.md](settings.md)）。保存したら、再起動しなくても新しい通知先に送る。
+Web UI の設定の画面の「通知」か、API の設定の `notify` で変える（[settings.md](settings.md)、[api.md の「設定」](api.md#設定)）。保存したら、再起動しなくても新しい通知先に送る。
 
 - 通知先（`channel`）は 1 つだけ選ぶ。
   - `discord`: Discord の Webhook に送る。
@@ -34,13 +34,7 @@ Web UI の設定の画面の「通知」か、`PATCH /api/settings` の `notify`
 - `to` が複数なら、1 通のメールを全員宛てに送る。
 - 1 通を送る時間の上限は 30 秒。
 
-`PATCH /api/settings` の本文の例（Gmail）:
-
-```json
-{"notify": {"channel": "email", "success": true, "smtp": {"host": "smtp.gmail.com", "port": 587, "username": "you@gmail.com", "from": "you@gmail.com", "to": ["you@gmail.com"], "password": "<アプリ パスワード>"}}}
-```
-
-Gmail では、Google アカウントで 2 段階認証を有効にし、「アプリ パスワード」を作って `password` に書く（通常のログインのパスワードは使えない）。`port` は `587`（STARTTLS）か `465`（最初から TLS）。
+API で変えるときの Gmail の本文の例は [api.md の「設定」](api.md#設定)にある。Gmail では、Google アカウントで 2 段階認証を有効にし、「アプリ パスワード」を作って `password` に書く（通常のログインのパスワードは使えない）。`port` は `587`（STARTTLS）か `465`（最初から TLS）。
 
 ## 送り方
 

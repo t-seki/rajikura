@@ -22,30 +22,10 @@ rajikura の設定（保存先・通知先・会員種別など、動かし方�
 設定の正本は DB にある（[ADR 0015](adr/0015-settings-and-secrets-in-db.md)）。
 
 - 人は、Web UI のナビの「設定」の画面で変える（[web-ui.md の「設定の画面と帯」](web-ui.md#設定の画面と帯)）。
-- スクリプトや AI は、API トークンで `PATCH /api/settings` に、変えるキーだけを JSON で送る（[api.md の「設定」](api.md#設定)）。書いていないキーは今の値のまま残る。今の値は `GET /api/settings` で読める（秘密の値は返らない）。
+- スクリプトや AI は、API トークンで、変えるキーだけを JSON で送る（口と本文の例は [api.md の「設定」](api.md#設定)）。書いていないキーは今の値のまま残る。今の値も API で読める（秘密の値は返らない）。
 - 保存したら、再起動しなくてもすぐに効く（`radiko.program_cache_mb` を除く。`membership` もすぐに効く）。
 - 走っている録音は、始めたときの設定（保存先など）のまま最後まで進める（1 つのジョブのファイルが 2 か所に分かれないように）。
 - 値の確かめは、書いたキーを当てた後の設定の全体に対して行う。知らないキー（綴りの誤り）・値の誤り・通知先の設定の不足が 1 つでもあれば、1 つも当てない。
-
-`PATCH /api/settings` の本文の例。`radiko`・`notify`・`jellyfin` の下のキーは、その名前のオブジェクトの中に書く。
-
-```json
-{
-  "library": "/srv/media/radio",
-  "truncate_artist": true,
-  "max_attempts_free": 10,
-  "keyword_max_pending": 10,
-  "backup_dir": "/srv/backups/rajikura",
-  "backup_keep": 7,
-  "muxer": "builtin",
-  "ffmpeg": "",
-  "ffprobe": "",
-  "chapters": true,
-  "radiko": {"program_cache_mb": 64},
-  "notify": {"channel": "discord", "success": true, "discord_webhook": "https://discord.com/api/webhooks/..."},
-  "jellyfin": {"url": "http://jellyfin:8096", "library": "ラジオ", "api_key": "..."}
-}
-```
 
 ## キー
 
@@ -118,7 +98,7 @@ radiko のログインは、次のように行う。
 保存するときに radiko のログインを試す。
 
 - 試すのは、保存した後の `membership` が `free` でなく、保存の中身に `membership`・`radiko.mail`・`radiko.password` のどれかを書いたときだけ。ログイン情報は、書いたキーを当てた後の設定のものを使う（パスワードだけを書いたら、保存してあるメールアドレスと新しいパスワード。`free` からエリアフリーにしたら、保存してあるログイン情報）。`free` にする保存と、ほかのキーだけを書く保存では試さない。
-- radiko が拒んだら、保存しない。`PATCH /api/settings` は 400 にし、1 つも当てない。radiko のログインの失敗の異常は書かず、通知もしない。持っているセッションも、拒まれた後の状態も、続いている異常もそのまま。
+- radiko が拒んだら、保存しない。API で変えたときは 400 にし、1 つも当てない。radiko のログインの失敗の異常は書かず、通知もしない。持っているセッションも、拒まれた後の状態も、続いている異常もそのまま。
 - 通信の失敗・radiko の 5xx・時間切れなら、保存する（応答の `radiko_login` は `unchecked`）。持っているセッションを捨て、次に認証が要るときに radiko のログインをし直す。
 - 通ったら、保存し、そのとき得たセッションを持つ（応答の `radiko_login` は `ok`）。次の認証では radiko のログインをし直さない。radiko のログインの失敗の異常が続いていれば、復旧として通知する。
 - 通ったが、応答のエリアフリーの値が選んだ会員種別と食い違うなら、保存し、そのセッションを持つ（応答の `radiko_login` は `mismatch`）。保存は断らず、radiko のログインの失敗として通知する。
@@ -149,7 +129,7 @@ radiko のログインは、次のように行う。
 - `ffmpeg`: ffmpeg で m4a に入れ、ffprobe で長さを測る。ffmpeg / ffprobe が要る。コンテナのイメージには ffmpeg が入っていないので、コンテナで選ぶときは、ffmpeg / ffprobe の入ったイメージを自分で作る。
 - どちらでも、測った長さを全セグメントの長さの合計と比べる検証（10 秒以内）は同じ。作れなかったときも、どちらも保存の段階の失敗として再試行する（`builtin` で失敗しても、自動で `ffmpeg` には切り替えない）。
 - どちらで作った m4a も、長さと再生は同じ。サンプルレートの表示は、ffprobe と Jellyfin では 48 kHz、Windows のファイルのプロパティでは 24 kHz と出る。
-- 変えるのは、Web UI の設定の画面の「詳しい設定」か `PATCH /api/settings`。再起動は要らない。
+- 変えるのは、Web UI の設定の画面の「詳しい設定」か API（[api.md の「設定」](api.md#設定)）。再起動は要らない。
 
 `ffmpeg` を Windows で使うとき:
 
