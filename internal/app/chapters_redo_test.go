@@ -174,4 +174,46 @@ func TestChapterRedoNotFetchedOrPartial(t *testing.T) {
 			t.Errorf("待ちを起こした: %q", f.calls[n:])
 		}
 	})
+	// 前の印が入ったのジョブは、ファイルに全部の放送回のチャプターが入っているので、書き込みの前の取得で一時的に取れなかった放送回が
+	// あれば書かない（ファイルは前のまま、印は入ったのまま、やり直さず頼みは消す。ADR 0038）。
+	t.Run("入ったのジョブで一時的に取れない放送回がある", func(t *testing.T) {
+		e, f, j := newRedoEnv(t)
+		f.set(flat1.start, &chapterResult{chapters: []radiko.Chapter{{From: 0, TitleLong: "前半"}}})
+		f.set(flat2.start, &chapterResult{chapters: []radiko.Chapter{{From: 0, TitleLong: "後半"}}})
+		if err := e.store.RequestChapterRedo(e.ctx, j.ID, afterBroadcast); err != nil {
+			t.Fatal(err)
+		}
+		if !e.runDue() || e.job(flatShow.Name).Chapters != domain.ChaptersAdded {
+			t.Fatalf("最初の入れ直しで入らない: %+v", e.job(flatShow.Name))
+		}
+		before, _ := os.ReadFile(j.OutputPath)
+		writes := e.writeCount()
+		f.set(flat2.start, nil) // 404
+		if err := e.store.RequestChapterRedo(e.ctx, j.ID, afterBroadcast.Add(time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+		if !e.runDue() {
+			t.Fatal("入れ直しをしない")
+		}
+		if e.writeCount() != writes {
+			t.Errorf("WriteChapters が呼ばれた: %d → %d", writes, e.writeCount())
+		}
+		if after, _ := os.ReadFile(j.OutputPath); !bytes.Equal(after, before) {
+			t.Error("ファイルが変わった")
+		}
+		got := e.job(flatShow.Name)
+		if got.Chapters != domain.ChaptersAdded || !got.ChapterCheckAt.IsZero() || len(got.ChapterWaits) != 0 || !got.ChapterRedoAt.IsZero() {
+			t.Errorf("job = %+v", got)
+		}
+		ws := e.chapterWrites(j.ID)
+		if len(ws) != 2 || ws[1].By != domain.ChapterWriteByRedo || ws[1].Result != domain.ChapterNotFetched {
+			t.Errorf("書き込みの履歴 = %+v", ws)
+		}
+		// やり直さない（頼みは消え、待ちも起こさない）。
+		n := f.count()
+		e.clock.Set(afterBroadcast.Add(2 * time.Hour))
+		if e.runDue() || f.count() != n {
+			t.Errorf("やり直した: %q", f.calls[n:])
+		}
+	})
 }
