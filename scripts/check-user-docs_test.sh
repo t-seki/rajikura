@@ -46,6 +46,11 @@ check miss 'API を呼ぶ人は別の docs を読む'
 check miss '`https://discord.com/api/webhooks/123/abc` を貼る'
 check miss 'http://example.com/api/x'
 check hit  "'<serve の URL>/api/backup'" '/api/backup'
+# 日本語に空白なしで続く形は当てる（ホスト名ではない）
+check hit  'その下の/api/jobs を呼ぶ' '/api/jobs'
+check hit  'APIは/api/settingsです' '/api/settings'
+# シェル変数に続く形は、ホスト名と同じに扱って当てない
+check miss 'curl $URL/api/jobs'
 # 免除の印は無い（書いても当たる行は当たる）
 check hit  '`/api/jobs` <!-- api-path-ok: /api/jobs -->' '/api/jobs'
 

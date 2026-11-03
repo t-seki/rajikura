@@ -6,8 +6,9 @@
 #   どちらかを足したらもう一方を直す。揃っているかも、引数なしで流したときにこのスクリプトが検査する
 #   （docs/development.md の「使う人向けの docs（」で始まる項の、「）」までのバッククォートのパスと比べる）。
 # - 当たるもの: 行のどこかにある rajikura の API のパス（`/api/` の後ろにパスが続く文字列。コードフェンスやバッククォートの中も含む）。
-#   `/api/` の前にホスト名が付くもの（`https://discord.com/api/webhooks/…` のような外の URL）、`/api` だけ（中継先の説明など）、
-#   `docs/api.md` は当たらない。
+#   `/api/` の直前が ASCII の英数字・`_`・`.`・`-` のもの（ホスト名に続く外の URL の `https://discord.com/api/webhooks/…` や、
+#   シェル変数に続く `$URL/api/jobs`。変数はホスト名と同じに扱う）、`/api` だけ（中継先の説明など）、`docs/api.md` は当たらない。
+#   直前が日本語（`その下の/api/jobs` など）や空白・バッククォート・引用符・`>` のものは当たる。
 # - 免除の印は作らない。当たる行は docs/api.md に移し、使う人向けの docs ではパスを書かずに docs/api.md の節へのリンクで指す。
 #
 # 使い方: scripts/check-user-docs.sh [検査するファイル...]   （repo のどこから呼んでもよい）
@@ -59,7 +60,7 @@ perl -CSDA -Mutf8 -Mstrict -Mwarnings -e '
     my $n = 0;
     while (my $line = <$h>) {
       $n++; chomp $line; $line =~ s/\r$//;
-      while ($line =~ m{(?<![\w.\-])(/api/[^\s`)>"\x27、,]*)}g) {
+      while ($line =~ m{(?<![A-Za-z0-9_.\-])(/api/[^\s`)>"\x27、,]*)}g) {
         print "$file:$n: 使う人向けの docs に API のパス: $1（docs/api.md に置く）\n"; $bad = 1;
       }
     }
