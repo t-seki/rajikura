@@ -15,6 +15,7 @@ import (
 
 	"github.com/t-seki/rajikura/internal/domain"
 	"github.com/t-seki/rajikura/internal/media"
+	"github.com/t-seki/rajikura/internal/radiko"
 )
 
 // fakeAlbumRewrite は、偽の RewriteAlbum に渡されたもの。
@@ -356,6 +357,63 @@ func TestRenameThenRerecord(t *testing.T) {
 				t.Errorf("新しいフォルダの m4a = %v（別名を作った？）", m4a)
 			}
 		})
+	}
+}
+
+// 名前を変えた後、録音のループが移す前に人が前のファイルを新しい名前のフォルダへ手で動かしていたら、移しは「保存先にファイルが無い」と
+// 履歴に残して保存先を変えない。その後の「チャプターを入れ直す」は書き込めなかったことを履歴に残し（ジョブの画面・API・CLI に出る）、
+// 古い名前のフォルダにファイルを作り直さない。録り直すと、新しい名前のフォルダに保存する（#63 の完了条件 2。ADR 0039）。
+func TestManualMoveThenChapterRedo(t *testing.T) {
+	e, f, j := newRedoEnv(t)
+	f.set(flat1.start, &chapterResult{chapters: []radiko.Chapter{{From: 0, TitleLong: "前半"}}})
+	f.set(flat2.start, &chapterResult{chapters: []radiko.Chapter{{From: 0, TitleLong: "後半"}}})
+	e.renameShow(flatShow, "ふらっと（新）")
+	byHand := filepath.Join(e.app.Library, "TBSラジオ", "ふらっと（新）", "ふらっと（新） 2026-10-07.m4a")
+	if err := os.MkdirAll(filepath.Dir(byHand), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(j.OutputPath, byHand); err != nil {
+		t.Fatal(err)
+	}
+	if !e.runDue() {
+		t.Fatal("移しを拾わない")
+	}
+	if ms := e.outputMoves(j.ID); len(ms) != 1 || ms[0].Result != domain.OutputMoveNoFile {
+		t.Fatalf("移しの履歴 = %+v", ms)
+	}
+	at := afterBroadcast.Add(time.Hour)
+	e.clock.Set(at)
+	if err := e.store.RequestChapterRedo(e.ctx, j.ID, at); err != nil {
+		t.Fatal(err)
+	}
+	if !e.runDue() {
+		t.Fatal("チャプターの入れ直しをしない")
+	}
+	ws := e.chapterWrites(j.ID)
+	if len(ws) != 1 || ws[0].Result != domain.ChapterWriteFailed || !strings.Contains(ws[0].Error, "保存先にファイルが無い") {
+		t.Errorf("書き込みの履歴 = %+v", ws)
+	}
+	if _, err := os.Stat(j.OutputPath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("古い名前のフォルダにファイルを作った: %v", err)
+	}
+	if b, _ := os.ReadFile(byHand); strings.Contains(string(b), fakeChapterMark) {
+		t.Error("人が動かしたファイルに書き込んだ（保存先と違うファイル）")
+	}
+	// 録り直すと、古い名前のフォルダを作り直さず、新しい名前のフォルダに保存する（人が動かしたファイルは消さないので、別名になる）。
+	if err := e.store.Rerecord(e.ctx, j.ID, domain.MembershipFree, nil, at); err != nil {
+		t.Fatal(err)
+	}
+	for e.runDue() {
+	}
+	got := e.job("ふらっと（新）")
+	if got.State != domain.StateDone || filepath.Dir(got.OutputPath) != filepath.Dir(byHand) {
+		t.Fatalf("録り直しの後: %+v", got)
+	}
+	if es, err := os.ReadDir(filepath.Dir(j.OutputPath)); err == nil && len(es) != 0 {
+		t.Errorf("古い名前のフォルダにファイルがある: %v", es)
+	}
+	if _, err := os.Stat(byHand); err != nil {
+		t.Errorf("人が動かしたファイルを消した: %v", err)
 	}
 }
 
