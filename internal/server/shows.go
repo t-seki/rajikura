@@ -12,7 +12,7 @@ package server
 //   - GET /api/shows/{name}: 番組を 1 つ読む。1 回の予約の一覧を onces に付ける（onces.go）
 //   - PUT /api/shows/{name}: 番組を丸ごと置き換える。body の name が {name} と違えば名前の変更で、
 //     古い名前の番組を消して新しい名前の番組を作り、古い名前の全部のジョブ（done を含む）を新しい名前に付け替え、保存先のある
-//     ジョブに保存先の移しの頼みを付けて（store.ReplaceShow。docs/adr/0039-saved-files-follow-show-rename.md）、録音のループを起こす
+//     ジョブと録音中のジョブに保存先の移しの頼みを付けて（store.ReplaceShow。docs/adr/0039-saved-files-follow-show-rename.md）、録音のループを起こす
 //     （保存したファイルを録音のループが今の名前へ移す）。新しい名前の番組がもうあれば 409。
 //     1 回の予約は body に書かず、今の番組のものを残す（名前の変更なら引き継ぐ）
 //   - DELETE /api/shows/{name}: 番組を 1 回の予約ごと消す。ジョブは消さない

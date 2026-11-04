@@ -111,9 +111,10 @@ func (s *Store) CreateShow(ctx context.Context, show domain.Show) error {
 // 名前を変えたとき（show.Name が oldName と違う）は、古い名前の番組を消して新しい名前の番組を作る。新しい名前の
 // 番組がもうあれば ErrExists。1 回の予約は show.Onces を見ずに、古い番組のものを新しい番組に引き継ぐ。
 // 同じトランザクションで、古い名前の全部のジョブ（done を含む）の番組の名前を新しい名前に付け替え（今日より前の放送日の waiting の
-// ジョブも、展開で消えずに新しい名前で録音する）、そのうち保存先（output_path）のあるジョブ（状態によらない）に保存先の移しの頼みの印
-// （move_requested_at）を付ける（docs/adr/0039-saved-files-follow-show-rename.md）。保存したファイルは録音のループが今の名前のフォルダ・
-// ファイル名へ移す（internal/app の moveOutputs）。人の操作なので通知しない。当たらない日の記録（unmatched.go）と、
+// ジョブも、展開で消えずに新しい名前で録音する）、そのうち保存先（output_path）のあるジョブ（状態によらない）と録音中（running）のジョブ
+// （最初の録音でまだ保存先が無いものも）に保存先の移しの頼みの印（move_requested_at）を付ける
+// （docs/adr/0039-saved-files-follow-show-rename.md）。録音中のジョブは拾ったときの写しの古い名前で保存するので、保存した後に移す。
+// 保存したファイルは録音のループが今の名前のフォルダ・ファイル名へ移す（internal/app の moveOutputs）。人の操作なので通知しない。当たらない日の記録（unmatched.go）と、
 // 番組を指す通知（Notification.Show）も新しい名前に付け替える。
 func (s *Store) ReplaceShow(ctx context.Context, oldName string, show domain.Show) error {
 	if err := show.Validate(); err != nil {
@@ -156,7 +157,7 @@ func (s *Store) ReplaceShow(ctx context.Context, oldName string, show domain.Sho
 		if show.Name != oldName {
 			// 頼みの時刻は、人が頼む保存先の移し（RequestOutputMove）と同じ形で書く。
 			if _, err := tx.ExecContext(ctx, `UPDATE jobs SET show_name = ?,
-				move_requested_at = CASE WHEN output_path != '' THEN ? ELSE move_requested_at END WHERE show_name = ?`,
+				move_requested_at = CASE WHEN output_path != '' OR state = 'running' THEN ? ELSE move_requested_at END WHERE show_name = ?`,
 				show.Name, formatTime(time.Now()), oldName); err != nil {
 				return fmt.Errorf("ジョブの番組の名前を %s に付け替えられない: %w", show.Name, err)
 			}

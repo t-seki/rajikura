@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -414,6 +415,86 @@ func TestManualMoveThenChapterRedo(t *testing.T) {
 	}
 	if _, err := os.Stat(byHand); err != nil {
 		t.Errorf("人が動かしたファイルを消した: %v", err)
+	}
+}
+
+// renameWhileFetching は、次に radiko から音声を取っている途中（最初のセグメントを返すとき）に、番組 old の名前を name に変える
+// （録音中のジョブの名前の変更。ADR 0039）。
+func (e *env) renameWhileFetching(old domain.Show, name string) {
+	var once sync.Once
+	e.fake.set(func(f *fakeRadiko) {
+		f.onSegment = func(*http.Request) {
+			once.Do(func() {
+				s := old
+				s.Name = name
+				if err := e.store.ReplaceShow(e.ctx, old.Name, s); err != nil {
+					e.t.Errorf("ReplaceShow: %v", err)
+				}
+			})
+		}
+	})
+}
+
+// 録音の途中で名前を変えても、録音が終わった後、ファイルは新しい名前のフォルダに 1 つだけ残り、古いフォルダは片付く（ADR 0039）。
+// 録音中のジョブにも移しの頼みが付き、試行は拾ったときの古い名前で保存してから、録音のループが新しい名前へ移す。保存のときの番組の
+// 設定は DB にある今の番組の名前で引くので、分割番組の track（MMDD×10）がずれない。最初の録音でも録り直しでも同じ（録り直しは前の
+// ファイルを上書きしてから移すので、古いフォルダに前のファイルが残らない）。
+func TestRenameWhileRecording(t *testing.T) {
+	for _, c := range []string{"最初の録音", "録り直し"} {
+		t.Run(c, func(t *testing.T) {
+			e := newFlowEnv(t)
+			e.store.DeleteShow(e.ctx, suppinShow.Name)
+			if err := e.app.Startup(e.ctx); err != nil {
+				t.Fatal(err)
+			}
+			j := e.job(flatShow.Name)
+			oldDir := filepath.Join(e.app.Library, "TBSラジオ", flatShow.Name)
+			if c == "録り直し" {
+				if !e.runDue() {
+					t.Fatal("録らない")
+				}
+				if err := os.WriteFile(filepath.Join(oldDir, "folder.jpg"), []byte("img"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				now := afterBroadcast.Add(time.Hour)
+				e.clock.Set(now)
+				if err := e.store.Rerecord(e.ctx, j.ID, domain.MembershipFree, nil, now); err != nil {
+					t.Fatal(err)
+				}
+			}
+			e.renameWhileFetching(flatShow, "ふらっと（新）")
+			for e.runDue() {
+			}
+			got := e.job("ふらっと（新）")
+			newDir := filepath.Join(e.app.Library, "TBSラジオ", "ふらっと（新）")
+			if got.State != domain.StateDone || got.OutputPath != filepath.Join(newDir, "ふらっと（新） 2026-10-07.m4a") || !got.MoveRequestedAt.IsZero() {
+				t.Fatalf("録音の後: %+v, attempts = %+v", got, e.attempts(j.ID))
+			}
+			tags := e.media.tags[len(e.media.tags)-1]
+			if tags.Track != 10070 {
+				t.Errorf("track = %d, want 10070（今の番組の分割の設定）", tags.Track)
+			}
+			if rw := e.media.albumRewriter(); len(rw.rewrites) != 1 || rw.rewrites[0].album != "ふらっと（新）" {
+				t.Errorf("RewriteAlbum = %+v", rw.rewrites)
+			}
+			if _, err := os.Stat(oldDir); !errors.Is(err, os.ErrNotExist) {
+				es, _ := os.ReadDir(oldDir)
+				t.Errorf("古いフォルダが残っている: %v %v", err, es)
+			}
+			es, err := os.ReadDir(newDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var m4a []string
+			for _, en := range es {
+				if filepath.Ext(en.Name()) == ".m4a" {
+					m4a = append(m4a, en.Name())
+				}
+			}
+			if len(m4a) != 1 {
+				t.Errorf("新しいフォルダの m4a = %v, want 1 つ", m4a)
+			}
+		})
 	}
 }
 

@@ -398,7 +398,16 @@ func (a *App) save(ctx context.Context, cur live, log *slog.Logger, job domain.J
 	a.setStage(job.ID, domain.StageSave)
 	res := saved{extinf: extinf}
 	split := domain.SplitNone
-	switch show, err := a.Store.GetShow(ctx, job.ShowName); {
+	// 番組の設定は、DB にある今のジョブの番組の名前で引く（録音の途中で名前を変えると、store.ReplaceShow がジョブを新しい名前に
+	// 付け替え、拾ったときの写しの job.ShowName の番組は無くなる）。保存先とタグは写しの名前のままで組み、保存した後に保存先の移しが
+	// 今の名前へ移す（ReplaceShow が録音中のジョブにも移しの頼みを付ける。ADR 0039）。
+	showName := job.ShowName
+	if cur, err := a.Store.GetJob(ctx, job.ID); err != nil {
+		log.Warn("ジョブを読み直せないので、録音を始めたときの番組の名前で番組の設定を引く", "err", err)
+	} else {
+		showName = cur.ShowName
+	}
+	switch show, err := a.Store.GetShow(ctx, showName); {
 	case err == nil:
 		split = show.Split
 	case errors.Is(err, store.ErrNotFound):

@@ -204,7 +204,7 @@ groups:
 - `GET /api/shows`: 一覧。番組ごとに次の放送予定と、当たらない日の並び（`unmatched_days`。枠の開始時刻が今より後のものを枠の開始時刻の順に。1 つの JSON は `{"day": "<放送日 YYYY-MM-DD>", "station": "<局>", "start": "<枠の開始時刻>", "covering": <その時刻を含む放送回 {"title", "start", "end"}。無ければ null>, "titled": [<同じ局・同じ放送日で番組名の合う放送回 {"title", "start", "end"}>]}`。無い番組と無効な番組には付けない）を付ける。
 - `POST /api/shows`: 作成。
 - `GET /api/shows/{name}`
-- `PUT /api/shows/{name}`: 丸ごと置き換え。body の `name` が違えば名前の変更。名前の変更では、古い名前の全部のジョブ（`done` を含む）を新しい名前に付け替え、保存先のあるジョブに[保存先の移し](../GLOSSARY.md)の頼みを付けて、録音のループを起こす（保存したファイルは録音のループが新しい名前へ移す。移し方は `POST /api/jobs/{id}/move` と同じ。[ADR 0039](adr/0039-saved-files-follow-show-rename.md)）。
+- `PUT /api/shows/{name}`: 丸ごと置き換え。body の `name` が違えば名前の変更。名前の変更では、古い名前の全部のジョブ（`done` を含む）を新しい名前に付け替え、保存先のあるジョブと録音中（`running`）のジョブに[保存先の移し](../GLOSSARY.md)の頼みを付けて、録音のループを起こす（保存したファイルは録音のループが新しい名前へ移す。録音中のジョブは、録音を始めたときの古い名前で保存してから移す。移し方は `POST /api/jobs/{id}/move` と同じ。[ADR 0039](adr/0039-saved-files-follow-show-rename.md)）。
 - `DELETE /api/shows/{name}`
 - `PUT /api/shows/{name}/enabled`: JSON `{"enabled": true}` で有効／無効の切り替え。
 - `GET /api/stations`: radiko の局の一覧（`full.xml` の全局）。`[{id, name, areaName, outOfArea}]`。`areaName` は局のエリアの名前（`full.xml` の局の `area_id` から引いた都道府県名）、`outOfArea` は自分のエリアの外の局か（今日の放送日の、自分のエリアの番組表の局一覧に無ければ `true`。局の本拠地のエリアでは決めない）。`areaName` は局のエリアが分からないとき、`outOfArea` は自分のエリアの局一覧を取れない・空のときは付かない（一覧そのものは返す）。
