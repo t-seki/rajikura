@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
@@ -32,6 +34,9 @@ type Jobs interface {
 	// RequestChapterRedo と RequestChapterRedoAll は、チャプターの入れ直しの頼みを DB に書く（ADR 0033。書き込みは録音のループ）。
 	RequestChapterRedo(ctx context.Context, id int64, now time.Time) error
 	RequestChapterRedoAll(ctx context.Context, now time.Time) (int, error)
+	// RequestOutputMove は保存先の移しの頼みを DB に書き、OutputMoves は保存先の移しの履歴を読む（ADR 0039。移すのは録音のループ）。
+	RequestOutputMove(ctx context.Context, id int64, show string, now time.Time) error
+	OutputMoves(ctx context.Context, jobID int64) ([]domain.OutputMove, error)
 }
 
 var _ Jobs = (*store.Store)(nil)
@@ -58,6 +63,7 @@ func (u *UI) registerJobs(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/jobs/{id}/rerecord", u.guard(u.authed(u.rerecordJob)))
 	mux.HandleFunc("POST /api/jobs/{id}/chapters", u.guard(u.authed(u.redoJobChapters)))
 	mux.HandleFunc("POST /api/jobs/chapters", u.guard(u.authed(u.redoAllChapters)))
+	mux.HandleFunc("POST /api/jobs/{id}/move", u.guard(u.authed(u.moveJob)))
 }
 
 type jobSummary struct {
@@ -104,6 +110,11 @@ type jobSummary struct {
 	ChaptersRedoable bool `json:"chaptersRedoable"`
 	// ChaptersRedoRequested は、チャプターの入れ直しを頼んで、録音のループがまだ書き込んでいない間だけ true。
 	ChaptersRedoRequested bool `json:"chaptersRedoRequested"`
+	// Movable は、いま保存先の移し（POST /api/jobs/{id}/move）を受け付けるか（保存先があり、録音中でないジョブ。
+	// store.RequestOutputMove と同じく domain.CheckOutputMove で決める。ADR 0039）。
+	Movable bool `json:"movable"`
+	// MoveRequested は、保存先の移しを頼んで（番組の名前の変更か、人の頼み）、録音のループがまだ移していない間だけ true。
+	MoveRequested bool `json:"moveRequested"`
 	// SaveRetryUntil は、ライブで録るジョブの録れた分の保存を自動でやり直している間（retrying で、最後の試行が保存か検証の段階で
 	// 失敗し、打ち切りの前）だけ、その打ち切り（放送の終了から 24 時間。domain.Job.LiveSaveCutoff）。ほかのときは出さない。
 	// 足したら直す: ジョブの状態の移り方
@@ -219,12 +230,27 @@ type chapterWriteView struct {
 	Error  string `json:"error"`
 }
 
+// outputMoveView は、保存先の移しの履歴の 1 行（domain.OutputMove。ADR 0039）。
+type outputMoveView struct {
+	At time.Time `json:"at"`
+	// From は移す前の保存先、To は移し先（保存先のパスが番組の名前の形でなく、移し先を組めなかったときは空）。
+	From string `json:"from"`
+	To   string `json:"to"`
+	// Result は結果（moved: 移した、target_exists: 移し先に同じ名前のファイルがあるので移さなかった、no_file: 保存先にファイルが
+	// 無いので移さなかった、not_show_path: 保存先のパスが番組の名前の形でないので移さなかった、failed: 移せなかった）。Error は
+	// 移せなかった理由（failed のときだけ。ほかは空）。
+	Result string `json:"result"`
+	Error  string `json:"error"`
+}
+
 type jobDetail struct {
 	jobSummary
 	Airings    []airingView  `json:"airings"`
 	AttemptLog []attemptView `json:"attemptLog"`
 	// ChapterWrites は、保存したファイルへのチャプターの書き込みの履歴（書き込んだ順。試行の履歴とは別。無ければ空の配列）。
 	ChapterWrites []chapterWriteView `json:"chapterWrites"`
+	// OutputMoves は、保存先の移しの履歴（移した順。無ければ空の配列）。
+	OutputMoves []outputMoveView `json:"outputMoves"`
 	// DurationSeconds は、成功した試行で測った長さ（秒）。記録が無ければ 0。
 	DurationSeconds float64 `json:"durationSeconds"`
 }
@@ -293,6 +319,8 @@ func summarize(j domain.Job, last *domain.Attempt, m domain.Membership, area rer
 		Rerecordable:          !area.Unknown && domain.CheckRerecord(j, m, area.Own, now) == nil,
 		ChaptersRedoable:      domain.CheckChapterRedo(j) == nil,
 		ChaptersRedoRequested: !j.ChapterRedoAt.IsZero() && domain.CheckChapterRedo(j) == nil,
+		Movable:               domain.CheckOutputMove(j) == nil,
+		MoveRequested:         !j.MoveRequestedAt.IsZero() && j.OutputPath != "",
 		OutputPath:            j.OutputPath,
 		MissingCount:          len(j.Missing),
 		Stations:              stationSpans(j.Airings),
@@ -438,10 +466,18 @@ func (u *UI) getJob(w http.ResponseWriter, r *http.Request) {
 		u.internalError(w, "チャプターの書き込みの履歴を読めない", err)
 		return
 	}
+	mvs, err := u.Jobs.OutputMoves(r.Context(), id)
+	if err != nil {
+		u.internalError(w, "保存先の移しの履歴を読めない", err)
+		return
+	}
 	d := jobDetail{jobSummary: summarize(j, lastOf(as), u.membership(), u.rerecordAreaFor(r.Context(), j), u.now()), Airings: []airingView{}, AttemptLog: []attemptView{},
-		ChapterWrites: []chapterWriteView{}}
+		ChapterWrites: []chapterWriteView{}, OutputMoves: []outputMoveView{}}
 	for _, c := range cws {
 		d.ChapterWrites = append(d.ChapterWrites, chapterWriteView{At: c.At, By: string(c.By), Result: string(c.Result), Count: c.Count, Error: c.Error})
+	}
+	for _, m := range mvs {
+		d.OutputMoves = append(d.OutputMoves, outputMoveView{At: m.At, From: m.From, To: m.To, Result: string(m.Result), Error: m.Error})
 	}
 	u.withProgress(&d.jobSummary, j)
 	for _, a := range j.Airings {
@@ -463,7 +499,8 @@ func (u *UI) getJob(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, d)
 }
 
-// act は人のジョブの操作（手動再試行・録らない・録る・録り直し・チャプターの入れ直し）の処理。拒まれた状態と録音期限を過ぎたジョブは 409、無いジョブは 404。
+// act は人のジョブの操作（手動再試行・録らない・録る・録り直し・チャプターの入れ直し・保存先の移し）の処理。拒まれた状態と録音期限を過ぎたジョブは 409、
+// 無いジョブと、保存先の移しの移し先に指定した無い番組（store.ErrNoShow）は 404。
 // refusal は、拒まれたわけ（err）から 409 の文言を作る。空を返したら、act の既定の文言にする。nil なら既定の文言だけを使う。
 func (u *UI) act(w http.ResponseWriter, r *http.Request, do func(ctx context.Context, id int64) error, refusal func(err error) string) {
 	id, ok := jobID(w, r)
@@ -484,6 +521,8 @@ func (u *UI) act(w http.ResponseWriter, r *http.Request, do func(ctx context.Con
 			return
 		}
 		writeJSON(w, http.StatusOK, s)
+	case errors.Is(err, store.ErrNoShow):
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "番組が無い"})
 	case errors.Is(err, store.ErrNotFound):
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "ジョブが無い"})
 	case refusal != nil && refusal(err) != "":
@@ -583,6 +622,37 @@ func (u *UI) redoAllChapters(w http.ResponseWriter, r *http.Request) {
 		u.wakeAfter(nil)
 	}
 	writeJSON(w, http.StatusOK, chapterRedoAllView{Accepted: n})
+}
+
+// moveRequest は、保存先の移し（POST /api/jobs/{id}/move）の body。Show は移し先の番組（今あるもの）の名前で、空（body が無い
+// ときも）ならジョブの今の番組。
+type moveRequest struct {
+	Show string `json:"show"`
+}
+
+// moveJob は、ジョブ 1 件の保存先の移し（ADR 0039）。保存先のあるジョブに頼みを DB に書き（body の show が今の番組と違えば、ジョブの
+// 番組の名前をその番組に付け替えてから）、録音のループを起こして、受け付けたジョブの要約を返す（移すのはまだ。結果はジョブの保存先と、
+// 保存先の移しの履歴に出る）。拒むときは、保存先が無い・録音中で文言を分けて 409 にする。無い番組は 404。通知はしない。
+func (u *UI) moveJob(w http.ResponseWriter, r *http.Request) {
+	var req moveRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "body が JSON として読めない"})
+		return
+	}
+	u.act(w, r, func(ctx context.Context, id int64) error {
+		return u.wakeAfter(u.Jobs.RequestOutputMove(ctx, id, strings.TrimSpace(req.Show), u.now()))
+	}, moveRefusal)
+}
+
+// moveRefusal は、保存先の移しを拒んだわけ（domain.CheckOutputMove の返すエラー）を 409 の文言にする。
+func moveRefusal(err error) string {
+	switch {
+	case errors.Is(err, domain.ErrOutputMoveNoOutput):
+		return "まだ保存していないジョブは、保存先を移せない"
+	case errors.Is(err, domain.ErrOutputMoveRunning):
+		return "録音中のジョブは、保存先を移せない（録音が終わってから頼む）"
+	}
+	return ""
 }
 
 // wakeAfter は、ジョブの操作が成功した（err が nil）なら録音のループを起こし、err をそのまま返す。

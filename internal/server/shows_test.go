@@ -285,9 +285,12 @@ func TestShowsNameEscaping(t *testing.T) {
 	e.call("DELETE", showPath(name), "", 204, nil)
 }
 
-// 名前の変更は、古い名前の番組を消して新しい名前の番組を作る。ジョブは古い名前のまま触らない。
+// 名前の変更は、古い名前の番組を消して新しい名前の番組を作る。古い名前の全部のジョブ（done を含む）を新しい名前に付け替え、保存先の
+// あるジョブに保存先の移しの頼みを付けて、録音のループを起こす（ADR 0039。保存先は録音のループが移すまで変えない）。
 func TestShowsRename(t *testing.T) {
 	e := newShowsUI(t)
+	rec := &countingRecorder{}
+	e.ui.Recorder = rec
 	ctx := context.Background()
 	e.call("POST", "/api/shows", flatJSON, 201, nil)
 	e.call("POST", "/api/shows", `{"name":"別の番組","enabled":true,"check_title":true,"weekly":[]}`, 201, nil)
@@ -310,8 +313,17 @@ func TestShowsRename(t *testing.T) {
 	if got, err := e.store.GetShow(ctx, "ふらっと（新）"); err != nil || len(got.Weekly) != 1 {
 		t.Errorf("新しい名前の番組 = %+v, %v", got, err)
 	}
-	if j, err := e.store.GetJob(ctx, id); err != nil || j.ShowName != "パンサー向井のふらっと" || j.OutputPath != "/library/x.m4a" {
-		t.Errorf("ジョブ = %+v, %v（古い名前のまま、保存先も変えない）", j, err)
+	if j, err := e.store.GetJob(ctx, id); err != nil || j.ShowName != "ふらっと（新）" || j.OutputPath != "/library/x.m4a" ||
+		j.MoveRequestedAt.IsZero() {
+		t.Errorf("ジョブ = %+v, %v（新しい名前に付け替わり、移しの頼みが付き、保存先はまだ変えない）", j, err)
+	}
+	if n := rec.n.Load(); n != 1 {
+		t.Errorf("名前を変えたときに録音のループを起こした数 = %d, want 1", n)
+	}
+	// 名前を変えない置き換えでは起こさない。
+	e.call("PUT", showPath("ふらっと（新）"), renamed, 200, nil)
+	if n := rec.n.Load(); n != 1 {
+		t.Errorf("名前を変えない置き換えで録音のループを起こした（%d 回）", n)
 	}
 }
 

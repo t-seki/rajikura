@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -72,12 +73,17 @@ func TestReplaceShowRename(t *testing.T) {
 	if err := s.PutShows(ctx, []domain.Show{old, keep}); err != nil {
 		t.Fatal(err)
 	}
-	// 古い名前のジョブを状態ごとに 1 つずつと、ほかの番組のジョブを 1 つ入れる。
+	// 古い名前のジョブを状態ごとに 1 つずつと、ほかの番組のジョブを 1 つ入れる。running・retrying・expired・done は保存先を持つ
+	// （録り直しの途中・録り直しを待つ・録り直しが録れなかった・録音済み）。
 	ids := map[domain.State]int64{}
+	outputs := map[domain.State]string{}
 	for i, st := range []domain.State{domain.StateWaiting, domain.StateRunning, domain.StateRetrying, domain.StateExpired,
 		domain.StateDone} {
+		if st != domain.StateWaiting {
+			outputs[st] = fmt.Sprintf("/library/局/古い/古い 2026-10-05-%d.m4a", i+1)
+		}
 		job := domain.Job{ShowName: "古い", Day: day, Part: i + 1, State: st, Airings: []domain.Airing{flat1},
-			NextAttemptAt: jst(2026, 10, 5, 11, 0), Deadline: jst(2026, 10, 13, 5, 0)}
+			NextAttemptAt: jst(2026, 10, 5, 11, 0), Deadline: jst(2026, 10, 13, 5, 0), OutputPath: outputs[st]}
 		id, err := s.InsertJob(ctx, job)
 		if err != nil {
 			t.Fatal(err)
@@ -102,19 +108,27 @@ func TestReplaceShowRename(t *testing.T) {
 	if err != nil || got.Split != domain.SplitSeparate || len(got.Weekly) != 2 {
 		t.Errorf("新しい名前の番組: %+v, %v", got, err)
 	}
-	// done でないジョブは新しい名前に付け替わる。done のジョブは古い名前のまま（保存済みのファイルを動かさない）。
-	// ほかの番組のジョブは触らない。
+	// 古い名前の全部のジョブ（done を含む）が新しい名前に付け替わる（ADR 0039）。保存先のあるジョブ（状態によらない）にだけ保存先の
+	// 移しの頼みの印が付く。保存先は変えない（移すのは録音のループ）。ほかの番組のジョブは触らない。
 	for st, id := range ids {
-		want := "新しい"
-		if st == domain.StateDone {
-			want = "古い"
+		j, err := s.GetJob(ctx, id)
+		if err != nil || j.ShowName != "新しい" {
+			t.Errorf("%s のジョブ: %+v, %v（want 新しい）", st, j, err)
+			continue
 		}
-		if j, err := s.GetJob(ctx, id); err != nil || j.ShowName != want {
-			t.Errorf("%s のジョブ: %+v, %v（want %s）", st, j, err, want)
+		if want := j.OutputPath != ""; j.MoveRequestedAt.IsZero() == want {
+			t.Errorf("%s のジョブの移しの頼み = %v（保存先 %q）", st, j.MoveRequestedAt, j.OutputPath)
+		}
+		if outputs[st] != j.OutputPath {
+			t.Errorf("%s のジョブの保存先 = %q、want %q", st, j.OutputPath, outputs[st])
 		}
 	}
-	if j, err := s.GetJob(ctx, other); err != nil || j.ShowName != "別の番組" {
+	if j, err := s.GetJob(ctx, other); err != nil || j.ShowName != "別の番組" || !j.MoveRequestedAt.IsZero() {
 		t.Errorf("ほかの番組のジョブ: %+v, %v", j, err)
+	}
+	if due, err := s.DueOutputMoves(ctx); err != nil || len(due) != 3 {
+		// 保存先のある retrying・expired・done。running は録音が終わってから拾う。
+		t.Errorf("DueOutputMoves = %d 件, %v; want 3", len(due), err)
 	}
 	var n int
 	s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM weekly`).Scan(&n)

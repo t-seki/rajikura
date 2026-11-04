@@ -10,7 +10,7 @@ import (
 	"github.com/t-seki/rajikura/internal/domain"
 )
 
-// jobs <ID>: 概要・放送回・試行の履歴・チャプターの書き込みの履歴が出る。結果 3 種の文、秒までの時刻を確かめる。
+// jobs <ID>: 概要・放送回・試行の履歴・チャプターの書き込みの履歴・保存先の移しの履歴が出る。結果 3 種の文、秒までの時刻を確かめる。
 func TestJobsDetail(t *testing.T) {
 	api := newTestAPI(t)
 	ctx := context.Background()
@@ -35,11 +35,25 @@ func TestJobsDetail(t *testing.T) {
 		}
 	}
 
+	for _, m := range []domain.OutputMove{
+		{JobID: id, At: st, From: "/library/局/旧/旧 2026-10-05.m4a", To: "/library/局/新/新 2026-10-05.m4a", Result: domain.OutputMoveTargetExists},
+		{JobID: id, At: st.Add(time.Second), From: "/library/a.m4a", Result: domain.OutputMoveNotShowPath},
+		{JobID: id, At: st.Add(2 * time.Second), From: "/x/a/a 2026-10-05.m4a", To: "/x/b/b 2026-10-05.m4a", Result: domain.OutputMoveFailed, Error: "書けない"},
+		{JobID: id, At: st.Add(3 * time.Second), From: "/x/a/a 2026-10-05.m4a", To: "/x/b/b 2026-10-05.m4a", Result: domain.OutputMoveNoFile},
+	} {
+		// 移した（moved）でないので、保存先は変わらない。
+		if err := api.Store.FinishOutputMove(ctx, m, true, time.Time{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	code, out, errOut := api.run(t, "jobs", strconv.FormatInt(id, 10))
 	if code != 0 {
 		t.Fatalf("jobs ID: %d %q", code, errOut)
 	}
 	for _, want := range []string{
+		"保存先の移しの履歴", "移し先に同じ名前のファイルがあるので移さなかった", "/library/局/新/新 2026-10-05.m4a",
+		"保存先が番組の名前の形でないので移さなかった", "移せなかった（ファイルは前のまま）", "書けない", "保存先にファイルが無いので移さなかった",
 		"番組: 番組A (2)", "状態: done", "試行回数: ", "保存先: /library/a.m4a（欠落 1）", "長さ: 記録なし", "チャプター: 入らなかった",
 		"直近のエラー: [fetch] 落ちた 2 行目", "受け付ける操作: ", "放送回", "試行の履歴", "チャプターの書き込みの履歴",
 		st.In(domain.JST).Format("2006-01-02 15:04:05"), "入手", "チャプターの取り直し", "12 件を書き込んだ",
@@ -69,7 +83,8 @@ func TestJobsDetailEmptyAndOperations(t *testing.T) {
 	if !strings.Contains(out, "受け付ける操作: skip\n") || !strings.Contains(out, "次の試行: ") {
 		t.Errorf("waiting の概要:\n%s", out)
 	}
-	if !strings.Contains(out, "試行の履歴\nなし\n") || !strings.HasSuffix(out, "チャプターの書き込みの履歴\nなし\n") {
+	if !strings.Contains(out, "試行の履歴\nなし\n") || !strings.Contains(out, "チャプターの書き込みの履歴\nなし\n") ||
+		!strings.HasSuffix(out, "保存先の移しの履歴\nなし\n") {
 		t.Errorf("履歴が空のとき:\n%s", out)
 	}
 	if strings.Contains(out, "チャプター:") || strings.Contains(out, "入れ直しを待っている") {
@@ -85,7 +100,8 @@ func TestJobsDetailEmptyAndOperations(t *testing.T) {
 	}
 	ds := strconv.FormatInt(done, 10)
 	_, out, _ = api.run(t, "jobs", ds)
-	if !strings.Contains(out, "chapters") || strings.Contains(out, "入れ直しを待っている") {
+	if !strings.Contains(out, "chapters・move\n") || strings.Contains(out, "入れ直しを待っている") ||
+		strings.Contains(out, "移しを待っている") {
 		t.Errorf("done の概要:\n%s", out)
 	}
 	if code, _, errOut := api.run(t, "chapters", ds); code != 0 {
@@ -94,6 +110,13 @@ func TestJobsDetailEmptyAndOperations(t *testing.T) {
 	_, out, _ = api.run(t, "jobs", ds)
 	if !strings.Contains(out, "チャプターの入れ直しを待っている。") {
 		t.Errorf("入れ直しの待ち:\n%s", out)
+	}
+	if code, _, errOut := api.run(t, "move", ds); code != 0 {
+		t.Fatalf("move: %d %q", code, errOut)
+	}
+	_, out, _ = api.run(t, "jobs", ds)
+	if !strings.Contains(out, "保存先の移しを待っている。") {
+		t.Errorf("移しの待ち:\n%s", out)
 	}
 }
 

@@ -1,6 +1,6 @@
-// Package client は、CLI（rajikura jobs・retry・skip・record・rerecord・chapters・backup）が serve の HTTP API を呼ぶためのクライアント。
-// jobs・retry・skip・record・rerecord・chapters はジョブを扱う（GET /api/jobs、GET /api/jobs/{id}（jobs <ID> の詳細は GetJobDetail）、
-// POST /api/jobs/{id}/retry・skip・record・rerecord・chapters、POST /api/jobs/chapters）。
+// Package client は、CLI（rajikura jobs・retry・skip・record・rerecord・chapters・move・backup）が serve の HTTP API を呼ぶためのクライアント。
+// jobs・retry・skip・record・rerecord・chapters・move はジョブを扱う（GET /api/jobs、GET /api/jobs/{id}（jobs <ID> の詳細は GetJobDetail）、
+// POST /api/jobs/{id}/retry・skip・record・rerecord・chapters・move、POST /api/jobs/chapters）。
 // backup は DB のバックアップを受け取る（GET /api/backup。backup.go）。
 // CLI は DB を開かず、この API だけを使う（docs/adr/0009-cli-over-http.md）。
 // 足したら直す: CLI のサブコマンド
@@ -163,6 +163,10 @@ type Job struct {
 	ChaptersRedoable      bool   `json:"chaptersRedoable"`
 	ChaptersRedoRequested bool   `json:"chaptersRedoRequested"`
 	Chapters              string `json:"chapters"`
+	// Movable は保存先の移し（move）を受け付けるか、MoveRequested は保存先の移しを頼んでまだ移していないか（この版より前の serve では
+	// 無い（false））。
+	Movable       bool `json:"movable"`
+	MoveRequested bool `json:"moveRequested"`
 	// SaveRetryUntil は録れた分の保存を自動でやり直している間の打ち切り、KeepUntil は録れた分を残している間の期限（無ければ nil）。
 	SaveRetryUntil *time.Time `json:"saveRetryUntil"`
 	KeepUntil      *time.Time `json:"keepUntil"`
@@ -195,13 +199,23 @@ type JobChapterWrite struct {
 	Error  string    `json:"error"`
 }
 
+// JobOutputMove はジョブの詳細の保存先の移しの履歴の 1 行（Result: moved・target_exists・no_file・not_show_path・failed）。
+type JobOutputMove struct {
+	At     time.Time `json:"at"`
+	From   string    `json:"from"`
+	To     string    `json:"to"`
+	Result string    `json:"result"`
+	Error  string    `json:"error"`
+}
+
 // JobDetail はジョブ 1 件の詳細（GET /api/jobs/{id}）。一覧の 1 行（Job）に、放送回・試行の履歴・チャプターの書き込みの履歴・
-// 長さを足したもの。ChapterWrites は、この版より前の serve では nil。
+// 保存先の移しの履歴・長さを足したもの。ChapterWrites・OutputMoves は、それを持たない前の版の serve では nil。
 type JobDetail struct {
 	Job
 	Airings         []JobAiring       `json:"airings"`
 	AttemptLog      []JobAttempt      `json:"attemptLog"`
 	ChapterWrites   []JobChapterWrite `json:"chapterWrites"`
+	OutputMoves     []JobOutputMove   `json:"outputMoves"`
 	DurationSeconds float64           `json:"durationSeconds"`
 }
 
@@ -260,6 +274,17 @@ func (c *Client) RerecordJob(ctx context.Context, id int64) error {
 // ループが後で行う。無いジョブは 404、受け付けないジョブ（done でない・ライブ録音）は 409 の APIError。
 func (c *Client) RedoJobChapters(ctx context.Context, id int64) error {
 	return c.do(ctx, http.MethodPost, "/api/jobs/"+strconv.FormatInt(id, 10)+"/chapters", nil, nil)
+}
+
+// MoveJob は、ジョブの保存先の移しを頼む（POST /api/jobs/{id}/move。ADR 0039）。show が空でなければ、ジョブをその番組に付け替えて
+// から移す。移すのは serve の録音のループが後で行う。無いジョブ・無い番組は 404、受け付けないジョブ（保存先が無い・録音中）は 409 の
+// APIError。
+func (c *Client) MoveJob(ctx context.Context, id int64, show string) error {
+	var body any
+	if show != "" {
+		body = map[string]string{"show": show}
+	}
+	return c.do(ctx, http.MethodPost, "/api/jobs/"+strconv.FormatInt(id, 10)+"/move", body, nil)
 }
 
 // RedoAllChapters は、まとめてのチャプターの入れ直しを頼み（POST /api/jobs/chapters。ADR 0033）、受け付けたジョブの数を返す。

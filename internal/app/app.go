@@ -132,6 +132,13 @@
 // 取るジョブが無ければ、人が頼んだチャプターの入れ直し（API の POST /api/jobs/{id}/chapters・/api/jobs/chapters が頼みを DB に
 // 書く）を 1 件ずつ、同じ書き込みで行う（redoChapters。設定 chapters がオフでも行い、待ちは起こさない。ADR 0033）。
 //
+// ジョブを取る前に、保存先の移し（番組の名前を変えたときに store.ReplaceShow が、人が頼んだときに API の POST /api/jobs/{id}/move が
+// 頼みを DB に書く）を 1 件ずつ行う（moveOutputs。docs/adr/0039-saved-files-follow-show-rename.md）。保存したファイルを、アルバムの
+// 名前を今の番組の名前に書き換えて（同じフォルダの partial に書き、音声のサンプルが元と一致することを確かめてから）今の番組の名前の
+// フォルダ・ファイル名に移し、保存先の記録を付け替え、古いフォルダに残ったのが folder.jpg だけなら片付け、ライブラリの再スキャンを
+// 頼む。試行は起こさず、状態は変えない。結果は保存先の移しの履歴に残し、通知はしない。録るジョブより先に移すのは、録り直しを待つ
+// ジョブのファイルを移しておけば、その後の録り直しが移し先を前の保存先として上書きできるため。
+//
 // 失敗したら、失敗した段階とエラーを試行として記録し、domain.RetryPolicy で次の試行を決める。
 // 格納・検証・保存の段階で落ちたら、その試行で使った放送回のファイルを捨て、次の試行で取り直す
 // （入手の段階で落ちたなら、取り終えた放送回は次の試行で再利用する。保存の段階でも、局一覧が一度も
@@ -1142,7 +1149,7 @@ func (a *App) pastOnceDays(now time.Time, shows []domain.Show) []domain.Broadcas
 // 番組を変えた直後に、変える前と後の番組を渡して積む）。無効な番組の予約の局・放送日も展開する（無効にした・消した番組の
 // waiting のジョブを、放送済みで最初の試行を待つものも含めて消すため）。
 // 過去の放送日の新しいジョブの作り方は Sync と同じ（domain.Show.Hit。Web UI・API で
-// 名前を変えた番組の done でないジョブは、store.ReplaceShow が新しい名前に付け替えるので、展開では消えない）。
+// 名前を変えた番組のジョブ（done を含む全部）は、store.ReplaceShow が新しい名前に付け替えるので、展開では消えない）。
 // 展開に使う番組の一覧は shows ではなく、store から読む今の番組の一覧（syncDay）。
 // 局・放送日ごとの失敗は、まとめてエラーで返す。
 func (a *App) expandShows(ctx context.Context, shows ...domain.Show) error {
@@ -1314,7 +1321,8 @@ func (a *App) syncDay(ctx context.Context, station string, day domain.BroadcastD
 // RunDue は実行するジョブ（タイムフリーから録るもの。ライブで録るジョブはライブの録音役が拾う）を 1 件だけ取って実行する。
 // 実行したら true。録音のループから、false を返すまで繰り返し呼ぶ（pollRound）。最初の試行の前の
 // 番組表の取り直しは展開役に頼み、終わるまで待ってから録音する（展開役が動いている間に呼ぶ）。ジョブを取る前に、チャプターを
-// 待っているジョブのチャプターの API を引く（checkChapters。同じ goroutine で、新しい goroutine は起こさない）。取るジョブが
+// 待っているジョブのチャプターの API を引く（checkChapters。同じ goroutine で、新しい goroutine は起こさない）。続けて、頼まれた
+// 保存先の移しがあれば 1 件だけ行い（moveOutputs。ADR 0039）、行ったら true（ジョブは取らない）。取るジョブが
 // 無ければ、人が頼んだチャプターの入れ直しを 1 件だけ行い（redoChapters）、行ったら true。
 // ジョブの失敗は試行として記録し、エラーにはしない。DB の失敗などはエラーを返す。
 // 保存先が決まっていなければ、ジョブを取らずに false を返す（録音だけを待たせる。番組表の同期と展開は展開役が続ける）。
@@ -1329,6 +1337,11 @@ func (a *App) RunDue(ctx context.Context) (bool, error) {
 	// チャプターを待っているジョブの API を引き、できていればチャプターの取り直しで保存したファイルに書き込む（試行は起こさない。ADR 0033）。
 	if err := a.checkChapters(ctx, a.current()); err != nil {
 		return false, err
+	}
+	// 保存先の移しを、録るジョブを拾う前に 1 件ずつ行う（ADR 0039。録り直しを待つジョブのファイルを先に移し、その後の録り直しが
+	// 移し先を前の保存先として上書きするため）。
+	if moved, err := a.moveOutputs(ctx, a.current()); err != nil || moved {
+		return moved, err
 	}
 	job, ok, err := a.Store.ClaimDue(ctx, a.now())
 	if err != nil {

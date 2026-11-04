@@ -160,7 +160,7 @@ func TestShowsExpandAfterChange(t *testing.T) {
 }
 
 // 無効化・削除・名前の変更の直後に、放送済みで最初の試行を待つ waiting のジョブ（過去の放送日）も消える。
-// 名前の変更では、古い名前の done でないジョブが新しい名前に付け替わるので、その過去の放送日の waiting のジョブは、
+// 名前の変更では、古い名前の全部のジョブ（done を含む）が新しい名前に付け替わるので、その過去の放送日の waiting のジョブは、
 // 展開の後も新しい名前で残る（取りこぼさない。毎週の予約から作り直すのではない）。
 func TestShowsExpandRemovesPastWaitingJobs(t *testing.T) {
 	for _, tt := range []struct {

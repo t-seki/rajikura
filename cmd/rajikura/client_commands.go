@@ -1,6 +1,6 @@
 package main
 
-// serve の HTTP API を呼ぶサブコマンド（jobs（一覧と、ID を渡したときの 1 件の詳細）・retry・skip・record・rerecord・chapters）。DB は開かない。
+// serve の HTTP API を呼ぶサブコマンド（jobs（一覧と、ID を渡したときの 1 件の詳細）・retry・skip・record・rerecord・chapters・move）。DB は開かない。
 // 足したら直す: CLI のサブコマンド
 
 import (
@@ -100,7 +100,7 @@ func listJobs(ctx context.Context, connect func() (*client.Client, error), args 
 }
 
 // showJob はジョブ 1 件の詳細を、人が読む形で出す（Web UI のジョブの詳細と同じ範囲。プレーヤーと進捗は出さない）。上に概要を
-// 「項目: 値」の行で並べ、その下に放送回・試行の履歴・チャプターの書き込みの履歴を見出し付きの表で出す（履歴が空なら「なし」）。
+// 「項目: 値」の行で並べ、その下に放送回・試行の履歴・チャプターの書き込みの履歴・保存先の移しの履歴を見出し付きの表で出す（履歴が空なら「なし」）。
 // 無い ID（404）は終了コード 1。
 func showJob(ctx context.Context, connect func() (*client.Client, error), id int64, stdout io.Writer) error {
 	c, err := connect()
@@ -152,6 +152,9 @@ func showJob(ctx context.Context, connect func() (*client.Client, error), id int
 	line("受け付ける操作", jobOperations(j.Job))
 	if j.ChaptersRedoRequested {
 		fmt.Fprintln(stdout, "チャプターの入れ直しを待っている。")
+	}
+	if j.MoveRequested {
+		fmt.Fprintln(stdout, "保存先の移しを待っている。")
 	}
 	// 補足（当たるときだけ）。文は web/src/jobs/JobDetailModal.tsx に揃える。
 	if j.Live {
@@ -220,7 +223,35 @@ func showJob(ctx context.Context, connect func() (*client.Client, error), id int
 		}
 		writes = append(writes, []string{formatTimeSec(w.At), by, chapterWriteResultText(w), errText})
 	}
-	return section("チャプターの書き込みの履歴", "時刻\t誰が\t結果\tエラー", writes)
+	if err := section("チャプターの書き込みの履歴", "時刻\t誰が\t結果\tエラー", writes); err != nil {
+		return err
+	}
+	var moves [][]string
+	for _, m := range j.OutputMoves {
+		errText := "-"
+		if m.Error != "" {
+			errText = oneLine(m.Error)
+		}
+		moves = append(moves, []string{formatTimeSec(m.At), outputMoveResultText(m.Result), orDash(m.From), orDash(m.To), errText})
+	}
+	return section("保存先の移しの履歴", "時刻\t結果\t移す前\t移し先\tエラー", moves)
+}
+
+// outputMoveResultText は保存先の移しの結果の言葉（web/src/jobs/jobsApi.ts の outputMoveResultLabels と同じ文）。知らない値はそのまま返す。
+func outputMoveResultText(result string) string {
+	switch result {
+	case "moved":
+		return "移した"
+	case "target_exists":
+		return "移し先に同じ名前のファイルがあるので移さなかった"
+	case "no_file":
+		return "保存先にファイルが無いので移さなかった"
+	case "not_show_path":
+		return "保存先が番組の名前の形でないので移さなかった"
+	case "failed":
+		return "移せなかった（ファイルは前のまま）"
+	}
+	return result
 }
 
 // 値の書き方は web/src/jobs/jobsApi.ts の chaptersLabels・chapterWriteByLabels・chapterWriteResultText と同じ文にする。
@@ -288,7 +319,8 @@ func jobOperations(j client.Job) string {
 	for _, o := range []struct {
 		ok   bool
 		name string
-	}{{j.Retryable, "retry"}, {j.Skippable, "skip"}, {j.Recordable, "record"}, {j.Rerecordable, "rerecord"}, {j.ChaptersRedoable, "chapters"}} {
+	}{{j.Retryable, "retry"}, {j.Skippable, "skip"}, {j.Recordable, "record"}, {j.Rerecordable, "rerecord"}, {j.ChaptersRedoable, "chapters"},
+		{j.Movable, "move"}} {
 		if o.ok {
 			ops = append(ops, o.name)
 		}
@@ -423,7 +455,44 @@ func chaptersJobs(ctx context.Context, connect func() (*client.Client, error), a
 	return nil
 }
 
-// jobOp は、ID ごとに serve の API を呼ぶジョブの操作（retry・skip・record・rerecord・chapters）。
+// moveJobs は、ジョブの保存先の移しを頼む（用語集。ADR 0039）。serve の録音のループが、音声を取り直さずに、保存したファイルを
+// 今の番組の名前のフォルダ・ファイル名へ移し、アルバムの名前も今の番組の名前にする（結果はジョブの保存先と、保存先の移しの履歴に
+// 出る。CLI は待たない）。-show を渡せば、ジョブをその番組（今あるもの）に付け替えてから移す。受け付けるのは保存先のあるジョブだけで、
+// 録音中のジョブ・無い番組は断る。結果の出し方と終了コードは retryJobs と同じ。
+func moveJobs(ctx context.Context, connect func() (*client.Client, error), args []string, stdout, stderr io.Writer) error {
+	const use = "使い方: rajikura move [-show <番組>] <ID> [<ID>...]"
+	fs := flag.NewFlagSet("rajikura move", flag.ContinueOnError)
+	show := fs.String("show", "", "移し先の番組の名前（今ある番組。空ならジョブの今の番組）")
+	if err := parseFlags(fs, args, stderr); err != nil {
+		return err
+	}
+	name := strings.TrimSpace(*show)
+	return jobAction(ctx, connect, fs.Args(), stdout, stderr, jobOp{
+		name: "move", use: use, done: "保存先の移しを受け付けた", failed: "保存先の移しにできなかった",
+		call:    func(c *client.Client, ctx context.Context, id int64) error { return c.MoveJob(ctx, id, name) },
+		refusal: moveRefusal,
+		notFoundByMessage: func(msg string) string {
+			if msg == "番組が無い" {
+				return fmt.Sprintf("番組「%s」が無い", name)
+			}
+			return ""
+		},
+	})
+}
+
+// moveRefusal は、保存先の移しを拒まれた（409）わけを、ジョブの今の状態から作る（domain.CheckOutputMove と同じ）。
+func moveRefusal(ctx context.Context, c *client.Client, id int64) string {
+	j, err := c.GetJob(ctx, id)
+	if err != nil {
+		return "保存先を移せない状態"
+	}
+	if j.OutputPath == "" {
+		return "まだ保存していないジョブで、保存先を移せるのは保存先のあるジョブだけ"
+	}
+	return fmt.Sprintf("状態が %s で、録音中のジョブは保存先を移せない（録音が終わってから頼む）", stateLabel(j))
+}
+
+// jobOp は、ID ごとに serve の API を呼ぶジョブの操作（retry・skip・record・rerecord・chapters・move）。
 type jobOp struct {
 	name, done, failed string
 	// use は使い方の誤りのときに出す文（空なら「使い方: rajikura <name> <ID> [<ID>...]」）。
@@ -434,6 +503,9 @@ type jobOp struct {
 	// refusalByMessage は、ジョブの状態では見分けられない 409 のわけを、serve の答えの文（APIError.Message）から作る。
 	// 空を返したら refusal を使う。nil なら使わない。
 	refusalByMessage func(msg string) string
+	// notFoundByMessage は、404 のわけを serve の答えの文から作る（ジョブのほかにも無いものがある操作。move の番組）。空を返したら
+	// 「ID が無い」にする。nil なら使わない。
+	notFoundByMessage func(msg string) string
 }
 
 // jobAction は op を ID ごとに行う。ID ごとに結果を 1 行出し、拒まれた ID があってもほかの ID は続ける。1 件でも拒まれたら
@@ -473,7 +545,15 @@ func jobAction(ctx context.Context, connect func() (*client.Client, error), args
 			fmt.Fprintf(stdout, "ジョブ %d: %s\n", id, op.done)
 		case client.IsStatus(err, http.StatusNotFound):
 			refused++
-			fmt.Fprintf(stdout, "ジョブ %d: 拒んだ（ID が無い）\n", id)
+			why := ""
+			var ae *client.APIError
+			if op.notFoundByMessage != nil && errors.As(err, &ae) {
+				why = op.notFoundByMessage(ae.Message)
+			}
+			if why == "" {
+				why = "ID が無い"
+			}
+			fmt.Fprintf(stdout, "ジョブ %d: 拒んだ（%s）\n", id, why)
 		case client.IsStatus(err, http.StatusConflict):
 			refused++
 			why := ""

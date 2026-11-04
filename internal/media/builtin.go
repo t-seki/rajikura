@@ -11,7 +11,8 @@ package media
 //     位置を決める（ffmpeg の +faststart と同じく、moov を mdat の前に置く）
 //  3. ADTS のヘッダーを外したフレームを、mdat に順に書く。チャプターがあれば、チャプタートラックのサンプルをその後ろに書く
 //
-// 保存した m4a を読み、チャプターだけを書き直す部品（WriteChapters。ADR 0033）も、このファイルの後ろの節にある。
+// 保存した m4a を読み、チャプターだけを書き直す部品（WriteChapters。ADR 0033）と、アルバムの名前（album のタグ）だけを書き直す部品
+// （RewriteAlbum。保存先の移し。ADR 0039）も、このファイルの後ろの節にある。
 //
 // HE-AAC（SBR）の扱い: ADTS のヘッダーには、コア（AAC-LC）のサンプリング周波数しか書かれていない
 // （radiko は 24 kHz）。AudioSpecificConfig・タイムスケール・サンプルエントリーのサンプルレートは、
@@ -1458,3 +1459,333 @@ func (Builtin) InputLengths(ctx context.Context, inputs []string) ([]time.Durati
 
 // SameAudio は、m4a a と b の音声のトラックのサンプルが、数とバイト列で同じかを確かめる（chapter.go の sameAudio）。
 func (Builtin) SameAudio(ctx context.Context, a, b string) error { return sameAudio(ctx, a, b) }
+
+// ---- アルバムの名前だけを書き直す RewriteAlbum（保存先の移し。ADR 0039） ----
+
+// albumBox は、ilst の中の album のタグの箱の型（©alb）。
+const albumBox = "\xa9alb"
+
+// albumFollowers は、ilst の中で album のタグより後ろに書く箱の型（writeIlst の順。album のタグが無いファイルに足すときに使う）。
+var albumFollowers = []string{"\xa9day", "\xa9cmt", "\xa9gen", "covr", "trkn", "disk"}
+
+// RewriteAlbum は、保存した m4a in の album のタグを album に置き換えた m4a を out に書く（保存先の移し。ADR 0039）。ほかのタグ・
+// 画像・チャプター・音声は in のまま残す（in の箱の並びをそのまま写し、moov の udta/meta/ilst の album の箱だけを書き換える。moov の
+// 大きさが変わってサンプルの位置がずれるなら、全部のトラックのチャンクの位置をずらす）。in に album のタグが無ければ、writeIlst と同じ
+// 位置に足す。読めるのは readM4A が読める箱の並びで、udta/meta/ilst が無ければエラーにする。out は上書きされ、失敗したら消す。
+func (Builtin) RewriteAlbum(ctx context.Context, in, out, album string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	src, err := os.Open(in)
+	if err != nil {
+		return fmt.Errorf("media: rewrite album: %w", err)
+	}
+	defer src.Close()
+	if _, err := readM4A(src); err != nil {
+		return fmt.Errorf("media: rewrite album: %s: %w", in, err)
+	}
+	if err := rewriteAlbum(ctx, src, out, album); err != nil {
+		os.Remove(out)
+		return fmt.Errorf("media: rewrite album: %w", err)
+	}
+	return nil
+}
+
+// topBox は、ファイルの最上位の箱 1 つの位置と大きさ。
+type topBox struct {
+	typ       string
+	pos, size int64
+}
+
+// topBoxes は、f の最上位の箱の並びを読む（readM4A と同じ大きさの読み方）。
+func topBoxes(f *os.File) ([]topBox, error) {
+	st, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	end := st.Size()
+	var out []topBox
+	hdr := make([]byte, 16)
+	for pos := int64(0); pos < end; {
+		if end-pos < 8 {
+			return nil, fmt.Errorf("truncated box header at %d", pos)
+		}
+		if _, err := f.ReadAt(hdr[:8], pos); err != nil {
+			return nil, err
+		}
+		size := int64(binary.BigEndian.Uint32(hdr))
+		h := int64(8)
+		switch size {
+		case 0:
+			size = end - pos
+		case 1:
+			if _, err := f.ReadAt(hdr[8:16], pos+8); err != nil {
+				return nil, err
+			}
+			size, h = int64(binary.BigEndian.Uint64(hdr[8:16])), 16
+		}
+		if size < h || size > end-pos {
+			return nil, fmt.Errorf("bad size %d of %q box at %d", size, string(hdr[4:8]), pos)
+		}
+		out = append(out, topBox{typ: string(hdr[4:8]), pos: pos, size: size})
+		pos += size
+	}
+	return out, nil
+}
+
+// rewriteAlbum は RewriteAlbum の中身。src は readM4A で読めた m4a。
+func rewriteAlbum(ctx context.Context, src *os.File, out, album string) error {
+	tops, err := topBoxes(src)
+	if err != nil {
+		return err
+	}
+	moovIdx := -1
+	mdatBefore, mdatAfter := false, false
+	for i, b := range tops {
+		switch b.typ {
+		case "moov":
+			moovIdx = i
+		case "mdat":
+			if moovIdx < 0 {
+				mdatBefore = true
+			} else {
+				mdatAfter = true
+			}
+		}
+	}
+	if moovIdx < 0 {
+		return errors.New("no moov box")
+	}
+	if mdatBefore && mdatAfter {
+		return errors.New("mdat boxes on both sides of moov")
+	}
+	raw := make([]byte, tops[moovIdx].size)
+	if _, err := src.ReadAt(raw, tops[moovIdx].pos); err != nil {
+		return err
+	}
+	boxes, err := parseBoxes(raw)
+	if err != nil {
+		return err
+	}
+	moov := boxes[0]
+	// moov が mdat の前にあれば、moov の大きさの差だけサンプルの位置がずれる。ずれは moov の大きさで決まり、ずらしても大きさは
+	// 変わらない（チャンクの位置の表の幅を変えない）ので、ずらさずに組んだ大きさから決める。
+	trial, err := albumMoov(moov, album, 0)
+	if err != nil {
+		return err
+	}
+	var shift int64
+	if mdatAfter {
+		shift = int64(len(trial)) - int64(len(raw))
+	}
+	newMoov, err := albumMoov(moov, album, shift)
+	if err != nil {
+		return err
+	}
+	if len(newMoov) != len(trial) {
+		return errors.New("moov size changed")
+	}
+
+	f, err := os.Create(out)
+	if err != nil {
+		return err
+	}
+	w := bufio.NewWriterSize(f, 1<<20)
+	err = func() error {
+		buf := make([]byte, 1<<16)
+		for i, b := range tops {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if i == moovIdx {
+				if _, err := w.Write(newMoov); err != nil {
+					return err
+				}
+				continue
+			}
+			if _, err := io.CopyBuffer(w, io.NewSectionReader(src, b.pos, b.size), buf); err != nil {
+				return err
+			}
+		}
+		return w.Flush()
+	}()
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return err
+}
+
+// albumMoov は、moov の udta/meta/ilst の album の箱を album にし、全部のトラックのチャンクの位置を shift だけずらした moov を組む。
+func albumMoov(moov m4aBox, album string, shift int64) ([]byte, error) {
+	kids, err := childBoxes(moov)
+	if err != nil {
+		return nil, err
+	}
+	var parts [][]byte
+	sawUdta := false
+	for _, k := range kids {
+		switch k.typ {
+		case "trak":
+			b, err := shiftOffsets(k, shift)
+			if err != nil {
+				return nil, err
+			}
+			parts = append(parts, b)
+		case "udta":
+			sawUdta = true
+			b, err := albumUdta(k, album)
+			if err != nil {
+				return nil, err
+			}
+			parts = append(parts, b)
+		default:
+			parts = append(parts, k.b)
+		}
+	}
+	if !sawUdta {
+		return nil, errors.New("no udta box (no tags)")
+	}
+	return makeBox("moov", parts...), nil
+}
+
+// shiftOffsets は、trak・mdia・minf・stbl をたどって stco / co64 の位置を shift だけずらす（表の幅は変えない。stco で 32 ビットに
+// 収まらなければエラー）。shift が 0 なら x をそのまま返す。
+func shiftOffsets(x m4aBox, shift int64) ([]byte, error) {
+	if shift == 0 {
+		return x.b, nil
+	}
+	kids, err := childBoxes(x)
+	if err != nil {
+		return nil, err
+	}
+	var parts [][]byte
+	for _, k := range kids {
+		switch {
+		case x.typ == "trak" && k.typ == "mdia", x.typ == "mdia" && k.typ == "minf", x.typ == "minf" && k.typ == "stbl":
+			b, err := shiftOffsets(k, shift)
+			if err != nil {
+				return nil, err
+			}
+			parts = append(parts, b)
+		case x.typ == "stbl" && (k.typ == "stco" || k.typ == "co64"):
+			p := k.payload()
+			entry := 4
+			if k.typ == "co64" {
+				entry = 8
+			}
+			if len(p) < 8 {
+				return nil, fmt.Errorf("truncated %s box", k.typ)
+			}
+			n := binary.BigEndian.Uint32(p[4:])
+			if uint64(len(p)-8) < uint64(n)*uint64(entry) {
+				return nil, fmt.Errorf("truncated %s box", k.typ)
+			}
+			body := slices.Clone(p)
+			for i := range int(n) {
+				e := body[8+i*entry:]
+				if entry == 4 {
+					v := int64(binary.BigEndian.Uint32(e)) + shift
+					if v < 0 || v > math.MaxUint32 {
+						return nil, errors.New("chunk offset out of range of stco")
+					}
+					binary.BigEndian.PutUint32(e, uint32(v))
+				} else {
+					v := int64(binary.BigEndian.Uint64(e)) + shift
+					if v < 0 {
+						return nil, errors.New("negative chunk offset")
+					}
+					binary.BigEndian.PutUint64(e, uint64(v))
+				}
+			}
+			parts = append(parts, makeBox(k.typ, body))
+		default:
+			parts = append(parts, k.b)
+		}
+	}
+	return makeBox(x.typ, parts...), nil
+}
+
+// albumUdta は、udta の meta の ilst の album の箱を album にした udta を組む。meta・ilst が無ければエラー。
+func albumUdta(udta m4aBox, album string) ([]byte, error) {
+	kids, err := childBoxes(udta)
+	if err != nil {
+		return nil, err
+	}
+	var parts [][]byte
+	sawMeta := false
+	for _, k := range kids {
+		if k.typ != "meta" || sawMeta {
+			parts = append(parts, k.b)
+			continue
+		}
+		sawMeta = true
+		// meta は FullBox（版とフラグの 4 バイトの後に子の箱）。
+		p := k.payload()
+		if len(p) < 4 {
+			return nil, errors.New("truncated meta box")
+		}
+		items, err := parseBoxes(p[4:])
+		if err != nil {
+			return nil, fmt.Errorf("meta: %w", err)
+		}
+		metaParts := [][]byte{p[:4]}
+		sawIlst := false
+		for _, it := range items {
+			if it.typ != "ilst" || sawIlst {
+				metaParts = append(metaParts, it.b)
+				continue
+			}
+			sawIlst = true
+			b, err := albumIlst(it, album)
+			if err != nil {
+				return nil, err
+			}
+			metaParts = append(metaParts, b)
+		}
+		if !sawIlst {
+			return nil, errors.New("no ilst box (no tags)")
+		}
+		parts = append(parts, makeBox("meta", metaParts...))
+	}
+	if !sawMeta {
+		return nil, errors.New("no meta box (no tags)")
+	}
+	return makeBox("udta", parts...), nil
+}
+
+// albumIlst は、ilst の album の箱を album の値（writeIlst と同じ UTF-8 の data）に置き換えた ilst を組む。album の箱が無ければ
+// albumFollowers の最初の箱の前（どれも無ければ最後）に足す。album が空なら album の箱を除く。
+func albumIlst(ilst m4aBox, album string) ([]byte, error) {
+	items, err := childBoxes(ilst)
+	if err != nil {
+		return nil, err
+	}
+	var item []byte
+	if album != "" {
+		data := binary.BigEndian.AppendUint32(nil, dataTypeUTF8)
+		data = binary.BigEndian.AppendUint32(data, 0)
+		item = makeBox(albumBox, makeBox("data", data, []byte(album)))
+	}
+	var parts [][]byte
+	placed := false
+	for _, it := range items {
+		if it.typ == albumBox {
+			if !placed && item != nil {
+				parts = append(parts, item)
+			}
+			placed = true
+			continue
+		}
+		if !placed && slices.Contains(albumFollowers, it.typ) {
+			if item != nil {
+				parts = append(parts, item)
+			}
+			placed = true
+		}
+		parts = append(parts, it.b)
+	}
+	if !placed && item != nil {
+		parts = append(parts, item)
+	}
+	return makeBox("ilst", parts...), nil
+}

@@ -87,6 +87,10 @@ export interface JobSummary {
   chaptersRedoable?: boolean;
   /** チャプターの入れ直しを頼んで、rajikura serve の録音のループがまだ書き込んでいない間だけ true。 */
   chaptersRedoRequested?: boolean;
+  /** いま「保存先を移す」を受け付けるか（保存先があり、録音中でないジョブ。ADR 0039）。この版より前の serve では無い。 */
+  movable?: boolean;
+  /** 保存先の移しを頼んで（番組の名前の変更か、人の頼み）、rajikura serve の録音のループがまだ移していない間だけ true。 */
+  moveRequested?: boolean;
   /** チャプターが入ったか。取りに行っていないジョブ（ライブ録音、設定がオフ、まだ保存していないなど）では無い。一覧にも付く。 */
   chapters?: JobChapters;
   outputPath: string;
@@ -159,11 +163,40 @@ export function chapterWriteResultText(w: JobChapterWrite): string {
   }
 }
 
+/**
+ * 保存先の移しの結果（moved: 移した、target_exists: 移し先に同じ名前のファイルがあるので移さなかった、no_file: 保存先にファイルが
+ * 無いので移さなかった、not_show_path: 保存先が番組の名前の形でないので移さなかった、failed: 移せなかった。ADR 0039）。
+ */
+export type OutputMoveResult = "moved" | "target_exists" | "no_file" | "not_show_path" | "failed";
+
+/** 保存先の移しの履歴の 1 行（移しのたびに 1 行。試行の履歴・チャプターの書き込みの履歴とは別。ADR 0039）。 */
+export interface JobOutputMove {
+  at: string;
+  /** 移す前の保存先。 */
+  from: string;
+  /** 移し先（保存先が番組の名前の形でなく、移し先を組めなかったときは空）。 */
+  to: string;
+  result: OutputMoveResult;
+  /** 移せなかった理由（failed のときだけ）。 */
+  error: string;
+}
+
+/** 保存先の移しの結果の文（rajikura jobs <ID> の outputMoveResultText と同じ文）。 */
+export const outputMoveResultLabels: Record<OutputMoveResult, string> = {
+  moved: "移した",
+  target_exists: "移し先に同じ名前のファイルがあるので移さなかった",
+  no_file: "保存先にファイルが無いので移さなかった",
+  not_show_path: "保存先が番組の名前の形でないので移さなかった",
+  failed: "移せなかった（ファイルは前のまま）",
+};
+
 export interface JobDetail extends JobSummary {
   airings: JobAiring[];
   attemptLog: JobAttempt[];
   /** チャプターの書き込みの履歴（書き込んだ順）。API は常に配列で返す（この版より前の serve では無い）。 */
   chapterWrites?: JobChapterWrite[];
+  /** 保存先の移しの履歴（移した順）。API は常に配列で返す（この版より前の serve では無い）。 */
+  outputMoves?: JobOutputMove[];
   durationSeconds: number;
 }
 
@@ -176,8 +209,13 @@ export class JobsApiError extends Error {
   }
 }
 
-async function call<T>(method: string, url: string): Promise<T> {
-  const res = await fetch(url, { method, credentials: "same-origin" });
+async function call<T>(method: string, url: string, body?: unknown): Promise<T> {
+  const init: RequestInit = { method, credentials: "same-origin" };
+  if (body !== undefined) {
+    init.headers = { "Content-Type": "application/json" };
+    init.body = JSON.stringify(body);
+  }
+  const res = await fetch(url, init);
   if (!res.ok) {
     let msg = `${url} が ${res.status} を返した`;
     try {
@@ -212,6 +250,12 @@ export const rerecordJob = (id: number) => call<JobSummary>("POST", `/api/jobs/$
  * 受け付けたところで返り、書き込みは rajikura serve の録音のループが後で行う（結果はチャプターの値と書き込みの履歴に出る）。
  */
 export const redoJobChapters = (id: number) => call<JobSummary>("POST", `/api/jobs/${id}/chapters`);
+/**
+ * 「保存先を移す」。保存したファイルを、今の番組（show を渡せば、その番組に付け替えて）の名前のフォルダ・ファイル名へ移させる
+ * （ADR 0039）。受け付けたところで返り、移すのは rajikura serve の録音のループが後で行う（結果は保存先と移しの履歴に出る）。
+ */
+export const moveJob = (id: number, show?: string) =>
+  call<JobSummary>("POST", `/api/jobs/${id}/move`, show ? { show } : undefined);
 
 /** 録音のファイルを返す URL（`<audio src>` に渡す。同じオリジンなので cookie が付く）。 */
 export const jobAudioUrl = (id: number) => `/api/jobs/${id}/audio`;
