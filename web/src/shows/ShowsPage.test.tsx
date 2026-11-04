@@ -631,7 +631,7 @@ describe("ShowsPage", () => {
     await waitFor(() => expect(screen.getByLabelText(/番組の名前/)).toHaveValue("オードリーのオールナイトニッポン"));
   });
 
-  it("名前を変えると、録音済みでないジョブが付け替わることと、保存済みのファイルが古いフォルダに残ることを知らせ、古い名前に PUT する", async () => {
+  it("名前を変えると、録音済みを含む全部のジョブが付け替わることと、保存済みのファイルも新しい名前のフォルダへ移すことを知らせ、古い名前に PUT する", async () => {
     const calls = mockApi({
       "GET /api/shows": () => ({ status: 200, body: [{ ...flat, unmatched_days: [unmatched] }] }),
       "GET /api/stations": () => ({ status: 200, body: stations }),
@@ -642,11 +642,12 @@ describe("ShowsPage", () => {
     renderPage();
     await user.click(await screen.findByRole("button", { name: `${flat.name} を編集` }));
     const name = await screen.findByLabelText(/番組の名前/);
-    expect(screen.queryByText(/古い名前のフォルダに残る/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/新しい名前のフォルダ・ファイル名へ移し/)).not.toBeInTheDocument();
     await user.clear(name);
     await user.type(name, "ふらっと（新）");
-    expect(screen.getByText(/古い名前のフォルダに残る/)).toBeInTheDocument();
-    expect(screen.getByText(/録音済みでないジョブ.*新しい名前に付け替わって残る/)).toBeInTheDocument();
+    expect(screen.getByText(/保存済みのファイルも、rajikura が新しい名前のフォルダ・ファイル名へ移し/)).toBeInTheDocument();
+    expect(screen.getByText(/録音済みを含む全部のジョブが、新しい名前に付け替わって残る/)).toBeInTheDocument();
+    expect(screen.queryByText(/古い名前のフォルダに残る/)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "保存" }));
     await waitFor(() => expect(calls.some((c) => c.key.startsWith("PUT"))).toBe(true));
     const sent = calls.find((c) => c.key.startsWith("PUT"))?.body as Show;
