@@ -2,12 +2,13 @@
 //
 //	rajikura [-data <フォルダ>] [-listen <アドレス>] [-allowed-hosts <名前,...>] serve [-reset-password] 常駐して番組表の同期と録音を回す。DB を開くのは serve だけ
 //	rajikura [-url <URL>] [-token <トークン>] jobs [-state <状態>]   ジョブを一覧する
-//	rajikura [-url <URL>] [-token <トークン>] jobs <ID>              ジョブ 1 件の詳細（放送回・試行の履歴・チャプターの書き込みの履歴）を出す
+//	rajikura [-url <URL>] [-token <トークン>] jobs <ID>              ジョブ 1 件の詳細（放送回・試行の履歴・チャプターの書き込みの履歴・保存先の移しの履歴）を出す
 //	rajikura [-url <URL>] [-token <トークン>] retry <ID>...          retrying / expired / skipped（録らなかった）のジョブの次の試行をすぐに行わせる
 //	rajikura [-url <URL>] [-token <トークン>] skip <ID>...           試行がまだ無い waiting のジョブを録らないにする
 //	rajikura [-url <URL>] [-token <トークン>] record <ID>...         skipped のジョブを録るに戻す
 //	rajikura [-url <URL>] [-token <トークン>] rerecord <ID>...       録音済み（done）のタイムフリーのジョブを録り直す（録音期限の内側）
 //	rajikura [-url <URL>] [-token <トークン>] chapters <ID>... | -all  録音済みのタイムフリーのジョブの保存したファイルにチャプターを入れ直す
+//	rajikura [-url <URL>] [-token <トークン>] move [-show <番組>] <ID>...  ジョブの保存したファイルを今の番組の名前のフォルダ・ファイル名へ移す（保存先の移し）
 //	rajikura [-url <URL>] [-token <トークン>] backup [-o <file>]     serve から DB のバックアップを受け取り、ファイルに書く
 //	rajikura service install [-listen <アドレス>]   Windows のサービスとトレイを入れる・更新する（Windows だけ。管理者で動かす）
 //	rajikura service uninstall                     Windows のサービスとトレイを消す（データのフォルダと tray.toml は残す）
@@ -27,7 +28,7 @@
 // setup-code.txt とログに出す）を入れて決める（docs/adr/0016-first-password-by-setup-code.md）。忘れたときは
 // serve -reset-password で、パスワード・ログインのセッション・API トークンを消して、セットアップコードからやり直す。
 //
-// jobs・retry・skip・record・rerecord・chapters・backup は serve の HTTP API を呼ぶ（internal/client。docs/adr/0009-cli-over-http.md）。
+// jobs・retry・skip・record・rerecord・chapters・move・backup は serve の HTTP API を呼ぶ（internal/client。docs/adr/0009-cli-over-http.md）。
 // 接続先と API トークンは、フラグ → 環境変数（RAJIKURA_URL・RAJIKURA_TOKEN）→ 設定ファイル（os.UserConfigDir の下の
 // rajikura/client.toml）の順に読む。書き方は docs/cli.md にある。
 //
@@ -117,8 +118,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs.Usage = func() { usage(stderr) }
 	boot := addBootFlags(fs)
 	// 足したら直す: CLI のサブコマンド
-	urlFlag := fs.String("url", "", "jobs・retry・skip・record・rerecord・chapters・backup がつなぐ serve の URL")
-	tokenFlag := fs.String("token", "", "jobs・retry・skip・record・rerecord・chapters・backup が使う API トークン")
+	urlFlag := fs.String("url", "", "jobs・retry・skip・record・rerecord・chapters・move・backup がつなぐ serve の URL")
+	tokenFlag := fs.String("token", "", "jobs・retry・skip・record・rerecord・chapters・move・backup が使う API トークン")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return 0
@@ -149,7 +150,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	case "serve":
 		// 足したら直す: CLI のサブコマンド
 		if set["url"] || set["token"] {
-			fmt.Fprintln(stderr, "rajikura serve: -url と -token は jobs・retry・skip・record・rerecord・chapters・backup のもの（serve は使わない）")
+			fmt.Fprintln(stderr, "rajikura serve: -url と -token は jobs・retry・skip・record・rerecord・chapters・move・backup のもの（serve は使わない）")
 			return 2
 		}
 		return runServe(ctx, boot, set, rest, stdout, stderr)
@@ -184,6 +185,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		csub = rerecordJobs
 	case "chapters":
 		csub = chaptersJobs
+	case "move":
+		csub = moveJobs
 	case "backup":
 		csub = backupCommand
 	default:
@@ -316,7 +319,7 @@ func parseFlags(fs *flag.FlagSet, args []string, stderr io.Writer) error {
 // 足したら直す: データのフォルダ
 func usage(w io.Writer) {
 	fmt.Fprintln(w, "使い方: rajikura [-data <フォルダ>] [-listen <アドレス>] [-allowed-hosts <名前,...>] serve [-reset-password]")
-	fmt.Fprintln(w, "        rajikura [-url <URL>] [-token <トークン>] <jobs | retry | skip | record | rerecord | chapters | backup> ...")
+	fmt.Fprintln(w, "        rajikura [-url <URL>] [-token <トークン>] <jobs | retry | skip | record | rerecord | chapters | move | backup> ...")
 	fmt.Fprintln(w, "        rajikura service <install [-listen <アドレス>] | uninstall>")
 	fmt.Fprintln(w, "        rajikura tray <install -url <URL> [-token <トークン>] | uninstall>")
 	fmt.Fprintln(w, "        rajikura version")
@@ -326,13 +329,14 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  serve                 常駐して番組表の同期と録音を回す（DB を開くのは serve だけ）")
 	fmt.Fprintln(w, "                        -reset-password: Web UI のパスワード・ログインのセッション・API トークンを消して、セットアップコードからやり直す")
 	fmt.Fprintln(w, "  jobs [-state 状態]    ジョブを一覧する（状態はカンマ区切りで複数指定できる）")
-	fmt.Fprintln(w, "  jobs ID               ジョブ 1 件の詳細（放送回・試行の履歴・チャプターの書き込みの履歴を含む）を出す")
+	fmt.Fprintln(w, "  jobs ID               ジョブ 1 件の詳細（放送回・試行の履歴・チャプターの書き込みの履歴・保存先の移しの履歴を含む）を出す")
 	fmt.Fprintln(w, "  retry ID...           retrying / expired / skipped（録らなかった）のジョブの次の試行をすぐに行わせる（serve がすぐ拾う）")
 	fmt.Fprintln(w, "  skip ID...            試行がまだ無い waiting のジョブを録らないにする（放送の前なら録らない予定、後なら録らなかった）")
 	fmt.Fprintln(w, "  record ID...          skipped のジョブを録るに戻す（録らない予定は録音予定に、録らなかったは手動再試行と同じく retrying に）")
 	fmt.Fprintln(w, "  rerecord ID...        done のタイムフリーのジョブを録り直す（録音期限の内側だけ。前の保存先と同じ名前なら上書きする）")
 	fmt.Fprintln(w, "  chapters ID...        done のタイムフリーのジョブの保存したファイルにチャプターを入れ直す（音声は取り直さない。入ったジョブも置き換える）")
 	fmt.Fprintln(w, "  chapters -all         チャプターの入っていない（値なし・入らなかった）done のタイムフリーのジョブの全部に入れ直す")
+	fmt.Fprintln(w, "  move [-show 番組] ID... 保存したファイルを今の番組（-show なら、その番組に付け替えて）の名前のフォルダ・ファイル名へ移す（音声は取り直さない）")
 	fmt.Fprintln(w, "  backup [-o FILE]      DB のバックアップを受け取ってファイルに書く（既定は今のフォルダの rajikura-<日時>.db。秘密の鍵は含まない）")
 	fmt.Fprintln(w, "  service install       Windows のサービスとトレイを入れる・更新する（Windows だけ。管理者で動かす。-listen の既定は 127.0.0.1:8080）")
 	fmt.Fprintln(w, "  service uninstall     Windows のサービスとトレイを消す（データのフォルダと tray.toml は残す）")
@@ -346,6 +350,6 @@ func usage(w io.Writer) {
 	fmt.Fprintf(w, "-listen は serve が待ち受けるアドレス。既定は %s。\n", config.DefaultListen)
 	fmt.Fprintln(w, "-allowed-hosts は、Web UI・API を名前で開くときの名前（カンマ区切り）。IP のアドレスと localhost は書かなくても開ける。")
 	fmt.Fprintln(w, "設定（保存先・通知先など）は Web UI で変える。")
-	fmt.Fprintf(w, "jobs・retry・skip・record・rerecord・chapters・backup は serve の HTTP API を呼ぶ。接続先と API トークンは、-url・-token → 環境変数 %s・%s →\n", client.EnvURL, client.EnvToken)
+	fmt.Fprintf(w, "jobs・retry・skip・record・rerecord・chapters・move・backup は serve の HTTP API を呼ぶ。接続先と API トークンは、-url・-token → 環境変数 %s・%s →\n", client.EnvURL, client.EnvToken)
 	fmt.Fprintln(w, "設定ファイル（Windows は %AppData%\\rajikura\\client.toml、Linux は ~/.config/rajikura/client.toml。キーは url と token）の順に読む。")
 }

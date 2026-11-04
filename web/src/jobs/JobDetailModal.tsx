@@ -1,6 +1,7 @@
-import { Alert, Button, Divider, Group, Loader, Modal, Progress, Stack, Text } from "@mantine/core";
+import { Alert, Button, Divider, Group, Loader, Modal, Progress, Select, Stack, Text } from "@mantine/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { broadcastRange } from "../guide/format";
+import { listShows } from "../shows/api";
 import { notifySuccess } from "../ui/toast";
 import { formatDateTime, formatDuration, progressPercent, progressText, stageLabel } from "./format";
 import {
@@ -10,6 +11,8 @@ import {
   getJob,
   jobAudioError,
   jobAudioUrl,
+  moveJob,
+  outputMoveResultLabels,
   recordJob,
   redoJobChapters,
   rerecordJob,
@@ -102,7 +105,7 @@ interface Props {
   /** 開くジョブの ID。null なら閉じる。 */
   id: number | null;
   onClose: () => void;
-  /** 再試行・録らない・録る・録り直す・チャプターを入れ直すをしたとき、一覧を読み直すために呼ぶ。 */
+  /** 再試行・録らない・録る・録り直す・チャプターを入れ直す・保存先を移すをしたとき、一覧を読み直すために呼ぶ。 */
   onChanged: () => void;
 }
 
@@ -110,6 +113,9 @@ export function JobDetailModal({ id, onClose, onChanged }: Props) {
   const [job, setJob] = useState<JobDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // 「保存先を移す」の移し先に選べる番組の名前（今ある番組。保存先を移せるジョブを開いたときに 1 度だけ読む）と、選んだ番組。
+  const [showNames, setShowNames] = useState<string[] | null>(null);
+  const [moveTo, setMoveTo] = useState<string | null>(null);
 
   const load = useCallback(async (jobId: number) => {
     try {
@@ -123,8 +129,18 @@ export function JobDetailModal({ id, onClose, onChanged }: Props) {
   useEffect(() => {
     setJob(null);
     setError(null);
+    setMoveTo(null);
     if (id !== null) void load(id);
   }, [id, load]);
+
+  const movable = job?.movable ?? false;
+  useEffect(() => {
+    if (!movable || showNames !== null) return;
+    // 読めなければ、移し先はジョブの今の番組だけにする。
+    listShows()
+      .then((shows) => setShowNames(shows.map((s) => s.name)))
+      .catch(() => setShowNames([]));
+  }, [movable, showNames]);
 
   // 開いている間は詳細も読み直す。操作の最中は読み直さず、読み直しの失敗は表示もエラーも変えない
   // （操作の失敗の Alert を上書きしないため）。
@@ -204,7 +220,7 @@ export function JobDetailModal({ id, onClose, onChanged }: Props) {
                 録れた分を {formatDateTime(job.keepUntil)} まで残している。保存先などの原因を直してから「手動で再試行」を押すと、保存からやり直す。
               </Text>
             )}
-            {(job.retryable || job.skippable || job.recordable || job.rerecordable || job.chaptersRedoable) && (
+            {(job.retryable || job.skippable || job.recordable || job.rerecordable || job.chaptersRedoable || job.movable) && (
               <Group>
                 {job.retryable && (
                   <Button disabled={busy} onClick={() => act(retryJob, "再試行を依頼した")}>
@@ -243,6 +259,31 @@ export function JobDetailModal({ id, onClose, onChanged }: Props) {
                     チャプターを入れ直す
                   </Button>
                 )}
+                {job.movable && (
+                  <Group align="flex-end" gap="xs">
+                    <Select
+                      label="移し先の番組"
+                      size="sm"
+                      data={[...new Set([job.showName, ...(showNames ?? [])])]}
+                      value={moveTo ?? job.showName}
+                      onChange={(v) => setMoveTo(v)}
+                      allowDeselect={false}
+                      searchable
+                    />
+                    <Button
+                      variant="default"
+                      disabled={busy}
+                      onClick={() => {
+                        // 今の番組なら番組を渡さない（ほかの番組なら、ジョブをその番組に付け替えてから移す。ADR 0039）。
+                        const show = moveTo && moveTo !== job.showName ? moveTo : undefined;
+                        void act((jobId) => moveJob(jobId, show), "保存先の移しを頼んだ（結果は保存先の移しの履歴に出る）");
+                        setMoveTo(null);
+                      }}
+                    >
+                      保存先を移す
+                    </Button>
+                  </Group>
+                )}
               </Group>
             )}
 
@@ -254,6 +295,7 @@ export function JobDetailModal({ id, onClose, onChanged }: Props) {
             <Text size="sm">長さ: {job.durationSeconds > 0 ? formatDuration(job.durationSeconds) : "記録なし"}</Text>
             {job.chapters && <Text size="sm">チャプター: {chaptersLabels[job.chapters]}</Text>}
             {job.chaptersRedoRequested && <Text size="sm">チャプターの入れ直しを待っている。</Text>}
+            {job.moveRequested && <Text size="sm">保存先の移しを待っている。</Text>}
 
             <Divider label="放送回" />
             {job.airings.map((a) => (
@@ -298,6 +340,28 @@ export function JobDetailModal({ id, onClose, onChanged }: Props) {
                     {w.error && (
                       <Text size="xs" c="red" style={{ overflowWrap: "anywhere" }}>
                         {w.error}
+                      </Text>
+                    )}
+                  </Stack>
+                ))}
+              </>
+            )}
+
+            {(job.outputMoves ?? []).length > 0 && (
+              <>
+                <Divider label="保存先の移しの履歴" />
+                {(job.outputMoves ?? []).map((m, i) => (
+                  <Stack key={`${m.at}:${i}`} gap={0} data-testid="output-move">
+                    <Text size="sm">
+                      {formatDateTime(m.at)} ・ {outputMoveResultLabels[m.result] ?? m.result}
+                    </Text>
+                    <Text size="xs" c="dimmed" style={{ overflowWrap: "anywhere" }}>
+                      {m.from}
+                      {m.to && ` → ${m.to}`}
+                    </Text>
+                    {m.error && (
+                      <Text size="xs" c="red" style={{ overflowWrap: "anywhere" }}>
+                        {m.error}
                       </Text>
                     )}
                   </Stack>

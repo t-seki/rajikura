@@ -3,8 +3,9 @@
 // 命名とタグは [Preset] が決める。今あるのは Jellyfin プリセットだけ（ADR 0002。title は、放送回の番組名が
 // 番組の名前と違えば足す。ADR 0007）。置き方は [Store]
 // （partial に書いてから確定、衝突時は別名）と、録り直しで前の保存先を上書きする [StoreOver]（ADR 0025）と、保存したファイルを
-// partial に書き直してから置き換える [Rewrite]（チャプターの書き込み。ADR 0033）と [CleanPartials]（起動時の残骸の掃除）。番組のフォルダの画像 folder.jpg は [StoreFolderImage]
-// が置く（保存のたびに上書き）。
+// partial に書き直してから置き換える [Rewrite]（チャプターの書き込み。ADR 0033）と、保存したファイルを今の番組の名前のフォルダ・ファイル名へ
+// 移す [Move]（保存先の移し。移し先は [MovedPath]、移した後の古いフォルダの片付けは [TidyOldFolder]。ADR 0039）と [CleanPartials]（起動時の
+// 残骸の掃除）。番組のフォルダの画像 folder.jpg は [StoreFolderImage] が置く（保存のたびに上書き）。
 package library
 
 import (
@@ -13,6 +14,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -330,6 +332,141 @@ func Rewrite(path string, write func(partial string) error) error {
 		return fmt.Errorf("library: %w", err)
 	}
 	return nil
+}
+
+// showPathRest は、保存先のファイル名のうち、先頭の番組の名前より後ろの部分（[Jellyfin.Layout] の ` YYYY-MM-DD`、パートの `-N`、
+// 別名の ` HHmm`、拡張子）の形。
+var showPathRest = regexp.MustCompile(`^ [0-9]{4}-[0-9]{2}-[0-9]{2}(-[0-9]+)?( [0-9]{4})?\.m4a$`)
+
+// MovedPath は、保存先の移し（ADR 0039）の移し先を組む。保存先 path（{局}/{番組}/{番組} YYYY-MM-DD….m4a。[Jellyfin.Layout] と
+// [StoreOver] の別名の形）のうち、番組のフォルダ名と、ファイル名の先頭の番組の名前だけを、show を [PathName] で整えたものに置き換える。
+// 局のフォルダ・放送日・パートの番号・別名の ` HHmm` はそのまま。path がこの形でなければ（ファイル名がフォルダ名と同じ番組の名前で
+// 始まらない、後ろが放送日の形でない）false を返す。
+func MovedPath(path, show string) (string, bool) {
+	dir := filepath.Dir(path)
+	folder, file := filepath.Base(dir), filepath.Base(path)
+	if folder == "" || folder == "." || folder == string(filepath.Separator) || !strings.HasPrefix(file, folder+" ") {
+		return "", false
+	}
+	rest := file[len(folder):]
+	if !showPathRest.MatchString(rest) {
+		return "", false
+	}
+	name := PathName(show)
+	return filepath.Join(filepath.Dir(dir), name, name+rest), true
+}
+
+// ErrTargetExists は、保存先の移しの移し先に、もうファイル（などの何か）があること（[Move]）。errors.Is で見分ける。
+var ErrTargetExists = errors.New("library: 移し先に同じ名前のファイルがある")
+
+// movePartialPrefix は [Move] の partial の名前の頭（[Rewrite] と同じく、保存したファイルの名前を使わない）。
+const movePartialPrefix = "rajikura-move."
+
+// Move は、保存したファイル from を to へ移す（保存先の移し。ADR 0039）。write には to と同じフォルダ（無ければ作る）の partial
+// （*.partial.m4a。起動時に [CleanPartials] が消す）のパスを渡すので、from から書き換えたもの（アルバムの名前を変えたもの）をそこへ
+// 書かせる（書いた中身の確かめも write の中で行う）。write が成功したら、partial を from と同じ許可にして to にリネームし、from を消す。
+//
+//   - from が無い（通常のファイルでない）なら、何もせずに ErrNoFile を包んだエラーを返す。
+//   - to にもう何かがあれば、何もせずに ErrTargetExists を包んだエラーを返す（どちらのファイルも消さず、上書きもしない）。リネームの
+//     直前にも確かめ直す。
+//   - write が失敗したら、partial を消し、from をそのまま残す（to のフォルダを作ったのが Move なら、空のときだけ消す）。
+//   - from を消せなければ、置いた to を消して from を残し、エラーを返す。
+//
+// 古いフォルダの片付けは [TidyOldFolder]。同じパスへの Move と [StoreOver]・[Rewrite] の呼び出しは直列であること（呼び出し側が保証する。
+// 保存先のファイルを書くのは録音のループだけ）。
+func Move(from, to string, write func(partial string) error) error {
+	st, err := os.Stat(from)
+	if errors.Is(err, fs.ErrNotExist) || err == nil && !st.Mode().IsRegular() {
+		return fmt.Errorf("%w: %s", ErrNoFile, from)
+	}
+	if err != nil {
+		return fmt.Errorf("library: %w", err)
+	}
+	if free, err := notExists(to); err != nil {
+		return err
+	} else if !free {
+		return fmt.Errorf("%w: %s", ErrTargetExists, to)
+	}
+	dir := filepath.Dir(to)
+	made, err := notExists(dir)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("library: %w", err)
+	}
+	fail := func(partial string, err error) error {
+		if partial != "" {
+			os.Remove(partial)
+		}
+		if made {
+			os.Remove(dir) // 空でなければ消えない
+		}
+		return err
+	}
+	f, err := os.CreateTemp(dir, movePartialPrefix+"*"+partialExt)
+	if err != nil {
+		return fail("", fmt.Errorf("library: %w", err))
+	}
+	partial := f.Name()
+	if err := f.Close(); err != nil {
+		return fail(partial, fmt.Errorf("library: %w", err))
+	}
+	if err := write(partial); err != nil {
+		return fail(partial, err)
+	}
+	if err := os.Chmod(partial, st.Mode().Perm()); err != nil {
+		return fail(partial, fmt.Errorf("library: %w", err))
+	}
+	if free, err := notExists(to); err != nil {
+		return fail(partial, err)
+	} else if !free {
+		return fail(partial, fmt.Errorf("%w: %s", ErrTargetExists, to))
+	}
+	if err := os.Rename(partial, to); err != nil {
+		return fail(partial, fmt.Errorf("library: %w", err))
+	}
+	if err := os.Remove(from); err != nil {
+		os.Remove(to)
+		return fail("", fmt.Errorf("library: 移す前のファイルを消せないので、移したファイルを消して元のファイルを残した: %w", err))
+	}
+	return nil
+}
+
+// TidyOldFolder は、保存先の移し（[Move]）で古いフォルダ old に残ったのが [FolderImage] だけか、何も残っていなければ、old を片付けて
+// true を返す（ADR 0039）。folder.jpg は新しいフォルダ newDir へ移す（newDir にもう folder.jpg があれば、old の方を消す）。空になった
+// old を消す。ほかのファイル・フォルダが残っていれば、old には触らずに false を返す。
+func TidyOldFolder(old, newDir string) (bool, error) {
+	if filepath.Clean(old) == filepath.Clean(newDir) {
+		return false, nil
+	}
+	entries, err := os.ReadDir(old)
+	if err != nil {
+		return false, fmt.Errorf("library: %w", err)
+	}
+	switch {
+	case len(entries) == 0:
+	case len(entries) == 1 && entries[0].Name() == FolderImage && entries[0].Type().IsRegular():
+		img := filepath.Join(old, FolderImage)
+		free, err := notExists(filepath.Join(newDir, FolderImage))
+		if err != nil {
+			return false, err
+		}
+		if free {
+			err = os.Rename(img, filepath.Join(newDir, FolderImage))
+		} else {
+			err = os.Remove(img)
+		}
+		if err != nil {
+			return false, fmt.Errorf("library: %w", err)
+		}
+	default:
+		return false, nil
+	}
+	if err := os.Remove(old); err != nil {
+		return false, fmt.Errorf("library: %w", err)
+	}
+	return true, nil
 }
 
 // pickName は最終ファイル名を選ぶ。l の名前、" HHmm" を付けた別名の順に、空いているか prev と同じパスのものを選ぶ。

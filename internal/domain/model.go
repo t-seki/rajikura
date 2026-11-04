@@ -314,6 +314,9 @@ type Job struct {
 	// ChapterRedoAt は、人がチャプターの入れ直し（用語集。ADR 0033）を頼んだ時刻。頼みが無ければゼロ。録音のループが拾って
 	// 書き込んだら（取れずに書かなかった・書けなかったときも）消す。受け付けるかは CheckChapterRedo。
 	ChapterRedoAt time.Time
+	// MoveRequestedAt は、保存先の移し（用語集。ADR 0039）を頼んだ時刻（番組の名前の変更か、人の頼み）。頼みが無ければゼロ。
+	// 録音のループが拾って移したら（移さなかった・移せなかったときも）消す。人が頼めるかは CheckOutputMove。
+	MoveRequestedAt time.Time
 }
 
 // SavedAirings は、保存したファイルに入っている放送回（Airings から欠落した放送回 Missing を除いたもの。開始時刻の順で、

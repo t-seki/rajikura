@@ -88,6 +88,105 @@ describe("JobDetailModal のチャプターの書き込みの履歴", () => {
   });
 });
 
+describe("JobDetailModal の「保存先を移す」", () => {
+  const movable: JobDetail = { ...job, showName: "古い名前", outputPath: "/lib/TBS/古い名前/古い名前 2026-10-11.m4a", movable: true };
+
+  function mockMove(requests: { key: string; body: string | null }[], answer?: Response) {
+    let requested = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const key = `${init?.method ?? "GET"} ${url}`;
+        if (key === "GET /api/jobs/1") return new Response(JSON.stringify({ ...movable, moveRequested: requested }), { status: 200 });
+        if (key === "GET /api/shows") {
+          return new Response(JSON.stringify([{ name: "今の番組" }, { name: "別の番組" }]), { status: 200 });
+        }
+        if (key === "POST /api/jobs/1/move") {
+          requests.push({ key, body: typeof init?.body === "string" ? init.body : null });
+          if (answer) return answer;
+          requested = true;
+          return new Response(JSON.stringify({ ...movable, moveRequested: true }), { status: 200 });
+        }
+        throw new Error(`想定外の呼び出し: ${key}`);
+      }),
+    );
+  }
+
+  it("受け付けるジョブでは、押すと POST /api/jobs/{id}/move で今の番組への移しを頼み、読み直した詳細に待っていることを出す", async () => {
+    const requests: { key: string; body: string | null }[] = [];
+    mockMove(requests);
+    const onChanged = vi.fn();
+    render(
+      <MantineProvider>
+        <JobDetailModal id={1} onClose={() => {}} onChanged={onChanged} />
+      </MantineProvider>,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "保存先を移す" }));
+    expect(await screen.findByText("保存先の移しを待っている。")).toBeInTheDocument();
+    // 今の番組のままなら、番組を渡さない。
+    expect(requests).toEqual([{ key: "POST /api/jobs/1/move", body: null }]);
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it("移し先にほかの番組を選ぶと、その番組を body の show で渡す", async () => {
+    const requests: { key: string; body: string | null }[] = [];
+    mockMove(requests);
+    renderModal();
+    const select = await screen.findByRole("combobox", { name: "移し先の番組" });
+    expect(select).toHaveValue("古い名前");
+    await userEvent.click(select);
+    await userEvent.click(await screen.findByRole("option", { name: "今の番組", hidden: true }));
+    await userEvent.click(screen.getByRole("button", { name: "保存先を移す" }));
+    await screen.findByText("保存先の移しを待っている。");
+    expect(requests).toEqual([{ key: "POST /api/jobs/1/move", body: JSON.stringify({ show: "今の番組" }) }]);
+  });
+
+  it("受け付けないジョブ（保存先が無い・録音中・古い serve）では出さず、API が断ったら理由を出す", async () => {
+    for (const body of [job, { ...movable, state: "running" as const, movable: false }]) {
+      mockJob(body);
+      const { unmount } = renderModal();
+      await screen.findAllByTestId("attempt");
+      expect(screen.queryByRole("button", { name: "保存先を移す" })).toBeNull();
+      unmount();
+    }
+    mockMove([], new Response(JSON.stringify({ error: "録音中のジョブは、保存先を移せない（録音が終わってから頼む）" }), { status: 409 }));
+    renderModal();
+    await userEvent.click(await screen.findByRole("button", { name: "保存先を移す" }));
+    expect(await screen.findByText("録音中のジョブは、保存先を移せない（録音が終わってから頼む）")).toBeInTheDocument();
+  });
+
+  it("保存先の移しの履歴を、時刻・結果・移す前と移し先・理由で、ほかの履歴とは別の欄に出す。無ければ欄を出さない", async () => {
+    mockJob({
+      ...job,
+      outputMoves: [
+        { at: "2026-10-11T02:40:00Z", from: "/lib/a/a 2026-10-11.m4a", to: "/lib/b/b 2026-10-11.m4a", result: "target_exists", error: "" },
+        { at: "2026-10-11T03:10:00Z", from: "/lib/a.m4a", to: "", result: "not_show_path", error: "" },
+        { at: "2026-10-11T03:40:00Z", from: "/lib/a/a 2026-10-11.m4a", to: "/lib/b/b 2026-10-11.m4a", result: "failed", error: "書けない" },
+        { at: "2026-10-11T04:10:00Z", from: "/lib/a/a 2026-10-11.m4a", to: "/lib/b/b 2026-10-11.m4a", result: "moved", error: "" },
+      ],
+    });
+    const { unmount } = renderModal();
+    const rows = await screen.findAllByTestId("output-move");
+    expect(screen.getByText("保存先の移しの履歴")).toBeInTheDocument();
+    expect(rows).toHaveLength(4);
+    expect(within(rows[0]).getByText("10/11 11:40 ・ 移し先に同じ名前のファイルがあるので移さなかった")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("/lib/a/a 2026-10-11.m4a → /lib/b/b 2026-10-11.m4a")).toBeInTheDocument();
+    expect(within(rows[1]).getByText("10/11 12:10 ・ 保存先が番組の名前の形でないので移さなかった")).toBeInTheDocument();
+    expect(within(rows[1]).getByText("/lib/a.m4a")).toBeInTheDocument();
+    expect(within(rows[2]).getByText("書けない")).toBeInTheDocument();
+    expect(within(rows[3]).getByText("10/11 13:10 ・ 移した")).toBeInTheDocument();
+    expect(screen.getAllByTestId("attempt")).toHaveLength(1);
+    unmount();
+    for (const body of [{ ...job, outputMoves: [] }, job]) {
+      mockJob(body);
+      const r = renderModal();
+      await screen.findAllByTestId("attempt");
+      expect(screen.queryByText("保存先の移しの履歴")).toBeNull();
+      r.unmount();
+    }
+  });
+});
+
 describe("JobDetailModal の「チャプターを入れ直す」", () => {
   it("受け付けるジョブでは、押すと POST /api/jobs/{id}/chapters で頼み、読み直した詳細に待っていることを出す", async () => {
     let requested = false;

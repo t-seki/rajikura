@@ -1,11 +1,12 @@
 // Package media は、入手した ADTS（AAC）を再エンコードせずに m4a へ格納し（タグ・カバー画像・チャプターも書く）、長さを測る。
 // 保存した m4a のチャプターだけを書き直し（WriteChapters）、書き直したファイルの音声のサンプルが元と同じかを確かめる（SameAudio。
-// ADR 0033）。ADTS の入力ごとの長さ（InputLengths。連結したファイルのパートの長さ）も出す。
+// ADR 0033）。保存した m4a のアルバムの名前（album のタグ）だけを書き直す（RewriteAlbum。保存先の移し。ADR 0039）。
+// ADTS の入力ごとの長さ（InputLengths。連結したファイルのパートの長さ）も出す。
 // 作り方は 2 つあり、設定 muxer で選ぶ（ADR 0013）。どちらも同じ形の箱を書く（チャプターの形は chapter.go。ADR 0027）。
 //
 //   - [Tools]: ffmpeg / ffprobe を子プロセスとして呼ぶ（ADR 0001: ffmpeg にネットワークを触らせない。
 //     ffmpeg に渡すのは手元のファイルだけで、入手した ADTS から m4a を作るのと、保存した m4a のチャプターを書き直す
-//     （WriteChapters）のに使う。ffprobe は長さを測るのに使う。SameAudio と InputLengths は ffmpeg を使わず Go で読む）。このファイル
+//     （WriteChapters）のと、アルバムの名前を書き直す（RewriteAlbum）のに使う。ffprobe は長さを測るのに使う。SameAudio と InputLengths は ffmpeg を使わず Go で読む）。このファイル
 //   - [Builtin]: ffmpeg / ffprobe を使わず、Go で m4a を作る（builtin.go）
 //
 // # ffmpeg / ffprobe のパス
@@ -233,6 +234,36 @@ func (t *Tools) WriteChapters(ctx context.Context, in, out string, chs []Chapter
 		return 0, fmt.Errorf("media: write chapters: %w", err)
 	}
 	return len(placed), nil
+}
+
+// RewriteAlbum は [Builtin.RewriteAlbum] と同じく、保存した m4a in の album のタグを album に置き換えた m4a を out に書く（保存先の移し。
+// ADR 0039）。書き直しは ffmpeg に頼む。ffmpeg には in の音声（とカバー画像）・タグ・チャプターをそのまま写させ（-map 0:a・
+// -map_metadata 0・-map_chapters 0・-c copy）、album だけを -metadata で置き換えさせる。in は書く前に Go で読み、読めない箱の並びなら
+// 書かずにエラーにする（カバー画像の有無もそこで決める）。out は上書きされ、失敗したら消す。
+func (t *Tools) RewriteAlbum(ctx context.Context, in, out, album string) error {
+	src, err := os.Open(in)
+	if err != nil {
+		return fmt.Errorf("media: rewrite album: %w", err)
+	}
+	m, err := readM4A(src)
+	src.Close()
+	if err != nil {
+		return fmt.Errorf("media: rewrite album: %s: %w", in, err)
+	}
+	args := []string{"-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", in, "-map", "0:a"}
+	if m.cover {
+		args = append(args, "-map", "0:v")
+	}
+	args = append(args, "-map_metadata", "0", "-map_chapters", "0", "-c", "copy")
+	if m.cover {
+		args = append(args, "-disposition:v:0", "attached_pic")
+	}
+	args = append(args, "-metadata", "album="+album, "-f", "mp4", out)
+	if _, err := run(ctx, t.FFmpeg, args...); err != nil {
+		os.Remove(out)
+		return fmt.Errorf("media: rewrite album: %w", err)
+	}
+	return nil
 }
 
 // InputLengths は [Builtin.InputLengths] と同じ（ADTS を Go で読む。ffmpeg は使わない）。

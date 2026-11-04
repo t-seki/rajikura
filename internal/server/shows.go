@@ -11,8 +11,9 @@ package server
 //     毎週の予約は 0 個でもよい（1 回の予約だけを持つ番組）
 //   - GET /api/shows/{name}: 番組を 1 つ読む。1 回の予約の一覧を onces に付ける（onces.go）
 //   - PUT /api/shows/{name}: 番組を丸ごと置き換える。body の name が {name} と違えば名前の変更で、
-//     古い名前の番組を消して新しい名前の番組を作り、古い名前の done でないジョブを新しい名前に付け替える
-//     （store.ReplaceShow）。新しい名前の番組がもうあれば 409。
+//     古い名前の番組を消して新しい名前の番組を作り、古い名前の全部のジョブ（done を含む）を新しい名前に付け替え、保存先のある
+//     ジョブと録音中のジョブに保存先の移しの頼みを付けて（store.ReplaceShow。docs/adr/0039-saved-files-follow-show-rename.md）、録音のループを起こす
+//     （保存したファイルを録音のループが今の名前へ移す）。新しい名前の番組がもうあれば 409。
 //     1 回の予約は body に書かず、今の番組のものを残す（名前の変更なら引き継ぐ）
 //   - DELETE /api/shows/{name}: 番組を 1 回の予約ごと消す。ジョブは消さない
 //   - PUT /api/shows/{name}/enabled: 有効／無効を切り替える（{"enabled": bool}）
@@ -77,7 +78,7 @@ type Expander interface {
 var _ Expander = (*app.App)(nil)
 
 // Recorder はタイムフリーの録音のループを起こす（app.App が満たす）。ジョブの「再試行」「録る」が成功したら、次の見回りを待たずに
-// 録り始めさせる。ライブで録るジョブでも区別せずに呼ぶ（ライブの録音役は別に見回る）。
+// 録り始めさせる（番組の名前を変えたときと保存先の移しを頼まれたときは、移し始めさせる）。ライブで録るジョブでも区別せずに呼ぶ（ライブの録音役は別に見回る）。
 type Recorder interface {
 	WakeRecorder()
 }
@@ -353,6 +354,10 @@ func (u *UI) replaceShow(w http.ResponseWriter, r *http.Request) {
 	if err := u.Shows.ReplaceShow(r.Context(), r.PathValue("name"), show); err != nil {
 		u.storeError(w, "番組を保存できない", err)
 		return
+	}
+	if show.Name != r.PathValue("name") && u.Recorder != nil {
+		// 名前を変えたら、保存先の移し（ADR 0039）を次の見回りを待たずに始めさせる。
+		u.Recorder.WakeRecorder()
 	}
 	// 1 回の予約は store が引き継ぐので、変えた後の番組の 1 回の予約は変える前と同じ。
 	after := show
