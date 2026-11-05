@@ -28,7 +28,7 @@
 # - 免除の印は作らない。当たる行は docs/api.md に移し、使う人向けの docs ではパスを書かずに docs/api.md の節へのリンクで指す。
 #
 # 使い方: scripts/check-user-docs.sh [検査するファイル...]   （repo のどこから呼んでもよい）
-#   ファイルを渡すとそれだけを検査する（一覧の突き合わせはしない。scripts/check-user-docs_test.sh 用）。
+#   ファイルを渡すとそれだけを検査する（user_docs と docs/development.md の一覧の突き合わせだけ省く。小文字 1 語の欄の一覧の古さの検査は引数の有無によらず走る。scripts/check-user-docs_test.sh 用）。
 #   引数の相対パスは、呼んだ場所ではなく repo root 基準で解決する。
 set -euo pipefail
 
