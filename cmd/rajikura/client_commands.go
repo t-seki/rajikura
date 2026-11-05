@@ -242,6 +242,8 @@ func outputMoveResultText(result string) string {
 	switch result {
 	case "moved":
 		return "移した"
+	case "album_rewritten":
+		return "保存先は同じなので、アルバムの名前だけ書き換えた"
 	case "target_exists":
 		return "移し先に同じ名前のファイルがあるので移さなかった"
 	case "no_file":

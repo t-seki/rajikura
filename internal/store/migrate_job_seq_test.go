@@ -170,11 +170,12 @@ func TestMigrateJobAutoincrement(t *testing.T) {
 		t.Fatalf("SchemaVersion = %d, %v", v, err)
 	}
 	// 版 24（0024_job_chapters.sql）・版 26（0026_job_airings_tsplus.sql）・版 27（0027_job_airings_out_of_area.sql）・
-	// 版 29（0029_job_chapters_redo.sql）・版 30（0030_output_moves.sql の jobs の列）は列を足すだけなので、足した列を落としてから比べる。
+	// 版 29（0029_job_chapters_redo.sql）・版 30（0030_output_moves.sql の jobs の列）・版 31（0031_job_move_to.sql）は列を足すだけ
+	// なので、足した列を落としてから比べる。
 	for _, q := range []string{
 		`ALTER TABLE jobs DROP COLUMN chapters`, `ALTER TABLE jobs DROP COLUMN chapters_check_at`,
 		`ALTER TABLE jobs DROP COLUMN chapters_refetch`, `ALTER TABLE jobs DROP COLUMN chapters_redo_at`,
-		`ALTER TABLE jobs DROP COLUMN move_requested_at`,
+		`ALTER TABLE jobs DROP COLUMN move_requested_at`, `ALTER TABLE jobs DROP COLUMN move_to`,
 		`ALTER TABLE job_airings DROP COLUMN chapter_wait`,
 		`ALTER TABLE job_airings DROP COLUMN tsplus_in_ng`,
 		`ALTER TABLE job_airings DROP COLUMN tsplus_out_ng`, `ALTER TABLE job_airings DROP COLUMN out_of_area`,
@@ -193,7 +194,7 @@ func TestMigrateJobAutoincrement(t *testing.T) {
 	}
 	// 落とした列を足し直す（下でジョブを作るため）。
 	for _, name := range []string{"migrations/0024_job_chapters.sql", "migrations/0026_job_airings_tsplus.sql",
-		"migrations/0027_job_airings_out_of_area.sql", "migrations/0029_job_chapters_redo.sql"} {
+		"migrations/0027_job_airings_out_of_area.sql", "migrations/0029_job_chapters_redo.sql", "migrations/0031_job_move_to.sql"} {
 		if b, err := migrationFS.ReadFile(name); err != nil {
 			t.Fatal(err)
 		} else if _, err := s.db.Exec(string(b)); err != nil {

@@ -164,17 +164,18 @@ export function chapterWriteResultText(w: JobChapterWrite): string {
 }
 
 /**
- * 保存先の移しの結果（moved: 移した、target_exists: 移し先に同じ名前のファイルがあるので移さなかった、no_file: 保存先にファイルが
- * 無いので移さなかった、not_show_path: 保存先が番組の名前の形でないので移さなかった、failed: 移せなかった。ADR 0039）。
+ * 保存先の移しの結果（moved: 移した、album_rewritten: 保存先は同じなので、アルバムの名前だけ書き換えた（from と to は同じ）、
+ * target_exists: 移し先に同じ名前のファイルがあるので移さなかった、no_file: 保存先にファイルが無いので移さなかった、
+ * not_show_path: 保存先が番組の名前の形でないので移さなかった、failed: 移せなかった。ADR 0039）。
  */
-export type OutputMoveResult = "moved" | "target_exists" | "no_file" | "not_show_path" | "failed";
+export type OutputMoveResult = "moved" | "album_rewritten" | "target_exists" | "no_file" | "not_show_path" | "failed";
 
 /** 保存先の移しの履歴の 1 行（移しのたびに 1 行。試行の履歴・チャプターの書き込みの履歴とは別。ADR 0039）。 */
 export interface JobOutputMove {
   at: string;
   /** 移す前の保存先。 */
   from: string;
-  /** 移し先（保存先が番組の名前の形でなく、移し先を組めなかったときは空）。 */
+  /** 移し先（保存先が番組の名前の形でなく、移し先を組めなかったときは空。album_rewritten のときは from と同じ）。 */
   to: string;
   result: OutputMoveResult;
   /** 移せなかった理由（failed のときだけ）。 */
@@ -184,6 +185,7 @@ export interface JobOutputMove {
 /** 保存先の移しの結果の文（rajikura jobs <ID> の outputMoveResultText と同じ文）。 */
 export const outputMoveResultLabels: Record<OutputMoveResult, string> = {
   moved: "移した",
+  album_rewritten: "保存先は同じなので、アルバムの名前だけ書き換えた",
   target_exists: "移し先に同じ名前のファイルがあるので移さなかった",
   no_file: "保存先にファイルが無いので移さなかった",
   not_show_path: "保存先が番組の名前の形でないので移さなかった",

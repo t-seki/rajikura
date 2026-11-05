@@ -3,9 +3,10 @@
 // 命名とタグは [Preset] が決める。今あるのは Jellyfin プリセットだけ（ADR 0002。title は、放送回の番組名が
 // 番組の名前と違えば足す。ADR 0007）。置き方は [Store]
 // （partial に書いてから確定、衝突時は別名）と、録り直しで前の保存先を上書きする [StoreOver]（ADR 0025）と、保存したファイルを
-// partial に書き直してから置き換える [Rewrite]（チャプターの書き込み。ADR 0033）と、保存したファイルを今の番組の名前のフォルダ・ファイル名へ
-// 移す [Move]（保存先の移し。移し先は [MovedPath]、移した後の古いフォルダの片付けは [TidyOldFolder]。ADR 0039）と [CleanPartials]（起動時の
-// 残骸の掃除）。番組のフォルダの画像 folder.jpg は [StoreFolderImage] が置く（保存のたびに上書き）。
+// partial に書き直してから置き換える [Rewrite]（チャプターの書き込み。ADR 0033。保存先の移しで、移し先が今の保存先と同じときの
+// アルバムの名前の書き換えにも使う。ADR 0039）と、保存したファイルを今の番組の名前のフォルダ・ファイル名へ
+// 移す [Move]（保存先の移し。移し先は [MovedPath]、移した後の古いフォルダの片付けは [TidyOldFolder]、途中で止まった移しの回復は
+// [RecoverMove]。ADR 0039）と [CleanPartials]（起動時の残骸の掃除）。番組のフォルダの画像 folder.jpg は [StoreFolderImage] が置く（保存のたびに上書き）。
 package library
 
 import (
@@ -297,7 +298,8 @@ var ErrNoFile = errors.New("library: 保存先にファイルが無い")
 // （MaxPathNameBytes）に掛からない。
 const rewritePartialPrefix = "rajikura-chapters."
 
-// Rewrite は、保存したファイル path を、write が書いたもので置き換える（チャプターの書き込み。ADR 0033）。write には path と同じ
+// Rewrite は、保存したファイル path を、write が書いたもので置き換える（チャプターの書き込み。ADR 0033。保存先の移しで、移し先が
+// 今の保存先と同じときのアルバムの名前の書き換え。ADR 0039）。write には path と同じ
 // フォルダの partial（*.partial.m4a。起動時に [CleanPartials] が消す）のパスを渡すので、そこへ書かせる（書いた中身の確かめも
 // write の中で行う）。write が成功したら、partial を path と同じ許可にしてリネームで置き換え、失敗したら partial を消して path を
 // そのまま残す。path が無い（通常のファイルでない）なら、書かずに ErrNoFile を包んだエラーを返す。
@@ -362,19 +364,37 @@ var ErrTargetExists = errors.New("library: 移し先に同じ名前のファイ�
 // movePartialPrefix は [Move] の partial の名前の頭（[Rewrite] と同じく、保存したファイルの名前を使わない）。
 const movePartialPrefix = "rajikura-move."
 
+// asideExt は、大文字・小文字だけが違う移し（[Move]）で元のファイルを退避する名前の末尾。[CleanPartials] が消す *.partial.m4a・
+// *.partial.jpg に当たらない（退避した元のファイルを起動時に消さない）。
+const asideExt = ".orig"
+
+// AsidePath は、大文字・小文字だけが違う移し（[Move]）で、保存したファイル from を退避する名前（from と同じフォルダの
+// rajikura-move.<元のファイル名>.orig）。ADR 0039。
+func AsidePath(from string) string {
+	return filepath.Join(filepath.Dir(from), movePartialPrefix+filepath.Base(from)+asideExt)
+}
+
 // Move は、保存したファイル from を to へ移す（保存先の移し。ADR 0039）。write には to と同じフォルダ（無ければ作る）の partial
 // （*.partial.m4a。起動時に [CleanPartials] が消す）のパスを渡すので、from から書き換えたもの（アルバムの名前を変えたもの）をそこへ
-// 書かせる（書いた中身の確かめも write の中で行う）。write が成功したら、partial を from と同じ許可にして to にリネームし、from を消す。
+// 書かせる（書いた中身の確かめも write の中で行う）。write が成功したら、partial を from と同じ許可にし、place を呼んでから（nil なら
+// 呼ばない。呼び出し側が移し先の控えを書く）、partial を to にリネームし、from を消す。place は to に置くときだけ呼ぶ（置かずに返す
+// ときは呼ばない）。
 //
 //   - from が無い（通常のファイルでない）なら、何もせずに ErrNoFile を包んだエラーを返す。
 //   - to にもう何かがあれば、何もせずに ErrTargetExists を包んだエラーを返す（どちらのファイルも消さず、上書きもしない）。リネームの
-//     直前にも確かめ直す。
+//     直前にも確かめ直す。ただし、to が from と同じ実体（os.SameFile。大文字・小文字を区別しないファイルシステムで、名前の
+//     大文字・小文字だけが違う）なら、下の 2 段の移しにする。
 //   - write が失敗したら、partial を消し、from をそのまま残す（to のフォルダを作ったのが Move なら、空のときだけ消す）。
 //   - from を消せなければ、置いた to を消して from を残し、エラーを返す。
 //
-// 古いフォルダの片付けは [TidyOldFolder]。同じパスへの Move と [StoreOver]・[Rewrite] の呼び出しは直列であること（呼び出し側が保証する。
-// 保存先のファイルを書くのは録音のループだけ）。
-func Move(from, to string, write func(partial string) error) error {
+// to が from と同じ実体のときは、partial を書いて確かめ、place を呼んだ後、from を退避の名前（[AsidePath]）に付け直し、partial を to に
+// 付け直して、退避を消す（同じ実体の名前に partial を重ねると元のファイルが置き換わり、その後に from を消すと移したファイルが消えるため）。
+// 退避の名前にもう何かがあれば、何もせずにエラーを返す。フォルダは付け直さない（古い表記のまま。to のフォルダは同じ実体なので作らない）。
+// partial を置けなければ、退避を from の名前に戻す。
+//
+// 古いフォルダの片付けは [TidyOldFolder]、途中で止まった移しの回復は [RecoverMove]。同じパスへの Move と [StoreOver]・[Rewrite] の
+// 呼び出しは直列であること（呼び出し側が保証する。保存先のファイルを書くのは録音のループだけ）。
+func Move(from, to string, write func(partial string) error, place func() error) error {
 	st, err := os.Stat(from)
 	if errors.Is(err, fs.ErrNotExist) || err == nil && !st.Mode().IsRegular() {
 		return fmt.Errorf("%w: %s", ErrNoFile, from)
@@ -382,10 +402,17 @@ func Move(from, to string, write func(partial string) error) error {
 	if err != nil {
 		return fmt.Errorf("library: %w", err)
 	}
-	if free, err := notExists(to); err != nil {
+	same, err := sameAsFrom(st, to)
+	if err != nil {
 		return err
-	} else if !free {
-		return fmt.Errorf("%w: %s", ErrTargetExists, to)
+	}
+	aside := AsidePath(from)
+	if same {
+		if free, err := notExists(aside); err != nil {
+			return err
+		} else if !free {
+			return fmt.Errorf("library: 退避の名前にもうファイルがあるので移さない: %s", aside)
+		}
 	}
 	dir := filepath.Dir(to)
 	made, err := notExists(dir)
@@ -418,27 +445,174 @@ func Move(from, to string, write func(partial string) error) error {
 	if err := os.Chmod(partial, st.Mode().Perm()); err != nil {
 		return fail(partial, fmt.Errorf("library: %w", err))
 	}
-	if free, err := notExists(to); err != nil {
+	if still, err := sameAsFrom(st, to); err != nil {
 		return fail(partial, err)
-	} else if !free {
+	} else if still != same {
+		return fail(partial, fmt.Errorf("%w: %s", ErrTargetExists, to))
+	}
+	if place != nil {
+		if err := place(); err != nil {
+			return fail(partial, err)
+		}
+	}
+	if !same {
+		if err := os.Rename(partial, to); err != nil {
+			return fail(partial, fmt.Errorf("library: %w", err))
+		}
+		if err := os.Remove(from); err != nil {
+			os.Remove(to)
+			return fail("", fmt.Errorf("library: 移す前のファイルを消せないので、移したファイルを消して元のファイルを残した: %w", err))
+		}
+		return nil
+	}
+	if err := os.Rename(from, aside); err != nil {
+		return fail(partial, fmt.Errorf("library: %w", err))
+	}
+	// 退避した後は、to に何も無いはず（同じ実体の別の名前だった）。まだあれば（ハードリンクなど）、重ねずに元へ戻す。
+	if free, err := notExists(to); err != nil || !free {
+		if rerr := os.Rename(aside, from); rerr != nil {
+			return fail(partial, fmt.Errorf("library: 退避したファイル %s を元の名前に戻せない: %w", aside, rerr))
+		}
+		if err != nil {
+			return fail(partial, err)
+		}
 		return fail(partial, fmt.Errorf("%w: %s", ErrTargetExists, to))
 	}
 	if err := os.Rename(partial, to); err != nil {
+		if rerr := os.Rename(aside, from); rerr != nil {
+			return fail(partial, fmt.Errorf("library: 移せず、退避したファイル %s を元の名前に戻せない: %w", aside, errors.Join(err, rerr)))
+		}
 		return fail(partial, fmt.Errorf("library: %w", err))
 	}
-	if err := os.Remove(from); err != nil {
-		os.Remove(to)
-		return fail("", fmt.Errorf("library: 移す前のファイルを消せないので、移したファイルを消して元のファイルを残した: %w", err))
+	if err := os.Remove(aside); err != nil {
+		return fmt.Errorf("library: 移したが、退避した元のファイル %s を消せない: %w", aside, err)
 	}
 	return nil
 }
 
+// sameAsFrom は、to に何も無ければ false、from（st）と同じ実体のファイルがあれば true を返し、ほかの何かがあれば ErrTargetExists を
+// 包んだエラーを返す。
+func sameAsFrom(st fs.FileInfo, to string) (bool, error) {
+	tst, err := os.Lstat(to)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("library: %w", err)
+	}
+	if !os.SameFile(st, tst) {
+		return false, fmt.Errorf("%w: %s", ErrTargetExists, to)
+	}
+	return true, nil
+}
+
+// Recovery は、途中で止まった保存先の移しの回復（[RecoverMove]）の結果。
+type Recovery int
+
+const (
+	// RecoverRedo は、移しを頭から行い直す（置く前に止まった、または大文字・小文字だけの移しが退避の前か退避を消した後に止まった。
+	// 退避した後・置く前に止まっていたなら、退避を元の名前に戻してある）。
+	RecoverRedo Recovery = iota
+	// RecoverPlaced は、移し先に移したファイルがある（元のファイル・退避は、あれば音声が一致したので消した）。保存先を移し先に付け替える。
+	RecoverPlaced
+	// RecoverNoFile は、元のファイルも移し先も退避も無い。
+	RecoverNoFile
+)
+
+// RecoverMove は、移し先の控え to のある保存先の移し（[Move] が置いた後、保存先の記録を付け替える前に止まったかもしれないもの。
+// ADR 0039）を、ファイルの今の様子から回復する。from は保存先の記録、same は 2 つの m4a の音声のサンプルが一致するかを確かめる
+// （一致しなければエラー）。
+//
+//   - from があり to が無い: RecoverRedo。
+//   - from が無く to がある: RecoverPlaced。
+//   - from と to が別の実体で両方ある: same(from, to) が一致すれば from を消して RecoverPlaced。一致しなければ両方を残してエラー。
+//   - from と to が同じ実体で、退避（[AsidePath]）が無い: RecoverRedo。退避がある: same(退避, to) が一致すれば退避を消して
+//     RecoverPlaced。一致しなければ両方を残してエラー。
+//   - from も to も無く、退避がある: 退避を from の名前に戻して RecoverRedo（from の名前にもう何かがあれば、戻さずにエラー）。
+//   - どれも無い: RecoverNoFile。
+//
+// どのファイルも上書きしない。消すのは、音声が一致したと確かめた側だけ。
+func RecoverMove(from, to string, same func(a, b string) error) (Recovery, error) {
+	fst, err := regularFile(from)
+	if err != nil {
+		return 0, err
+	}
+	tst, err := regularFile(to)
+	if err != nil {
+		return 0, err
+	}
+	aside := AsidePath(from)
+	ast, err := regularFile(aside)
+	if err != nil {
+		return 0, err
+	}
+	switch {
+	case fst != nil && tst != nil && os.SameFile(fst, tst):
+		if ast == nil {
+			return RecoverRedo, nil
+		}
+		if err := same(aside, to); err != nil {
+			return 0, fmt.Errorf("library: 移した先のファイルの音声が、退避した元のファイルと一致しないので、両方を残した（%s・%s）: %w", aside, to, err)
+		}
+		if err := os.Remove(aside); err != nil {
+			return 0, fmt.Errorf("library: %w", err)
+		}
+		return RecoverPlaced, nil
+	case fst != nil && tst != nil:
+		if err := same(from, to); err != nil {
+			return 0, fmt.Errorf("library: 移した先のファイルの音声が元のファイルと一致しないので、両方を残した（%s・%s）: %w", from, to, err)
+		}
+		if err := os.Remove(from); err != nil {
+			return 0, fmt.Errorf("library: %w", err)
+		}
+		return RecoverPlaced, nil
+	case fst != nil:
+		return RecoverRedo, nil
+	case tst != nil:
+		return RecoverPlaced, nil
+	case ast != nil:
+		if free, err := notExists(from); err != nil {
+			return 0, err
+		} else if !free {
+			return 0, fmt.Errorf("library: 元の名前に何かがあるので、退避したファイル %s を戻さない", aside)
+		}
+		if err := os.Rename(aside, from); err != nil {
+			return 0, fmt.Errorf("library: %w", err)
+		}
+		return RecoverRedo, nil
+	default:
+		return RecoverNoFile, nil
+	}
+}
+
+// regularFile は、path が通常のファイルならその情報を、無い（通常のファイルでない）なら nil を返す。
+func regularFile(path string) (fs.FileInfo, error) {
+	st, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("library: %w", err)
+	}
+	if !st.Mode().IsRegular() {
+		return nil, nil
+	}
+	return st, nil
+}
+
 // TidyOldFolder は、保存先の移し（[Move]）で古いフォルダ old に残ったのが [FolderImage] だけか、何も残っていなければ、old を片付けて
 // true を返す（ADR 0039）。folder.jpg は新しいフォルダ newDir へ移す（newDir にもう folder.jpg があれば、old の方を消す）。空になった
-// old を消す。ほかのファイル・フォルダが残っていれば、old には触らずに false を返す。
+// old を消す。ほかのファイル・フォルダが残っていれば、old には触らずに false を返す。old と newDir が同じフォルダ（同じパスか、
+// 同じ実体）なら、触らずに false を返す。
 func TidyOldFolder(old, newDir string) (bool, error) {
 	if filepath.Clean(old) == filepath.Clean(newDir) {
 		return false, nil
+	}
+	// 大文字・小文字だけが違う移しでは、old と newDir が同じフォルダ（同じ実体）になる。そのときは触らない。
+	if ost, err := os.Stat(old); err == nil {
+		if nst, err := os.Stat(newDir); err == nil && os.SameFile(ost, nst) {
+			return false, nil
+		}
 	}
 	entries, err := os.ReadDir(old)
 	if err != nil {

@@ -63,15 +63,29 @@ func moveEnv(t *testing.T) (from, to string) {
 func TestMove(t *testing.T) {
 	from, to := moveEnv(t)
 	var partial string
+	placed := 0
 	err := Move(from, to, func(p string) error {
 		partial = p
 		if filepath.Dir(p) != filepath.Dir(to) || !strings.HasSuffix(p, partialExt) {
 			t.Errorf("partial = %q", p)
 		}
 		return os.WriteFile(p, []byte("new"), 0o600)
+	}, func() error {
+		// place は、書いて確かめた後、to に置く直前に呼ぶ。
+		placed++
+		if b, err := os.ReadFile(partial); err != nil || string(b) != "new" {
+			t.Errorf("place のときの partial = %q, %v", b, err)
+		}
+		if _, err := os.Stat(to); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("place の前に to を置いた: %v", err)
+		}
+		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if placed != 1 {
+		t.Errorf("place の回数 = %d, want 1", placed)
 	}
 	if b, err := os.ReadFile(to); err != nil || string(b) != "new" {
 		t.Errorf("to = %q, %v", b, err)
@@ -84,8 +98,17 @@ func TestMove(t *testing.T) {
 	}
 }
 
+// noPlace は、呼ばれたらテストを落とす place（置かなかった移しでは、移し先の控えを書かない。ADR 0039）。
+func noPlace(t *testing.T) func() error {
+	t.Helper()
+	return func() error {
+		t.Error("置かなかった移しで place を呼んだ")
+		return nil
+	}
+}
+
 // 移し先にファイルがある・保存先にファイルが無い・write が失敗したときは、どのファイルも消さず、上書きもしない。作った移し先の
-// フォルダは、空なら消す。
+// フォルダは、空なら消す。どれも place（移し先の控えを書く）を呼ばない。
 func TestMoveRefuses(t *testing.T) {
 	t.Run("移し先にファイルがある", func(t *testing.T) {
 		from, to := moveEnv(t)
@@ -96,7 +119,7 @@ func TestMoveRefuses(t *testing.T) {
 			t.Fatal(err)
 		}
 		called := false
-		err := Move(from, to, func(string) error { called = true; return nil })
+		err := Move(from, to, func(string) error { called = true; return nil }, noPlace(t))
 		if !errors.Is(err, ErrTargetExists) || called {
 			t.Errorf("err = %v, called = %v", err, called)
 		}
@@ -108,7 +131,7 @@ func TestMoveRefuses(t *testing.T) {
 	})
 	t.Run("書いている間に移し先にファイルができた", func(t *testing.T) {
 		from, to := moveEnv(t)
-		err := Move(from, to, func(p string) error { return os.WriteFile(to, []byte("hand"), 0o644) })
+		err := Move(from, to, func(p string) error { return os.WriteFile(to, []byte("hand"), 0o644) }, noPlace(t))
 		if !errors.Is(err, ErrTargetExists) {
 			t.Errorf("err = %v", err)
 		}
@@ -125,7 +148,7 @@ func TestMoveRefuses(t *testing.T) {
 		if err := os.Remove(from); err != nil {
 			t.Fatal(err)
 		}
-		if err := Move(from, to, func(string) error { return nil }); !errors.Is(err, ErrNoFile) {
+		if err := Move(from, to, func(string) error { return nil }, noPlace(t)); !errors.Is(err, ErrNoFile) {
 			t.Errorf("err = %v", err)
 		}
 		if _, err := os.Stat(filepath.Dir(to)); !errors.Is(err, os.ErrNotExist) {
@@ -135,7 +158,7 @@ func TestMoveRefuses(t *testing.T) {
 	t.Run("write が失敗した", func(t *testing.T) {
 		from, to := moveEnv(t)
 		boom := errors.New("boom")
-		if err := Move(from, to, func(p string) error { return boom }); !errors.Is(err, boom) {
+		if err := Move(from, to, func(p string) error { return boom }, noPlace(t)); !errors.Is(err, boom) {
 			t.Errorf("err = %v", err)
 		}
 		if b, _ := os.ReadFile(from); string(b) != "old" {

@@ -10,9 +10,10 @@ import (
 	"github.com/t-seki/rajikura/internal/domain"
 )
 
-// 保存先の移し（用語集。docs/adr/0039-saved-files-follow-show-rename.md）の頼みの印（jobs.move_requested_at）と、移しの履歴
-// （output_moves）。頼みを書くのは、番組の名前の変更（ReplaceShow）と人の頼み（RequestOutputMove）。移すのは録音のループ
-// （internal/app の moveOutputs。DueOutputMoves で拾い、FinishOutputMove で結果を書く）。
+// 保存先の移し（用語集。docs/adr/0039-saved-files-follow-show-rename.md）の頼みの印（jobs.move_requested_at）と、移し先の控え
+// （jobs.move_to）と、移しの履歴（output_moves）。頼みを書くのは、番組の名前の変更（ReplaceShow）と人の頼み（RequestOutputMove）。
+// 移すのは録音のループ（internal/app の moveOutputs。DueOutputMoves で拾い、移し先に置く直前に SetOutputMoveTo で控えを書き、
+// FinishOutputMove で結果を書く）。
 
 // ErrNoShow は、保存先の移しの移し先に指定した番組が無いこと（RequestOutputMove）。errors.Is で見分ける。ジョブが無いこと
 // （ErrNotFound）とは分ける。
@@ -57,13 +58,30 @@ func (s *Store) DueOutputMoves(ctx context.Context) ([]domain.Job, error) {
 		ORDER BY move_requested_at, id`)
 }
 
-// FinishOutputMove は、ジョブ m.JobID の保存先の移し（ADR 0039）の結果を書く。record なら、移しの履歴に m を 1 行足す（移し先が
-// 今の保存先と同じで、移すものが無かったときは足さない）。m.Result が移した（domain.OutputMoved）なら、保存先が m.From のままのときだけ
-// 保存先を m.To に付け替える。あわせて、拾ったときの頼みの時刻 requestedAt（domain.Job.MoveRequestedAt）のままなら頼みの印を消す（拾った
-// 後に頼み直されていれば残し、次の見回りでもう一度移す）。どれも同じトランザクションで書く。状態・試行回数・欠落の印は変えない。
+// SetOutputMoveTo は、ジョブ id の保存先の移し（ADR 0039）の移し先の控え（jobs.move_to）に to を書く。録音のループが、移すファイルを
+// 書いて確かめた後、移し先に置く直前に呼ぶ（置かなかった移しでは呼ばない）。控えは FinishOutputMove が消す。ジョブが無ければ
+// ErrNotFound を包んだエラーにする。
+// 足したら直す: DB の表
+func (s *Store) SetOutputMoveTo(ctx context.Context, id int64, to string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE jobs SET move_to = ? WHERE id = ?`, to, id)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		return fmt.Errorf("ジョブ %d: %w", id, ErrNotFound)
+	}
+	return nil
+}
+
+// FinishOutputMove は、ジョブ m.JobID の保存先の移し（ADR 0039）の結果を書く。移しの履歴に m を 1 行足す。m.Result が移した
+// （domain.OutputMoved）なら、保存先が m.From のままのときだけ保存先を m.To に付け替える。移し先の控え（jobs.move_to）は、結果に
+// よらず消す。あわせて、拾ったときの頼みの時刻 requestedAt（domain.Job.MoveRequestedAt）のままなら頼みの印を消す（拾った後に頼み
+// 直されていれば残し、次の見回りでもう一度移す）。どれも同じトランザクションで書く。状態・試行回数・欠落の印は変えない。
 // ジョブが無ければ ErrNotFound を包んだエラーにする。
 // 足したら直す: DB の表
-func (s *Store) FinishOutputMove(ctx context.Context, m domain.OutputMove, record bool, requestedAt time.Time) error {
+func (s *Store) FinishOutputMove(ctx context.Context, m domain.OutputMove, requestedAt time.Time) error {
 	return s.tx(ctx, func(tx *sql.Tx) error {
 		var n int
 		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM jobs WHERE id = ?`, m.JobID).Scan(&n); err != nil {
@@ -72,17 +90,18 @@ func (s *Store) FinishOutputMove(ctx context.Context, m domain.OutputMove, recor
 		if n == 0 {
 			return fmt.Errorf("ジョブ %d: %w", m.JobID, ErrNotFound)
 		}
-		if record {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO output_moves (job_id, moved_at, from_path, to_path, result, error)
-				VALUES (?, ?, ?, ?, ?, ?)`, m.JobID, formatTime(m.At), m.From, m.To, string(m.Result), m.Error); err != nil {
-				return err
-			}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO output_moves (job_id, moved_at, from_path, to_path, result, error)
+			VALUES (?, ?, ?, ?, ?, ?)`, m.JobID, formatTime(m.At), m.From, m.To, string(m.Result), m.Error); err != nil {
+			return err
 		}
 		if m.Result == domain.OutputMoved {
 			if _, err := tx.ExecContext(ctx, `UPDATE jobs SET output_path = ? WHERE id = ? AND output_path = ?`,
 				m.To, m.JobID, m.From); err != nil {
 				return err
 			}
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE jobs SET move_to = '' WHERE id = ?`, m.JobID); err != nil {
+			return err
 		}
 		_, err := tx.ExecContext(ctx, `UPDATE jobs SET move_requested_at = '' WHERE id = ? AND move_requested_at = ?`,
 			m.JobID, formatTime(requestedAt))
