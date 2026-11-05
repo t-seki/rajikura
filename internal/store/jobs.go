@@ -142,14 +142,14 @@ func putAirings(ctx context.Context, tx *sql.Tx, jobID int64, airings, missing [
 
 // jobColumns は jobs から読む列。列 chapters_refetch（前の版のチャプターの取り直しの印。0028_chapter_writes.sql）は読まない。
 const jobColumns = `id, show_name, broadcast_day, part, state, next_attempt_at, attempts, deadline, output_path, by_person, settled,
-	chapters, chapters_check_at, chapters_redo_at, move_requested_at`
+	chapters, chapters_check_at, chapters_redo_at, move_requested_at, move_to`
 
 func scanJob(sc interface{ Scan(...any) error }) (domain.Job, error) {
 	var j domain.Job
 	var day, state, next, deadline, chapters, checkAt, redoAt, moveAt string
 	var byPerson, settled int
 	if err := sc.Scan(&j.ID, &j.ShowName, &day, &j.Part, &state, &next, &j.Attempts, &deadline, &j.OutputPath,
-		&byPerson, &settled, &chapters, &checkAt, &redoAt, &moveAt); err != nil {
+		&byPerson, &settled, &chapters, &checkAt, &redoAt, &moveAt, &j.MoveTo); err != nil {
 		return j, err
 	}
 	j.ByPerson, j.Settled = byPerson != 0, settled != 0

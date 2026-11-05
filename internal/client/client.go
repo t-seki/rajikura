@@ -199,7 +199,7 @@ type JobChapterWrite struct {
 	Error  string    `json:"error"`
 }
 
-// JobOutputMove はジョブの詳細の保存先の移しの履歴の 1 行（Result: moved・target_exists・no_file・not_show_path・failed）。
+// JobOutputMove はジョブの詳細の保存先の移しの履歴の 1 行（Result: moved・album_rewritten・target_exists・no_file・not_show_path・failed）。
 type JobOutputMove struct {
 	At     time.Time `json:"at"`
 	From   string    `json:"from"`

@@ -114,10 +114,10 @@ func TestMoveJob(t *testing.T) {
 	// 履歴は移した順に出る。移し終えたら moveRequested は false。
 	at := now.Add(time.Minute)
 	to := "/lib/TBS/今の番組/今の番組 2026-10-12.m4a"
-	if err := st.FinishOutputMove(ctx, domain.OutputMove{JobID: done, At: at, From: output, To: to, Result: domain.OutputMoveTargetExists}, true, time.Time{}); err != nil {
+	if err := st.FinishOutputMove(ctx, domain.OutputMove{JobID: done, At: at, From: output, To: to, Result: domain.OutputMoveTargetExists}, time.Time{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.FinishOutputMove(ctx, domain.OutputMove{JobID: done, At: at.Add(time.Minute), From: output, To: to, Result: domain.OutputMoved}, true, now); err != nil {
+	if err := st.FinishOutputMove(ctx, domain.OutputMove{JobID: done, At: at.Add(time.Minute), From: output, To: to, Result: domain.OutputMoved}, now); err != nil {
 		t.Fatal(err)
 	}
 	d := detail(done)

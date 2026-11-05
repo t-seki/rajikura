@@ -317,6 +317,10 @@ type Job struct {
 	// MoveRequestedAt は、保存先の移し（用語集。ADR 0039）を頼んだ時刻（番組の名前の変更か、人の頼み）。頼みが無ければゼロ。
 	// 録音のループが拾って移したら（移さなかった・移せなかったときも）消す。人が頼めるかは CheckOutputMove。
 	MoveRequestedAt time.Time
+	// MoveTo は、保存先の移しの移し先の控え（ADR 0039）。録音のループが、移すファイルを書いて確かめた後、移し先に置く直前に書き、
+	// 移しの結果を書くとき（Store.FinishOutputMove）に消す。置いた後に結果を書けずに止まっても、次に拾ったときに控えの先から
+	// 回復する（library.RecoverMove）。控えが無ければ空。
+	MoveTo string
 }
 
 // SavedAirings は、保存したファイルに入っている放送回（Airings から欠落した放送回 Missing を除いたもの。開始時刻の順で、

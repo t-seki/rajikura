@@ -40,9 +40,10 @@ func TestJobsDetail(t *testing.T) {
 		{JobID: id, At: st.Add(time.Second), From: "/library/a.m4a", Result: domain.OutputMoveNotShowPath},
 		{JobID: id, At: st.Add(2 * time.Second), From: "/x/a/a 2026-10-05.m4a", To: "/x/b/b 2026-10-05.m4a", Result: domain.OutputMoveFailed, Error: "書けない"},
 		{JobID: id, At: st.Add(3 * time.Second), From: "/x/a/a 2026-10-05.m4a", To: "/x/b/b 2026-10-05.m4a", Result: domain.OutputMoveNoFile},
+		{JobID: id, At: st.Add(4 * time.Second), From: "/library/a.m4a", To: "/library/a.m4a", Result: domain.OutputAlbumRewritten},
 	} {
 		// 移した（moved）でないので、保存先は変わらない。
-		if err := api.Store.FinishOutputMove(ctx, m, true, time.Time{}); err != nil {
+		if err := api.Store.FinishOutputMove(ctx, m, time.Time{}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -54,6 +55,7 @@ func TestJobsDetail(t *testing.T) {
 	for _, want := range []string{
 		"保存先の移しの履歴", "移し先に同じ名前のファイルがあるので移さなかった", "/library/局/新/新 2026-10-05.m4a",
 		"保存先が番組の名前の形でないので移さなかった", "移せなかった（ファイルは前のまま）", "書けない", "保存先にファイルが無いので移さなかった",
+		"保存先は同じなので、アルバムの名前だけ書き換えた",
 		"番組: 番組A (2)", "状態: done", "試行回数: ", "保存先: /library/a.m4a（欠落 1）", "長さ: 記録なし", "チャプター: 入らなかった",
 		"直近のエラー: [fetch] 落ちた 2 行目", "受け付ける操作: ", "放送回", "試行の履歴", "チャプターの書き込みの履歴",
 		st.In(domain.JST).Format("2006-01-02 15:04:05"), "入手", "チャプターの取り直し", "12 件を書き込んだ",

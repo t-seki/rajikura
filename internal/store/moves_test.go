@@ -67,8 +67,8 @@ func TestRequestOutputMove(t *testing.T) {
 	}
 }
 
-// FinishOutputMove: 移したら保存先を付け替え、履歴に 1 行残し、頼みの印を消す。拾った後に頼み直されていれば印を残す。移すものが無かった
-// ときは履歴に残さない。移さなかったときは保存先を変えない。
+// FinishOutputMove: 移したら保存先を付け替え、履歴に 1 行残し、頼みの印と移し先の控え（SetOutputMoveTo）を消す。拾った後に頼み直されて
+// いれば印を残す。アルバムの名前だけを書き換えたときも履歴に 1 行残す。移さなかったときは保存先を変えない。
 func TestFinishOutputMove(t *testing.T) {
 	ctx := context.Background()
 	s, _ := openTemp(t)
@@ -85,7 +85,7 @@ func TestFinishOutputMove(t *testing.T) {
 	}
 	// 移せなかった: 保存先はそのまま、履歴に 1 行、印は消える。
 	if err := s.FinishOutputMove(ctx, domain.OutputMove{JobID: id, At: t1.Add(time.Second), From: from, To: to,
-		Result: domain.OutputMoveTargetExists}, true, t1); err != nil {
+		Result: domain.OutputMoveTargetExists}, t1); err != nil {
 		t.Fatal(err)
 	}
 	j, _ := s.GetJob(ctx, id)
@@ -97,30 +97,42 @@ func TestFinishOutputMove(t *testing.T) {
 	if err := s.RequestOutputMove(ctx, id, "", t3); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.FinishOutputMove(ctx, domain.OutputMove{JobID: id, At: t2, From: from, To: to, Result: domain.OutputMoved}, true, t2); err != nil {
+	if err := s.SetOutputMoveTo(ctx, id, to); err != nil {
+		t.Fatal(err)
+	}
+	if j, _ := s.GetJob(ctx, id); j.MoveTo != to {
+		t.Errorf("控えを書いた後のジョブ = %+v", j)
+	}
+	if err := s.FinishOutputMove(ctx, domain.OutputMove{JobID: id, At: t2, From: from, To: to, Result: domain.OutputMoved}, t2); err != nil {
 		t.Fatal(err)
 	}
 	j, _ = s.GetJob(ctx, id)
-	if j.OutputPath != to || !j.MoveRequestedAt.Equal(t3) || j.State != domain.StateDone || j.Attempts != 2 {
-		t.Errorf("移した後のジョブ = %+v（保存先を付け替え、頼み直しの印は残し、状態・試行回数は変えない）", j)
+	if j.OutputPath != to || !j.MoveRequestedAt.Equal(t3) || j.State != domain.StateDone || j.Attempts != 2 || j.MoveTo != "" {
+		t.Errorf("移した後のジョブ = %+v（保存先を付け替え、控えを消し、頼み直しの印は残し、状態・試行回数は変えない）", j)
 	}
-	// 移すものが無かった: 履歴に残さず、印を消す。
-	if err := s.FinishOutputMove(ctx, domain.OutputMove{JobID: id, At: t3, From: to, To: to}, false, t3); err != nil {
+	// アルバムの名前だけを書き換えた: 履歴に 1 行残し、保存先は変えず、印と控えを消す（控えは結果によらず消す）。
+	if err := s.SetOutputMoveTo(ctx, id, "/library/局/別/別 2026-10-05.m4a"); err != nil {
 		t.Fatal(err)
 	}
-	if j, _ := s.GetJob(ctx, id); !j.MoveRequestedAt.IsZero() || j.OutputPath != to {
-		t.Errorf("移すものが無かった後のジョブ = %+v", j)
+	if err := s.FinishOutputMove(ctx, domain.OutputMove{JobID: id, At: t3, From: to, To: to, Result: domain.OutputAlbumRewritten}, t3); err != nil {
+		t.Fatal(err)
+	}
+	if j, _ := s.GetJob(ctx, id); !j.MoveRequestedAt.IsZero() || j.OutputPath != to || j.MoveTo != "" {
+		t.Errorf("アルバムの名前を書き換えた後のジョブ = %+v", j)
 	}
 	ms, err := s.OutputMoves(ctx, id)
-	if err != nil || len(ms) != 2 {
+	if err != nil || len(ms) != 3 {
 		t.Fatalf("OutputMoves = %+v, %v", ms, err)
 	}
 	if ms[0].Result != domain.OutputMoveTargetExists || ms[1].Result != domain.OutputMoved || ms[1].From != from || ms[1].To != to ||
-		!ms[1].At.Equal(t2) {
+		!ms[1].At.Equal(t2) || ms[2].Result != domain.OutputAlbumRewritten || ms[2].From != to || ms[2].To != to {
 		t.Errorf("OutputMoves = %+v", ms)
 	}
-	if err := s.FinishOutputMove(ctx, domain.OutputMove{JobID: 9999, At: t3, Result: domain.OutputMoveNoFile}, true, t3); !errors.Is(err, ErrNotFound) {
+	if err := s.FinishOutputMove(ctx, domain.OutputMove{JobID: 9999, At: t3, Result: domain.OutputMoveNoFile}, t3); !errors.Is(err, ErrNotFound) {
 		t.Errorf("無いジョブ: %v", err)
+	}
+	if err := s.SetOutputMoveTo(ctx, 9999, to); !errors.Is(err, ErrNotFound) {
+		t.Errorf("無いジョブの控え: %v", err)
 	}
 	// ジョブを消すと履歴も消える。
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM jobs WHERE id = ?`, id); err != nil {

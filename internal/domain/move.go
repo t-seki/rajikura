@@ -35,14 +35,17 @@ type OutputMoveResult string
 const (
 	// OutputMoved は、移した（保存先の記録を移し先に付け替えた）。
 	OutputMoved OutputMoveResult = "moved"
+	// OutputAlbumRewritten は、移し先が今の保存先と同じ（名前の違いがパスに使えない文字の置き換えなどだけだった、または名前が
+	// 変わっていない）なので、その場でアルバムの名前だけを今の番組の名前に書き換えた（From と To は同じパス）。
+	OutputAlbumRewritten OutputMoveResult = "album_rewritten"
 	// OutputMoveTargetExists は、移し先に同じ名前のファイルがあるので移さなかった（どちらのファイルも消さず、上書きもしない）。
 	OutputMoveTargetExists OutputMoveResult = "target_exists"
 	// OutputMoveNoFile は、保存先にファイルが無いので移さなかった（保存先の記録は変えない）。
 	OutputMoveNoFile OutputMoveResult = "no_file"
 	// OutputMoveNotShowPath は、保存先のパスが番組の名前の形（{局}/{番組}/{番組} YYYY-MM-DD…）でないので移さなかった。
 	OutputMoveNotShowPath OutputMoveResult = "not_show_path"
-	// OutputMoveFailed は、移せなかった（アルバムの名前を書き換えられない、音声のサンプルが元と一致しない、書けないなど。元のファイルは
-	// 残る）。
+	// OutputMoveFailed は、移せなかった（アルバムの名前を書き換えられない、音声のサンプルが元と一致しない、書けない、途中で止まった
+	// 移しの移し先のファイルの音声が元と一致しないので両方を残した、など。元のファイルは残る）。
 	OutputMoveFailed OutputMoveResult = "failed"
 )
 
@@ -51,7 +54,8 @@ type OutputMove struct {
 	ID    int64
 	JobID int64
 	At    time.Time
-	// From は移す前の保存先、To は移し先（保存先のパスが番組の名前の形でなく、移し先を組めなかったときは空）。
+	// From は移す前の保存先、To は移し先（保存先のパスが番組の名前の形でなく、移し先を組めなかったときは空。アルバムの名前だけを
+	// 書き換えたときは From と同じ）。
 	From, To string
 	Result   OutputMoveResult
 	// Error は移せなかった理由（OutputMoveFailed のときだけ）。

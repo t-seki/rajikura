@@ -233,12 +233,14 @@ type chapterWriteView struct {
 // outputMoveView は、保存先の移しの履歴の 1 行（domain.OutputMove。ADR 0039）。
 type outputMoveView struct {
 	At time.Time `json:"at"`
-	// From は移す前の保存先、To は移し先（保存先のパスが番組の名前の形でなく、移し先を組めなかったときは空）。
+	// From は移す前の保存先、To は移し先（保存先のパスが番組の名前の形でなく、移し先を組めなかったときは空。album_rewritten の
+	// ときは From と同じ）。
 	From string `json:"from"`
 	To   string `json:"to"`
-	// Result は結果（moved: 移した、target_exists: 移し先に同じ名前のファイルがあるので移さなかった、no_file: 保存先にファイルが
-	// 無いので移さなかった、not_show_path: 保存先のパスが番組の名前の形でないので移さなかった、failed: 移せなかった）。Error は
-	// 移せなかった理由（failed のときだけ。ほかは空）。
+	// Result は結果（moved: 移した、album_rewritten: 保存先は同じなので、アルバムの名前だけ書き換えた（From と To は同じ）、
+	// target_exists: 移し先に同じ名前のファイルがあるので移さなかった、no_file: 保存先にファイルが無いので移さなかった、
+	// not_show_path: 保存先のパスが番組の名前の形でないので移さなかった、failed: 移せなかった）。Error は移せなかった理由（failed の
+	// ときだけ。ほかは空）。
 	Result string `json:"result"`
 	Error  string `json:"error"`
 }
