@@ -76,7 +76,7 @@ func writeFile(t *testing.T, path, data string) {
 
 // 大文字・小文字だけが違う移し（ADR 0039）。区別しないファイルシステムでは、移し先が元と同じ実体なので、元を退避の名前に付け直して
 // 2 段で移す。ファイル名は新しい表記になり、フォルダは古い表記のまま、ファイルは 1 つだけ残る。区別するファイルシステムでは、同じ入力が
-// 普通の移しになる（新しい表記のフォルダに置き、元を消す）。
+// 普通の移しになる（新しい表記のフォルダに置き、元を消す）。どちらのファイルシステムでも流れる（区別しないかはその場で調べる）。
 func TestMoveCaseOnly(t *testing.T) {
 	station, from, to := caseEnv(t)
 	placed := 0
@@ -108,26 +108,6 @@ func TestMoveCaseOnly(t *testing.T) {
 	if got := names(t, filepath.Join(station, "ABC")); len(got) != 1 || got[0] != "ABC 2026-10-11.m4a" {
 		t.Errorf("新しいフォルダ = %v", got)
 	}
-}
-
-// 区別しないファイルシステムで、退避の名前にもう何かがあれば、大文字・小文字だけの移しはせず、どのファイルにも触らない（place も
-// 呼ばない）。
-func TestMoveCaseOnlyAsideTaken(t *testing.T) {
-	if !caseInsensitive(t) {
-		t.Skip("ファイルシステムが大文字・小文字を区別する（退避の名前を使わない）")
-	}
-	_, from, to := caseEnv(t)
-	aside := AsidePath(from)
-	writeFile(t, aside, "前の退避")
-	if err := Move(from, to, func(p string) error { return os.WriteFile(p, []byte("new"), 0o644) }, noPlace(t)); err == nil {
-		t.Fatal("退避の名前にファイルがあるのに移した")
-	}
-	for p, want := range map[string]string{from: "old", aside: "前の退避"} {
-		if b, err := os.ReadFile(p); err != nil || string(b) != want {
-			t.Errorf("%s = %q, %v; want %q", p, b, err, want)
-		}
-	}
-	assertNoPartials(t, filepath.Dir(from))
 }
 
 // 退避の名前は from と同じフォルダの rajikura-move.<元のファイル名>.orig で、CleanPartials が消す名前に当たらない（起動時の掃除で、
@@ -163,32 +143,37 @@ func sameBytes(a, b string) error {
 	return nil
 }
 
-// 途中で止まった移しの回復（ADR 0039 の表）。どの状態からも、どのファイルも上書きせず、消すのは音声が一致したと確かめた側だけ。
+// recoverWant は、RecoverMove の期待（files はパス → 中身。"" は無いこと）。
+type recoverWant struct {
+	rec   Recovery
+	err   bool
+	files map[string]string
+}
+
+// checkRecover は、RecoverMove の結果とファイルの様子が w のとおりかを確かめる。
+func checkRecover(t *testing.T, rec Recovery, err error, w recoverWant) {
+	t.Helper()
+	if (err != nil) != w.err || err == nil && rec != w.rec {
+		t.Errorf("RecoverMove = %v, %v; want %v, err %v", rec, err, w.rec, w.err)
+	}
+	for p, data := range w.files {
+		b, rerr := os.ReadFile(p)
+		switch {
+		case data == "" && !errors.Is(rerr, os.ErrNotExist):
+			t.Errorf("%s が残っている: %q, %v", filepath.Base(p), b, rerr)
+		case data != "" && (rerr != nil || string(b) != data):
+			t.Errorf("%s = %q, %v; want %q", filepath.Base(p), b, rerr, data)
+		}
+	}
+}
+
+// 途中で止まった移しの回復（ADR 0039 の表のうち、元と移し先が別の実体の行）。どの状態からも、どのファイルも上書きせず、消すのは
+// 音声が一致したと確かめた側だけ。同じ実体の行（大文字・小文字だけの移し）は move_case_windows_test.go。
 func TestRecoverMove(t *testing.T) {
-	type want struct {
-		rec   Recovery
-		err   bool
-		files map[string]string // パス → 中身（"" は無いこと）
-	}
-	check := func(t *testing.T, rec Recovery, err error, w want) {
-		t.Helper()
-		if (err != nil) != w.err || err == nil && rec != w.rec {
-			t.Errorf("RecoverMove = %v, %v; want %v, err %v", rec, err, w.rec, w.err)
-		}
-		for p, data := range w.files {
-			b, rerr := os.ReadFile(p)
-			switch {
-			case data == "" && !errors.Is(rerr, os.ErrNotExist):
-				t.Errorf("%s が残っている: %q, %v", filepath.Base(p), b, rerr)
-			case data != "" && (rerr != nil || string(b) != data):
-				t.Errorf("%s = %q, %v; want %q", filepath.Base(p), b, rerr, data)
-			}
-		}
-	}
 	t.Run("置く前に止まった", func(t *testing.T) {
 		from, to := moveEnv(t)
 		rec, err := RecoverMove(from, to, sameBytes)
-		check(t, rec, err, want{rec: RecoverRedo, files: map[string]string{from: "old", to: ""}})
+		checkRecover(t, rec, err, recoverWant{rec: RecoverRedo, files: map[string]string{from: "old", to: ""}})
 	})
 	t.Run("元を消した後、記録の前に止まった", func(t *testing.T) {
 		from, to := moveEnv(t)
@@ -197,19 +182,19 @@ func TestRecoverMove(t *testing.T) {
 			t.Fatal(err)
 		}
 		rec, err := RecoverMove(from, to, sameBytes)
-		check(t, rec, err, want{rec: RecoverPlaced, files: map[string]string{from: "", to: "old"}})
+		checkRecover(t, rec, err, recoverWant{rec: RecoverPlaced, files: map[string]string{from: "", to: "old"}})
 	})
 	t.Run("置いた後、元を消す前に止まった", func(t *testing.T) {
 		from, to := moveEnv(t)
 		writeFile(t, to, "old")
 		rec, err := RecoverMove(from, to, sameBytes)
-		check(t, rec, err, want{rec: RecoverPlaced, files: map[string]string{from: "", to: "old"}})
+		checkRecover(t, rec, err, recoverWant{rec: RecoverPlaced, files: map[string]string{from: "", to: "old"}})
 	})
 	t.Run("置いた後、元を消す前に止まったが、音声が一致しない", func(t *testing.T) {
 		from, to := moveEnv(t)
 		writeFile(t, to, "別の音声")
 		rec, err := RecoverMove(from, to, sameBytes)
-		check(t, rec, err, want{err: true, files: map[string]string{from: "old", to: "別の音声"}})
+		checkRecover(t, rec, err, recoverWant{err: true, files: map[string]string{from: "old", to: "別の音声"}})
 		if err != nil && !strings.Contains(err.Error(), "両方を残した") {
 			t.Errorf("err = %v（両方を残した理由が無い）", err)
 		}
@@ -220,69 +205,6 @@ func TestRecoverMove(t *testing.T) {
 			t.Fatal(err)
 		}
 		rec, err := RecoverMove(from, to, sameBytes)
-		check(t, rec, err, want{rec: RecoverNoFile, files: map[string]string{from: "", to: ""}})
+		checkRecover(t, rec, err, recoverWant{rec: RecoverNoFile, files: map[string]string{from: "", to: ""}})
 	})
-
-	// ここから下は大文字・小文字だけの移しの途中（区別しないファイルシステムだけで起きる）。
-	insensitive := caseInsensitive(t)
-	caseOnly := func(t *testing.T) (from, to, aside string) {
-		t.Helper()
-		if !insensitive {
-			t.Skip("ファイルシステムが大文字・小文字を区別する（大文字・小文字だけの移しは普通の移しになる）")
-		}
-		_, from, to = caseEnv(t)
-		return from, to, AsidePath(from)
-	}
-	t.Run("同じ実体で退避が無い", func(t *testing.T) {
-		from, to, aside := caseOnly(t)
-		rec, err := RecoverMove(from, to, sameBytes)
-		check(t, rec, err, want{rec: RecoverRedo, files: map[string]string{from: "old", aside: ""}})
-	})
-	t.Run("同じ実体で退避がある", func(t *testing.T) {
-		from, to, aside := caseOnly(t)
-		if err := os.Rename(from, aside); err != nil {
-			t.Fatal(err)
-		}
-		writeFile(t, to, "old")
-		rec, err := RecoverMove(from, to, sameBytes)
-		check(t, rec, err, want{rec: RecoverPlaced, files: map[string]string{to: "old", aside: ""}})
-	})
-	t.Run("同じ実体で退避があるが、音声が一致しない", func(t *testing.T) {
-		from, to, aside := caseOnly(t)
-		if err := os.Rename(from, aside); err != nil {
-			t.Fatal(err)
-		}
-		writeFile(t, to, "別の音声")
-		rec, err := RecoverMove(from, to, sameBytes)
-		check(t, rec, err, want{err: true, files: map[string]string{to: "別の音声", aside: "old"}})
-	})
-	t.Run("退避した後、置く前に止まった", func(t *testing.T) {
-		from, to, aside := caseOnly(t)
-		if err := os.Rename(from, aside); err != nil {
-			t.Fatal(err)
-		}
-		rec, err := RecoverMove(from, to, sameBytes)
-		check(t, rec, err, want{rec: RecoverRedo, files: map[string]string{from: "old", aside: ""}})
-		if got := names(t, filepath.Dir(from)); len(got) != 1 || got[0] != "abc 2026-10-11.m4a" {
-			t.Errorf("退避を元の名前に戻していない: %v", got)
-		}
-	})
-}
-
-// 大文字・小文字だけが違う移しの後、古いフォルダと新しいフォルダが同じ実体なら、片付けない（移したファイルのあるフォルダを消さない）。
-func TestTidyOldFolderSameFolder(t *testing.T) {
-	if !caseInsensitive(t) {
-		t.Skip("ファイルシステムが大文字・小文字を区別する")
-	}
-	station, from, _ := caseEnv(t)
-	if err := os.Remove(from); err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, filepath.Join(station, "abc", FolderImage), "img")
-	if ok, err := TidyOldFolder(filepath.Join(station, "abc"), filepath.Join(station, "ABC")); ok || err != nil {
-		t.Errorf("TidyOldFolder = %v, %v", ok, err)
-	}
-	if b, err := os.ReadFile(filepath.Join(station, "abc", FolderImage)); err != nil || string(b) != "img" {
-		t.Errorf("folder.jpg = %q, %v", b, err)
-	}
 }

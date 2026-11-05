@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/t-seki/rajikura/internal/domain"
-	"github.com/t-seki/rajikura/internal/library"
 )
 
 // caseInsensitiveFS は、t.TempDir() のファイルシステムが名前の大文字・小文字を区別しないか（小文字の名前のファイルが、大文字の名前で
@@ -270,8 +269,53 @@ func TestMoveRecoversAfterFinishFails(t *testing.T) {
 	}
 }
 
-// 移し先の控えのあるジョブを拾ったら、控えの先とファイルの様子から、ADR 0039 の表のとおりに回復する。どの状態からも、どのファイルも
-// 上書きせず、消すのは音声が一致したと確かめた側だけ。
+// putFile は path にフォルダごと data を書く。
+func putFile(t *testing.T, path string, data []byte) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// hasFile は path の中身が want かを確かめる。
+func hasFile(t *testing.T, path string, want []byte) {
+	t.Helper()
+	if b, err := os.ReadFile(path); err != nil || !bytes.Equal(b, want) {
+		t.Errorf("%s = %q, %v; want %q", filepath.Base(path), b, err, want)
+	}
+}
+
+// noFile は path が無いことを確かめる。
+func noFile(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("%s が残っている: %v", filepath.Base(path), err)
+	}
+}
+
+// pickRecovered は、控えのあるジョブを拾わせ、ジョブの保存先が path で、控えと頼みの印が消え、移しの履歴の n 行目（1 から）が result
+// であることを確かめて、その行を返す。
+func pickRecovered(t *testing.T, e *env, show string, id int64, path string, n int, result domain.OutputMoveResult) domain.OutputMove {
+	t.Helper()
+	if !e.runDue() {
+		t.Fatal("控えのあるジョブを拾わない")
+	}
+	got := e.job(show)
+	if got.OutputPath != path || got.MoveTo != "" || !got.MoveRequestedAt.IsZero() {
+		t.Errorf("ジョブ = %+v, want 保存先 %s", got, path)
+	}
+	ms := e.outputMoves(id)
+	if len(ms) != n || ms[n-1].Result != result {
+		t.Fatalf("移しの履歴 = %+v, want %d 行目が %s", ms, n, result)
+	}
+	return ms[n-1]
+}
+
+// 移し先の控えのあるジョブを拾ったら、控えの先とファイルの様子から、ADR 0039 の表のとおりに回復する（元と移し先が別の実体の行。
+// 同じ実体の行は move_recover_windows_test.go）。どの状態からも、どのファイルも上書きせず、消すのは音声が一致したと確かめた側だけ。
 func TestMoveRecoveryStates(t *testing.T) {
 	newName := "ふらっと（新）"
 	type state struct {
@@ -296,49 +340,16 @@ func TestMoveRecoveryStates(t *testing.T) {
 		}
 		return state{e: e, job: j, from: j.OutputPath, to: to, audio: b}
 	}
-	put := func(t *testing.T, path string, data []byte) {
-		t.Helper()
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, data, 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// after は、拾った後のジョブと履歴を確かめる。
 	after := func(t *testing.T, s state, path string, result domain.OutputMoveResult) domain.OutputMove {
 		t.Helper()
-		if !s.e.runDue() {
-			t.Fatal("控えのあるジョブを拾わない")
-		}
-		got := s.e.job(newName)
-		if got.OutputPath != path || got.MoveTo != "" || !got.MoveRequestedAt.IsZero() {
-			t.Errorf("ジョブ = %+v, want 保存先 %s", got, path)
-		}
-		ms := s.e.outputMoves(s.job.ID)
-		if len(ms) != 1 || ms[0].Result != result {
-			t.Fatalf("移しの履歴 = %+v, want %s", ms, result)
-		}
-		return ms[0]
-	}
-	has := func(t *testing.T, path string, want []byte) {
-		t.Helper()
-		if b, err := os.ReadFile(path); err != nil || !bytes.Equal(b, want) {
-			t.Errorf("%s = %q, %v; want %q", filepath.Base(path), b, err, want)
-		}
-	}
-	gone := func(t *testing.T, path string) {
-		t.Helper()
-		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
-			t.Errorf("%s が残っている: %v", filepath.Base(path), err)
-		}
+		return pickRecovered(t, s.e, newName, s.job.ID, path, 1, result)
 	}
 
 	t.Run("置く前に止まった", func(t *testing.T) {
 		s := setup(t)
 		m := after(t, s, s.to, domain.OutputMoved)
-		has(t, s.to, s.audio)
-		gone(t, s.from)
+		hasFile(t, s.to, s.audio)
+		noFile(t, s.from)
 		if m.From != s.from || m.To != s.to {
 			t.Errorf("移しの履歴 = %+v", m)
 		}
@@ -348,30 +359,30 @@ func TestMoveRecoveryStates(t *testing.T) {
 	})
 	t.Run("元を消した後、記録の前に止まった", func(t *testing.T) {
 		s := setup(t)
-		put(t, s.to, s.audio)
+		putFile(t, s.to, s.audio)
 		if err := os.Remove(s.from); err != nil {
 			t.Fatal(err)
 		}
 		after(t, s, s.to, domain.OutputMoved)
-		has(t, s.to, s.audio)
+		hasFile(t, s.to, s.audio)
 		if rw := s.e.media.albumRewriter(); len(rw.rewrites) != 0 {
 			t.Errorf("RewriteAlbum = %+v（付け替えるだけ）", rw.rewrites)
 		}
 	})
 	t.Run("置いた後、元を消す前に止まった", func(t *testing.T) {
 		s := setup(t)
-		put(t, s.to, s.audio)
+		putFile(t, s.to, s.audio)
 		after(t, s, s.to, domain.OutputMoved)
-		has(t, s.to, s.audio)
-		gone(t, s.from)
+		hasFile(t, s.to, s.audio)
+		noFile(t, s.from)
 	})
 	t.Run("置いた後、元を消す前に止まったが、音声が一致しない", func(t *testing.T) {
 		s := setup(t)
 		other := append([]byte("別の音声"), s.audio...)
-		put(t, s.to, other)
+		putFile(t, s.to, other)
 		m := after(t, s, s.from, domain.OutputMoveFailed)
-		has(t, s.from, s.audio)
-		has(t, s.to, other)
+		hasFile(t, s.from, s.audio)
+		hasFile(t, s.to, other)
 		if !strings.Contains(m.Error, "両方を残した") {
 			t.Errorf("Error = %q（両方を残した理由が無い）", m.Error)
 		}
@@ -382,105 +393,6 @@ func TestMoveRecoveryStates(t *testing.T) {
 			t.Fatal(err)
 		}
 		after(t, s, s.from, domain.OutputMoveNoFile)
-		gone(t, s.to)
-	})
-
-	// 大文字・小文字だけの移しの途中（区別しないファイルシステムだけで起きる）。
-	insensitive := caseInsensitiveFS(t)
-	// caseSetup は、名前を flat にして移し終えた後、FLAT に変えて移しの頼みと控えを付けたところ。
-	caseSetup := func(t *testing.T) (e *env, j domain.Job, from, to string, audio []byte) {
-		t.Helper()
-		if !insensitive {
-			t.Skip("ファイルシステムが大文字・小文字を区別する（大文字・小文字だけの移しは普通の移しになる）")
-		}
-		e = newMoveEnv(t)
-		lower := e.renameShow(flatShow, "flat")
-		if !e.runDue() {
-			t.Fatal("1 回目の移しをしない")
-		}
-		j = e.job("flat")
-		audio, err := os.ReadFile(j.OutputPath)
-		if err != nil {
-			t.Fatal(err)
-		}
-		e.renameShow(lower, "FLAT")
-		to = filepath.Join(e.app.Library, "TBSラジオ", "FLAT", "FLAT 2026-10-07.m4a")
-		if err := e.store.SetOutputMoveTo(e.ctx, j.ID, to); err != nil {
-			t.Fatal(err)
-		}
-		return e, j, j.OutputPath, to, audio
-	}
-	caseAfter := func(t *testing.T, e *env, j domain.Job, path string, result domain.OutputMoveResult) domain.OutputMove {
-		t.Helper()
-		if !e.runDue() {
-			t.Fatal("控えのあるジョブを拾わない")
-		}
-		got := e.job("FLAT")
-		if got.OutputPath != path || got.MoveTo != "" || !got.MoveRequestedAt.IsZero() {
-			t.Errorf("ジョブ = %+v, want 保存先 %s", got, path)
-		}
-		ms := e.outputMoves(j.ID)
-		if len(ms) != 2 || ms[1].Result != result {
-			t.Fatalf("移しの履歴 = %+v, want %s", ms, result)
-		}
-		return ms[1]
-	}
-	// files は、番組のフォルダ（古い表記）の m4a と退避の名前。
-	files := func(t *testing.T, e *env) string {
-		t.Helper()
-		var out []string
-		for _, n := range dirNames(t, filepath.Join(e.app.Library, "TBSラジオ", "flat")) {
-			if n != library.FolderImage {
-				out = append(out, n)
-			}
-		}
-		return strings.Join(out, "|")
-	}
-	t.Run("同じ実体で退避が無い", func(t *testing.T) {
-		e, j, _, to, audio := caseSetup(t)
-		caseAfter(t, e, j, to, domain.OutputMoved)
-		has(t, to, audio)
-		if got := files(t, e); got != "FLAT 2026-10-07.m4a" {
-			t.Errorf("番組のフォルダ = %s（頭から移し直して、新しい表記のファイル 1 つ）", got)
-		}
-	})
-	t.Run("同じ実体で退避がある", func(t *testing.T) {
-		e, j, from, to, audio := caseSetup(t)
-		aside := library.AsidePath(from)
-		if err := os.Rename(from, aside); err != nil {
-			t.Fatal(err)
-		}
-		put(t, to, audio)
-		caseAfter(t, e, j, to, domain.OutputMoved)
-		has(t, to, audio)
-		if got := files(t, e); got != "FLAT 2026-10-07.m4a" {
-			t.Errorf("番組のフォルダ = %s（退避を消して、新しい表記のファイル 1 つ）", got)
-		}
-	})
-	t.Run("同じ実体で退避があるが、音声が一致しない", func(t *testing.T) {
-		e, j, from, to, audio := caseSetup(t)
-		aside := library.AsidePath(from)
-		if err := os.Rename(from, aside); err != nil {
-			t.Fatal(err)
-		}
-		other := append([]byte("別の音声"), audio...)
-		put(t, to, other)
-		m := caseAfter(t, e, j, from, domain.OutputMoveFailed)
-		has(t, to, other)
-		has(t, aside, audio)
-		if !strings.Contains(m.Error, "両方を残した") {
-			t.Errorf("Error = %q（両方を残した理由が無い）", m.Error)
-		}
-	})
-	t.Run("退避した後、置く前に止まった", func(t *testing.T) {
-		e, j, from, to, audio := caseSetup(t)
-		if err := os.Rename(from, library.AsidePath(from)); err != nil {
-			t.Fatal(err)
-		}
-		caseAfter(t, e, j, to, domain.OutputMoved)
-		has(t, to, audio)
-		if got := files(t, e); got != "FLAT 2026-10-07.m4a" {
-			t.Errorf("番組のフォルダ = %s（退避を戻して頭から移し直し、新しい表記のファイル 1 つ）", got)
-		}
+		noFile(t, s.to)
 	})
 }
