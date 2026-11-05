@@ -61,9 +61,13 @@ check miss '`timeFree30ExcludedX` は別の名前'
 check miss 'https://example.com/?timeFree30Excluded=1 を開く'
 check miss 'macOS と iPhone と localStorage の話'
 check miss '放送回の除外は設定で決める'
-# 今は当たらない欄（#67 で当たる側に変える前提の例。当たるようにしたら hit に直す）
-check miss '`switchable` が true なら切り替えられる'
-check miss '`createdAt` に作った時刻が入る'
+# 小文字 1 語の欄（一覧にある名前をバッククォートで書いた形だけ当てる）と、{…} の中にだけ出る camelCase
+check hit  '`switchable` が true なら切り替えられる' 'switchable'
+check hit  '`createdAt` に作った時刻が入る' 'createdAt'
+check miss '`kind` と `name` と `state` を書く'
+check miss 'kind と name と state は一般の語'
+check miss 'switchable は地の文なら当てない'
+check miss '[ADR 0036](adr/0036-rerecord-deadline-follows-current-membership-and-own-area.md)'
 # 検証の記録の言い回し
 check hit  '本物の radiko では確かめていない。' '確かめていない'
 check hit  '本物のアカウントで確かめたことはまだ無い。' '確かめたことはまだ無い'
@@ -75,6 +79,19 @@ check hit  '10月14日に計測した値は 3 秒。' '日付と「計測」'
 check miss '`【録音済み】○○・放送日 2026-10-14（42 分）`'
 check miss '保存先を確かめてから保存する。長さを検証する。'
 check miss '日付は 2026-10-14 の形で書く'
+
+# 一覧の古さの検査: 一覧の名前が docs/api.md のバッククォートの中に出ないと、ファイルを渡しても失敗する
+mkdir -p "$tmp/root/scripts" "$tmp/root/docs"
+cp "$here/check-user-docs.sh" "$tmp/root/scripts/"
+printf '%s\n' '`skippable` `retryable` `recordable` `rerecordable` `movable` `truncated` `own`' > "$tmp/root/docs/api.md"
+printf '%s\n' '普通の文' > "$tmp/root/doc.md"
+rc=0
+out=$("$tmp/root/scripts/check-user-docs.sh" "$tmp/root/doc.md" 2>&1) || rc=$?
+if [ "$rc" -eq 1 ] && [[ "$out" == *switchable* ]]; then
+  echo "ok: 一覧の名前が docs/api.md に無いと失敗する"; passed=$((passed + 1))
+else
+  echo "FAIL: 一覧の古さの検査が効かない（rc=$rc）: $out"; fail=1; failed=$((failed + 1))
+fi
 
 echo "通った: $passed 件、失敗: $failed 件"
 if [ "$fail" -ne 0 ]; then exit 1; fi
