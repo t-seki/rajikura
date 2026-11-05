@@ -3,7 +3,8 @@
 // 命名とタグは [Preset] が決める。今あるのは Jellyfin プリセットだけ（ADR 0002。title は、放送回の番組名が
 // 番組の名前と違えば足す。ADR 0007）。置き方は [Store]
 // （partial に書いてから確定、衝突時は別名）と、録り直しで前の保存先を上書きする [StoreOver]（ADR 0025）と、保存したファイルを
-// partial に書き直してから置き換える [Rewrite]（チャプターの書き込み。ADR 0033）と、保存したファイルを今の番組の名前のフォルダ・ファイル名へ
+// partial に書き直してから置き換える [Rewrite]（チャプターの書き込み。ADR 0033。保存先の移しで、移し先が今の保存先と同じときの
+// アルバムの名前の書き換えにも使う。ADR 0039）と、保存したファイルを今の番組の名前のフォルダ・ファイル名へ
 // 移す [Move]（保存先の移し。移し先は [MovedPath]、移した後の古いフォルダの片付けは [TidyOldFolder]、途中で止まった移しの回復は
 // [RecoverMove]。ADR 0039）と [CleanPartials]（起動時の残骸の掃除）。番組のフォルダの画像 folder.jpg は [StoreFolderImage] が置く（保存のたびに上書き）。
 package library
@@ -297,7 +298,8 @@ var ErrNoFile = errors.New("library: 保存先にファイルが無い")
 // （MaxPathNameBytes）に掛からない。
 const rewritePartialPrefix = "rajikura-chapters."
 
-// Rewrite は、保存したファイル path を、write が書いたもので置き換える（チャプターの書き込み。ADR 0033）。write には path と同じ
+// Rewrite は、保存したファイル path を、write が書いたもので置き換える（チャプターの書き込み。ADR 0033。保存先の移しで、移し先が
+// 今の保存先と同じときのアルバムの名前の書き換え。ADR 0039）。write には path と同じ
 // フォルダの partial（*.partial.m4a。起動時に [CleanPartials] が消す）のパスを渡すので、そこへ書かせる（書いた中身の確かめも
 // write の中で行う）。write が成功したら、partial を path と同じ許可にしてリネームで置き換え、失敗したら partial を消して path を
 // そのまま残す。path が無い（通常のファイルでない）なら、書かずに ErrNoFile を包んだエラーを返す。
