@@ -205,7 +205,7 @@ export function Shell({ onLogout, version }: { onLogout: () => Promise<void>; ve
         ))}
         {/* ログアウトはナビの項目（NavLink）にしない。版の上に置く */}
         <Button variant="default" size="xs" mt="auto" mx="sm" onClick={() => {
-            // 狭い画面ではサイドメニューが Main を覆うので、失敗の Alert が隠れないよう閉じる
+            // 押したらメニューを閉じてから、失敗の Alert を見せる（狭い画面でメニューが Main を覆うかは未確認）
             close();
             doLogout();
           }}

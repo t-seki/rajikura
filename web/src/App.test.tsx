@@ -328,7 +328,7 @@ describe("App", () => {
     expect(within(screen.getByRole("navigation", { name: "ナビゲーション" })).queryByRole("link", { name: "ログアウト" })).toBeNull();
   });
 
-  it("サイドメニューの「ログアウト」を押すと、メニューを閉じる（失敗の Alert が隠れないように）", async () => {
+  it("サイドメニューの「ログアウト」を押すと、メニューを閉じる。失敗したら Alert を出す", async () => {
     mockApi({ "GET /api/me": () => ({ status: 200 }), ...showsRoutes, "POST /api/logout": () => ({ status: 500 }) });
     const user = userEvent.setup();
     renderApp();
