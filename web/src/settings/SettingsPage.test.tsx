@@ -88,7 +88,7 @@ afterEach(() => {
 });
 
 describe("SettingsPage", () => {
-  it("保存先・radiko の会員種別・通知・Jellyfin との連携・バックアップ・詳しい設定の 6 つの区切りを出す", async () => {
+  it("保存先・radiko の会員種別・通知・Jellyfin との連携・バックアップ・詳しい設定・Web UI のパスワードの 7 つの区切りを出す", async () => {
     mockApi(base);
     renderPage();
     expect(await screen.findByRole("region", { name: "保存先" })).toBeInTheDocument();
@@ -340,6 +340,13 @@ describe("SettingsPage", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "読めない" }), { status: 500 })));
     renderPage();
     expect(await screen.findByRole("alert")).toHaveTextContent("読めない");
+  });
+
+  it("設定を読めなくても、「Web UI のパスワード」の区切りは出す", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "読めない" }), { status: 500 })));
+    renderPage();
+    expect(await screen.findByRole("alert")).toHaveTextContent("読めない");
+    expect(screen.getByRole("region", { name: "Web UI のパスワード" })).toBeInTheDocument();
   });
 
   it("復号できない秘密は、そのことを欄に出す", async () => {

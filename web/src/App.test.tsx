@@ -328,6 +328,19 @@ describe("App", () => {
     expect(within(screen.getByRole("navigation", { name: "ナビゲーション" })).queryByRole("link", { name: "ログアウト" })).toBeNull();
   });
 
+  it("サイドメニューの「ログアウト」を押すと、メニューを閉じる（失敗の Alert が隠れないように）", async () => {
+    mockApi({ "GET /api/me": () => ({ status: 200 }), ...showsRoutes, "POST /api/logout": () => ({ status: 500 }) });
+    const user = userEvent.setup();
+    renderApp();
+    const burger = await screen.findByRole("button", { name: "メニュー" });
+    await user.click(burger);
+    const isOpen = () => burger.matches("[data-opened]") || burger.querySelector("[data-opened]") !== null;
+    expect(isOpen()).toBe(true);
+    await user.click(screen.getByRole("button", { name: "ログアウト" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("ログアウトできなかった");
+    expect(isOpen()).toBe(false);
+  });
+
   describe("設定の画面の「Web UI のパスワード」", () => {
     const settingsRoutes = { "GET /api/settings": () => ({ status: 200, body: { settings: {}, secrets: {} } }) };
 

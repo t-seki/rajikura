@@ -28,25 +28,36 @@ export function SettingsPage({ onChanged }: { onChanged: (view: SettingsView) =>
     [onChanged],
   );
 
-  if (!view) {
-    return error ? (
-      <Alert color="red" role="alert">
-        {error}
-      </Alert>
-    ) : null;
-  }
+  // 設定を読めない間（読み込み中・失敗）も、パスワードの変更は設定とは別の API なので、最後の区切りは出す。
+  // 読み込みが終わってもフォームが作り直されないよう、最後の区切りは同じ位置に置く。
   return (
     <Stack>
-      <LibrarySection view={view} onChanged={changed} />
-      <MembershipSection view={view} onChanged={changed} />
-      <NotifySection view={view} onChanged={changed} />
-      <JellyfinSection view={view} onChanged={changed} />
-      <BackupSection view={view} onChanged={changed} />
-      <AdvancedSection view={view} onChanged={changed} />
-      <Section title="Web UI のパスワード" error={null}>
-        <ChangePasswordForm />
-      </Section>
+      {view ? (
+        <>
+          <LibrarySection view={view} onChanged={changed} />
+          <MembershipSection view={view} onChanged={changed} />
+          <NotifySection view={view} onChanged={changed} />
+          <JellyfinSection view={view} onChanged={changed} />
+          <BackupSection view={view} onChanged={changed} />
+          <AdvancedSection view={view} onChanged={changed} />
+        </>
+      ) : (
+        error && (
+          <Alert color="red" role="alert">
+            {error}
+          </Alert>
+        )
+      )}
+      <PasswordSection />
     </Stack>
+  );
+}
+
+function PasswordSection() {
+  return (
+    <Section title="Web UI のパスワード" error={null}>
+      <ChangePasswordForm />
+    </Section>
   );
 }
 
