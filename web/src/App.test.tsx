@@ -304,62 +304,87 @@ describe("App", () => {
     renderApp();
     expect(await screen.findByRole("button", { name: "ログアウト" })).toBeInTheDocument();
     // ナビは「番組表」「番組」「キーワード」「ジョブ」「通知」「設定」「API トークン」の順
-    expect(screen.getByRole("navigation", { name: "ナビゲーション" }).textContent).toBe("番組表番組キーワードジョブ通知設定API トークン");
+    expect(within(screen.getByRole("navigation", { name: "ナビゲーション" })).getAllByRole("link").map((l) => l.textContent)).toEqual([
+      "番組表",
+      "番組",
+      "キーワード",
+      "ジョブ",
+      "通知",
+      "設定",
+      "API トークン",
+    ]);
     // 最初に開くのは番組表
     expect(await screen.findByRole("heading", { name: "番組表" })).toBeInTheDocument();
   });
 
-  describe("ヘッダーの「パスワードを変える」", () => {
+  it("ヘッダーに「パスワードを変える」と「ログアウト」のボタンは無く、ログアウトはサイドメニューにある", async () => {
+    mockApi({ "GET /api/me": () => ({ status: 200 }), ...showsRoutes });
+    renderApp();
+    const logout = await screen.findByRole("button", { name: "ログアウト" });
+    expect(screen.queryByRole("button", { name: "パスワードを変える" })).not.toBeInTheDocument();
+    expect(logout.closest("header")).toBeNull();
+    expect(logout.closest("nav")).not.toBeNull();
+    // ナビの項目（リンク）にはしない
+    expect(within(screen.getByRole("navigation", { name: "ナビゲーション" })).queryByRole("link", { name: "ログアウト" })).toBeNull();
+  });
+
+  describe("設定の画面の「Web UI のパスワード」", () => {
+    const settingsRoutes = { "GET /api/settings": () => ({ status: 200, body: { settings: {}, secrets: {} } }) };
+
     async function openAndFill(current: string, password: string, again: string) {
       const user = userEvent.setup();
+      window.history.replaceState(null, "", "/settings");
       renderApp();
-      await user.click(await screen.findByRole("button", { name: "パスワードを変える" }));
-      const dialog = await screen.findByRole("dialog", { name: "パスワードを変える" });
-      await user.type(within(dialog).getByLabelText(/今のパスワード/), current);
-      const [pw, confirm] = within(dialog).getAllByLabelText(/新しいパスワード/);
+      const region = await screen.findByRole("region", { name: "Web UI のパスワード" });
+      await user.type(within(region).getByLabelText(/今のパスワード/), current);
+      const [pw, confirm] = within(region).getAllByLabelText(/新しいパスワード/);
       await user.type(pw, password);
       await user.type(confirm, again);
-      await user.click(within(dialog).getByRole("button", { name: "パスワードを変える" }));
-      return dialog;
+      await user.click(within(region).getByRole("button", { name: "パスワードを変える" }));
+      return region;
     }
 
-    it("ログアウトの横のボタンからダイアログを開いて、パスワードを変えられる", async () => {
+    it("ダイアログではなく区切りの中から、パスワードを変えられる", async () => {
       let sent: unknown;
       mockApi({
         "GET /api/me": () => ({ status: 200 }),
         ...showsRoutes,
+        ...settingsRoutes,
         "PUT /api/password": (init) => {
           sent = JSON.parse(String(init?.body));
           return { status: 200, body: { changed: true } };
         },
       });
-      const dialog = await openAndFill("old", "new", "new");
-      expect(await within(dialog).findByRole("status")).toHaveTextContent("パスワードを変えた");
+      const region = await openAndFill("old", "new", "new");
+      expect(await within(region).findByRole("status")).toHaveTextContent("パスワードを変えた");
       expect(sent).toEqual({ current: "old", password: "new" });
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
       // ナビの項目にはしない
       expect(screen.getByRole("navigation", { name: "ナビゲーション" }).textContent).not.toContain("パスワード");
     });
 
-    it("今のパスワードが違えば（403）、ダイアログに理由を出す", async () => {
+    it("今のパスワードが違えば（403）、区切りに理由を出す", async () => {
       mockApi({
         "GET /api/me": () => ({ status: 200 }),
         ...showsRoutes,
+        ...settingsRoutes,
         "PUT /api/password": () => ({ status: 403, body: { error: "今のパスワードが違う" } }),
       });
-      const dialog = await openAndFill("bad", "new", "new");
-      expect(await within(dialog).findByRole("alert")).toHaveTextContent("今のパスワードが違う");
+      const region = await openAndFill("bad", "new", "new");
+      expect(await within(region).findByRole("alert")).toHaveTextContent("今のパスワードが違う");
     });
 
-    it("通信に失敗したら、ダイアログに通信を確かめるよう出す", async () => {
+    it("通信に失敗したら、区切りに通信を確かめるよう出す", async () => {
       mockApi({
         "GET /api/me": () => ({ status: 200 }),
         ...showsRoutes,
+        ...settingsRoutes,
         "PUT /api/password": () => {
           throw new TypeError("Failed to fetch");
         },
       });
-      const dialog = await openAndFill("old", "new", "new");
-      expect(await within(dialog).findByRole("alert")).toHaveTextContent("パスワードを変えられなかった。通信を確かめてほしい");
+      const region = await openAndFill("old", "new", "new");
+      expect(await within(region).findByRole("alert")).toHaveTextContent("パスワードを変えられなかった。通信を確かめてほしい");
     });
   });
 

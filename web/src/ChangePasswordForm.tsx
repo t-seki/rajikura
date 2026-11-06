@@ -2,7 +2,7 @@ import { Alert, Button, PasswordInput, Stack } from "@mantine/core";
 import { useState } from "react";
 import { ApiError, changePassword } from "./api";
 
-/** Web UI のパスワードを変えるフォーム（ヘッダーの「パスワードを変える」のダイアログの中身）。今のパスワードを入れさせる（PUT /api/password）。 */
+/** Web UI のパスワードを変えるフォーム（設定の画面の区切り「Web UI のパスワード」の中身）。今のパスワードを入れさせる（PUT /api/password）。 */
 export function ChangePasswordForm() {
   const [current, setCurrent] = useState("");
   const [password, setPassword] = useState("");

@@ -97,6 +97,11 @@ describe("SettingsPage", () => {
     expect(screen.getByRole("region", { name: "Jellyfin との連携" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "バックアップ" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "詳しい設定" })).toBeInTheDocument();
+    // 最後の区切りは、ダイアログではなくフォームをそのまま出し、「保存」は付けない
+    const pw = screen.getByRole("region", { name: "Web UI のパスワード" });
+    expect(within(pw).getByLabelText(/今のパスワード/)).toBeInTheDocument();
+    expect(within(pw).getByRole("button", { name: "パスワードを変える" })).toBeInTheDocument();
+    expect(within(pw).queryByRole("button", { name: "保存" })).toBeNull();
     // プリセットは画面に出さない
     expect(screen.queryByText(/プリセット/)).toBeNull();
   });
