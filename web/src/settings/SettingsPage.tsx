@@ -3,10 +3,11 @@ import { useCallback, useEffect, useState } from "react";
 import { notifySuccess } from "../ui/toast";
 import { BackupApiError, downloadBackup } from "./backupApi";
 import { formatDateTime } from "../jobs/format";
+import { ChangePasswordForm } from "../ChangePasswordForm";
 import { FolderPicker } from "./FolderPicker";
 import { fetchSettings, patchSettings, secretLabels, SettingsApiError, type SettingsValues, type SettingsView } from "./settingsApi";
 
-// 設定の画面。区切りは「保存先」「radiko の会員種別」「通知」「Jellyfin との連携」「バックアップ」「詳しい設定」。区切りごとに保存し、
+// 設定の画面。区切りは「保存先」「radiko の会員種別」「通知」「Jellyfin との連携」「バックアップ」「詳しい設定」「Web UI のパスワード」。「Web UI のパスワード」は ChangePasswordForm をそのまま出し、「保存」は付けない（フォームのボタンで送る）。ほかの区切りは区切りごとに保存し、
 // 保存したらすぐに効く（番組表のキャッシュの大きさだけは、serve の再起動まで効かない）。「radiko の会員種別」は会員種別と、
 // 非会員でないときの radiko のログインに使うログイン情報（メールアドレスとパスワード）を保存する。「バックアップ」は自動のバックアップの取る先と残す数を保存し、最後に自動で取れた日時を出す。DB の写しをダウンロードもさせる。
 // 秘密の欄は値を返さない。空のまま保存したら変えず、「消す」を押したときだけ空の文字列を送る。
@@ -27,22 +28,36 @@ export function SettingsPage({ onChanged }: { onChanged: (view: SettingsView) =>
     [onChanged],
   );
 
-  if (!view) {
-    return error ? (
-      <Alert color="red" role="alert">
-        {error}
-      </Alert>
-    ) : null;
-  }
+  // 設定を読めない間（読み込み中・失敗）も、パスワードの変更は設定とは別の API なので、最後の区切りは出す。
+  // 読み込みが終わってもフォームが作り直されないよう、最後の区切りは同じ位置に置く。
   return (
     <Stack>
-      <LibrarySection view={view} onChanged={changed} />
-      <MembershipSection view={view} onChanged={changed} />
-      <NotifySection view={view} onChanged={changed} />
-      <JellyfinSection view={view} onChanged={changed} />
-      <BackupSection view={view} onChanged={changed} />
-      <AdvancedSection view={view} onChanged={changed} />
+      {view ? (
+        <>
+          <LibrarySection view={view} onChanged={changed} />
+          <MembershipSection view={view} onChanged={changed} />
+          <NotifySection view={view} onChanged={changed} />
+          <JellyfinSection view={view} onChanged={changed} />
+          <BackupSection view={view} onChanged={changed} />
+          <AdvancedSection view={view} onChanged={changed} />
+        </>
+      ) : (
+        error && (
+          <Alert color="red" role="alert">
+            {error}
+          </Alert>
+        )
+      )}
+      <PasswordSection />
     </Stack>
+  );
+}
+
+function PasswordSection() {
+  return (
+    <Section title="Web UI のパスワード" error={null}>
+      <ChangePasswordForm />
+    </Section>
   );
 }
 

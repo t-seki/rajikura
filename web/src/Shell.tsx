@@ -1,4 +1,4 @@
-import { Alert, AppShell, Badge, Burger, Button, Group, Image, Modal, NavLink, Text, Title } from "@mantine/core";
+import { Alert, AppShell, Badge, Burger, Button, Group, Image, NavLink, Text, Title } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
@@ -8,7 +8,6 @@ import { KeywordsPage } from "./keywords/KeywordsPage";
 import { JobsPage } from "./jobs/JobsPage";
 import { GuidePage } from "./guide/GuidePage";
 import { TokensPage } from "./tokens/TokensPage";
-import { ChangePasswordForm } from "./ChangePasswordForm";
 import { TrayLinkPage } from "./tray/TrayLinkPage";
 import { NotificationsPage } from "./notifications/NotificationsPage";
 import { SettingsPage } from "./settings/SettingsPage";
@@ -99,8 +98,6 @@ const statusInterval = 60_000;
 // version は /api/me の版。空ならナビに出さない。
 export function Shell({ onLogout, version }: { onLogout: () => Promise<void>; version: string }) {
   const [opened, { toggle, close }] = useDisclosure();
-  // ヘッダーの「パスワードを変える」で開くダイアログ（ナビの項目にはしない）。
-  const [passwordOpened, { open: openPassword, close: closePassword }] = useDisclosure();
   const pathname = usePathname();
   const search = useSearch();
   const go = useGo();
@@ -182,14 +179,6 @@ export function Shell({ onLogout, version }: { onLogout: () => Promise<void>; ve
               <Title order={3}>rajikura</Title>
             </Group>
           </Group>
-          <Group gap="xs" wrap="nowrap">
-            <Button variant="default" size="xs" onClick={openPassword}>
-              パスワードを変える
-            </Button>
-            <Button variant="default" size="xs" onClick={doLogout}>
-              ログアウト
-            </Button>
-          </Group>
         </Group>
       </AppShell.Header>
       <AppShell.Navbar p="xs" component="nav" aria-label="ナビゲーション">
@@ -214,15 +203,21 @@ export function Shell({ onLogout, version }: { onLogout: () => Promise<void>; ve
             }}
           />
         ))}
+        {/* ログアウトはナビの項目（NavLink）にしない。版の上に置く */}
+        <Button variant="default" size="xs" mt="auto" mx="sm" onClick={() => {
+            // 押したらメニューを閉じてから、失敗の Alert を見せる（狭い画面でメニューが Main を覆うかは未確認）
+            close();
+            doLogout();
+          }}
+        >
+          ログアウト
+        </Button>
         {version && (
-          <Text size="xs" c="dimmed" mt="auto" px="sm" aria-label="rajikura の版">
+          <Text size="xs" c="dimmed" mt="sm" px="sm" aria-label="rajikura の版">
             {version}
           </Text>
         )}
       </AppShell.Navbar>
-      <Modal opened={passwordOpened} onClose={closePassword} title="パスワードを変える">
-        <ChangePasswordForm />
-      </Modal>
       <AppShell.Main>
         {error && (
           <Alert color="red" role="alert" mb="md">
