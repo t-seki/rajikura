@@ -357,7 +357,7 @@ export function JobDetailModal({ id, onClose, onChanged }: Props) {
                     </Text>
                     <Text size="xs" c="dimmed" style={{ overflowWrap: "anywhere" }}>
                       {m.from}
-                      {m.to && ` → ${m.to}`}
+                      {m.to && m.to !== m.from && ` → ${m.to}`}
                     </Text>
                     {m.error && (
                       <Text size="xs" c="red" style={{ overflowWrap: "anywhere" }}>
