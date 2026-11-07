@@ -17,15 +17,15 @@ import (
 //
 // 会員種別が非会員でないとき、Client.Account が返すログイン情報で radiko のログイン（POST /v4/api/member/login。本文は
 // mail と pass）を行い、応答の JSON の radiko_session を auth2 に付けて認証する。手順は、公開されている第三者のスクリプト
-// （https://github.com/uru2/rec_radiko_ts の rec_radiko_ts.sh）に書かれている範囲で作った。radiko 自身の挙動は、本物の
-// アカウントでは確かめていない（未確認）。
+// （https://github.com/uru2/rec_radiko_ts の rec_radiko_ts.sh）に書かれている範囲で作った。本物のアカウント（ダブルプラン）では、
+// radiko のログインが通ることを確かめた。タイムフリー30 単体など、ほかの会員種別のアカウントでは確かめていない（未確認）。
 //
 //   - radiko のログインは、起動の後に初めて認証が要るとき（Authenticate）に行う。得たセッションはメモリにだけ持ち、録音と
 //     番組表で使い回す。radiko がセッションを拒んだとき（セッションを付けた認証か、そのトークンでの取得が 401・403 だったとき。
-//     本物の radiko で拒まれる応答は確かめていない）だけ、radiko のログインをし直す。ResetLogin で捨てる。ログアウトの API は呼ばない。
+//     取得の途中で拒まれる応答の形は確かめていない）だけ、radiko のログインをし直す。ResetLogin で捨てる。ログアウトの API は呼ばない。
 //   - 会員種別かログイン情報を保存するときは、保存の前に TryLogin で 1 回だけ radiko のログインを試す（ロックを持たず、OnLogin も
 //     呼ばない）。通ったら、保存した後に AdoptLogin でそのセッションを持たせ、結果を OnLogin に渡す（次の認証ではログインし直さない）。
-//   - radiko が radiko のログインを拒んだら（応答が 200 でも 5xx でもない、または radiko_session が空。拒む応答の形は確かめていない）、
+//   - radiko が radiko のログインを拒んだら（応答が 200 でも 5xx でもない、または radiko_session が空。保存せずに status 401 で拒まれたことが 1 回ある。理由は未確認で、ほかの拒む応答の形は確かめていない）、
 //     非会員として認証する。ResetLogin か AdoptLogin が呼ばれるまで、radiko のログインをし直さない。
 //   - ネットワークの失敗と 5xx は、今までの一時的な失敗（ErrTemporary）として返す。次の認証で、もう一度 radiko のログインをする。
 //   - radiko のログインを試すたびに、結果を Client.OnLogin に渡す（呼び出し側が、サービスの異常の始まりと復旧を書く）。TryLogin は
