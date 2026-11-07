@@ -49,7 +49,7 @@ mv rajikura_*_linux_* ~/.local/bin/rajikura      # PATH の通った場所へ。
 rajikura version
 ```
 
-Windows では `rajikura_<タグ>_windows_amd64.exe` を `rajikura.exe` に改名して PATH の通った場所へ置く（`chmod` は要らない）。macOS の配布物は無い。Linux の arm64 のバイナリは、arm64 の実機では動かして確かめていない（未確認）。
+Windows では `rajikura_<タグ>_windows_amd64.exe` を `rajikura.exe` に改名して PATH の通った場所へ置く（`chmod` は要らない）。macOS の配布物は無い。
 
 ## 初めて入れるとき
 
