@@ -12,13 +12,16 @@ import {
   Text,
   TextInput,
 } from "@mantine/core";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { stationLabel } from "../keywords/keywordsApi";
 import { deleteOnce, getShow, suggestShowName, type Once, type Show, type Station } from "./api";
 import {
   airingStartLabel,
   broadcastClockErrors,
   fromBroadcastClock,
   groupWeekly,
+  notAreaFreeShowMessage,
+  outOfAreaStations,
   toBroadcastClock,
   ungroupWeekly,
   weekdayNames,
@@ -61,7 +64,8 @@ function StationInput({
       />
     );
   }
-  const data = stations.map((s) => ({ value: s.id, label: `${s.name}（${s.id}）` }));
+  // 自分のエリアの外の局には局のエリアの名前を添える（stationLabel。例: 「MBSラジオ（大阪府）（MBS）」）。
+  const data = stations.map((s) => ({ value: s.id, label: `${stationLabel(s)}（${s.id}）` }));
   if (value && !stations.some((s) => s.id === value)) data.push({ value, label: value });
   return (
     <Select
@@ -75,10 +79,30 @@ function StationInput({
   );
 }
 
-/** 番組の 1 回の予約の一覧と、消すボタン。無効なら、当たらないことを知らせる。 */
-function OnceList({ showName, enabled, stations }: { showName: string; enabled: boolean; stations: Station[] | null }) {
+/**
+ * 番組の 1 回の予約の一覧と、消すボタン。無効なら、当たらないことを知らせる。onItems があれば、読んだ・消した後の
+ * 1 回の予約を渡す（フォームが、自分のエリアの外の局の予約を持つかを決める）。
+ */
+function OnceList({
+  showName,
+  enabled,
+  stations,
+  onItems,
+}: {
+  showName: string;
+  enabled: boolean;
+  stations: Station[] | null;
+  onItems?: (items: Once[]) => void;
+}) {
   const [items, setItems] = useState<Once[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // 親が毎回作り直す関数でも、読んだ・消したときだけ渡す。
+  const onItemsRef = useRef(onItems);
+  onItemsRef.current = onItems;
+  useEffect(() => {
+    if (items) onItemsRef.current?.(items);
+  }, [items]);
 
   useEffect(() => {
     let live = true;
@@ -151,15 +175,21 @@ function OnceList({ showName, enabled, stations }: { showName: string; enabled: 
   );
 }
 
-/** 番組を作る・編集するフォーム。initial があれば編集（名前の変更を知らせる）、無ければ作成（番組表から名前を探せる）。 */
+/**
+ * 番組を作る・編集するフォーム。initial があれば編集（名前の変更を知らせる）、無ければ作成（番組表から名前を探せる）。
+ * areaFree は会員種別がエリアフリー・ダブルプランか（null なら分からない）。false のとき、毎週と 1 回の予約に自分のエリアの外の局が
+ * あれば、その局の放送回には当てない旨を出す（予約は断らない。キーワードのフォームと同じ）。
+ */
 export function ShowForm({
   initial,
   stations,
+  areaFree = null,
   onSubmit,
   onCancel,
 }: {
   initial?: Show;
   stations: Station[] | null;
+  areaFree?: boolean | null;
   onSubmit: (show: Show) => Promise<void>;
   onCancel: () => void;
 }) {
@@ -180,6 +210,10 @@ export function ShowForm({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [suggest, setSuggest] = useState<{ index: number; text: string; color: string } | null>(null);
+  // 1 回の予約の局（OnceList が読んだもの）。作るときは無い。
+  const [onceStations, setOnceStations] = useState<string[]>([]);
+  const outOfArea =
+    areaFree === false ? outOfAreaStations([...cards.map((c) => c.station), ...onceStations], stations) : [];
 
   const renamed = !creating && show.name.trim() !== initial.name;
 
@@ -449,7 +483,20 @@ export function ShowForm({
           </Button>
         </Group>
 
-        {!creating && <OnceList showName={initial.name} enabled={show.enabled} stations={stations} />}
+        {!creating && (
+          <OnceList
+            showName={initial.name}
+            enabled={show.enabled}
+            stations={stations}
+            onItems={(items) => setOnceStations(items.map((o) => o.stationId))}
+          />
+        )}
+
+        {outOfArea.length > 0 && (
+          <Alert color="yellow" role="status" data-testid="not-area-free">
+            {notAreaFreeShowMessage(outOfArea)}
+          </Alert>
+        )}
 
         <Group justify="flex-end">
           <Button variant="default" onClick={onCancel}>

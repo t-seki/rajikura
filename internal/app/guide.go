@@ -114,20 +114,18 @@ func stationSet(ss []AreaStation) map[string]bool {
 // 付けたものを返す（airings は書き換えない）。印は、局が自分のエリア（radiko の認証で得たエリア）の同じ放送日の局一覧
 // （AreaGuide.AreaAirings）に無ければ立てる。判定は展開のたびに、その時点の自分のエリアで行う（展開が触るジョブの印は、
 // 展開で書き直る。展開が触らないジョブの付け直しは、ここではしない）。
-// 会員種別がエリアフリー・ダブルプランでなければ、自分のエリアの局しか録らないので、局一覧を取らずに印を立てない。
+// 会員種別がエリアフリー・ダブルプランでなければ、自分のエリアの局しか録らないので、印を立てない（自分のエリアの外の局に
+// 予約を当てないかは unrecordableOutOfArea が決める）。
 // AreaGuide が無いとき（テストの組み立て）も立てない。自分のエリアの局一覧を取れない・空なら、印を決められないのでエラー。
 func (a *App) markOutOfArea(ctx context.Context, station string, day domain.BroadcastDay, airings []domain.Airing) ([]domain.Airing, error) {
 	if !a.membership().AreaFree() || a.AreaGuide == nil {
 		return airings, nil
 	}
-	ss, err := a.AreaGuide.AreaAirings(ctx, day)
+	in, err := a.inOwnArea(ctx, station, day)
 	if err != nil {
-		return nil, fmt.Errorf("自分のエリアの局一覧を取れない: %w", err)
+		return nil, err
 	}
-	if len(ss) == 0 {
-		return nil, errors.New("自分のエリアの局一覧が空")
-	}
-	if stationSet(ss)[station] {
+	if in {
 		return airings, nil
 	}
 	out := slices.Clone(airings)
@@ -135,6 +133,35 @@ func (a *App) markOutOfArea(ctx context.Context, station string, day domain.Broa
 		out[i].OutOfArea = true
 	}
 	return out, nil
+}
+
+// unrecordableOutOfArea は、展開する局 station の放送日 day の放送回に、番組の予約（毎週と 1 回）を当てないかを返す（#32）。
+// 会員種別（設定で選んだもの。App.membership）がエリアフリー・ダブルプランでなく、局が自分のエリアの外の局（自分のエリアの
+// 同じ放送日の局一覧に無い。markOutOfArea と同じ判定）なら当てない（録れないため）。radiko がログインを拒んで非会員として
+// 認証していても、選んだ会員種別がエリアフリー・ダブルプランなら当てる。AreaGuide が無いとき（テストの組み立て）は判定しない
+// （当てる）。自分のエリアの局一覧を取れない・空なら、決められないのでエラー（その局・放送日の展開を失敗にする）。
+func (a *App) unrecordableOutOfArea(ctx context.Context, station string, day domain.BroadcastDay) (bool, error) {
+	if a.membership().AreaFree() || a.AreaGuide == nil {
+		return false, nil
+	}
+	in, err := a.inOwnArea(ctx, station, day)
+	if err != nil {
+		return false, err
+	}
+	return !in, nil
+}
+
+// inOwnArea は、局 station が自分のエリアの放送日 day の局一覧（AreaGuide.AreaAirings）に入っているか。
+// 局一覧を取れない・空ならエラー。
+func (a *App) inOwnArea(ctx context.Context, station string, day domain.BroadcastDay) (bool, error) {
+	ss, err := a.AreaGuide.AreaAirings(ctx, day)
+	if err != nil {
+		return false, fmt.Errorf("自分のエリアの局一覧を取れない: %w", err)
+	}
+	if len(ss) == 0 {
+		return false, errors.New("自分のエリアの局一覧が空")
+	}
+	return stationSet(ss)[station], nil
 }
 
 // atoi は数字でなければ 0 を返す（読めない値は 0（聴ける）とみなす）。

@@ -1241,6 +1241,8 @@ func (a *App) expandTargetDay(ctx context.Context, t expandTarget) error {
 // refreshBeforeFirstAttempt から）。番組の一覧は、番組表を取った後に
 // store から読み直す（番組表を取っている間に番組が変わっても、変わった後の番組で展開する）。
 // 放送回への当たり方（今日より前の放送日の扱い）は、展開するときの今の時刻で決める（domain.ExpandInput.Now。domain.Show.Hit）。
+// 会員種別がエリアフリー・ダブルプランでなく、局が自分のエリアの外の局なら、この局の予約を外した番組の一覧で展開する
+// （unrecordableOutOfArea・domain.WithoutStation。自分のエリアの局一覧を取れなければ、展開を失敗にする）。
 // rajikura が録るか録らないかを決めたら、ジョブの出来事として通知する（人が決めたジョブは展開が状態を変えないので、人の操作では
 // 通知しない）。確定の前に録音予定（新しく作ったジョブを含む）を録らない予定にしたら notifySkipPlanned、録らない予定を
 // 録音予定に戻したら notifyUnskipped、確定した録らなかった（今日より前の放送日で作った、または最初の試行の時刻を過ぎた展開で
@@ -1261,9 +1263,18 @@ func (a *App) syncDay(ctx context.Context, station string, day domain.BroadcastD
 	if airings, err = a.markOutOfArea(ctx, station, day, airings); err != nil {
 		return err
 	}
+	// エリアフリー・ダブルプランでない会員種別では、自分のエリアの外の局の放送回に番組の予約を当てない（録れないため。#32）。
+	// 番組は残し、この局の予約だけを外して展開する（展開が触るジョブはこの局の放送回を外され、当たらない日も出ない）。
+	unrecordable, err := a.unrecordableOutOfArea(ctx, station, day)
+	if err != nil {
+		return err
+	}
 	shows, err := a.Store.ListShows(ctx)
 	if err != nil {
 		return err
+	}
+	if unrecordable {
+		shows = domain.WithoutStation(shows, station)
 	}
 	in := domain.ExpandInput{
 		Shows:      shows,

@@ -85,7 +85,7 @@ rajikura の設定（保存先・通知先・会員種別など、動かし方�
 会員種別は、radiko と契約している会員種別を人が選ぶ（[ADR 0034](adr/0034-radiko-login-tried-when-saving.md)）。rajikura は radiko の応答から会員種別を決めない。
 
 - `free` 以外なら、rajikura は radiko のログイン情報（`radiko.mail` と `radiko.password`）で radiko のログインを行い、会員として録る。
-- エリアフリー（`areafree`・`double`）では、自分のエリアの外の局も録れる。
+- エリアフリー（`areafree`・`double`）では、自分のエリアの外の局も録れる。ほかの会員種別（`free`・`timefree30`）では録れないので、自分のエリアの外の局の放送回には番組の予約もキーワードも当てない（[shows.md の「自分のエリアの外の局の予約」](shows.md#自分のエリアの外の局の予約)・[shows.md の「キーワード」](shows.md#キーワード)）。
 - タイムフリー30（`timefree30`・`double`）では、放送から 30 日までの放送回を録れる。
 - `free` 以外なのにログイン情報がそろっていない保存（ログイン情報を消す保存を含む）は、エラーにして何も当てない。ログイン情報を消すときは、`membership` を `free` にして一緒に送る。
 

@@ -397,14 +397,30 @@ func TestClientConnection(t *testing.T) {
 	}
 }
 
-// fakeGuide は serve が使う radiko の偽のサーバー（局情報と番組表だけ）。
-// 3 日後の放送日にだけ「テスト番組」を返す。
+// fakeGuide は serve が使う radiko の偽のサーバー（局情報と番組表と、自分のエリアを知る認証だけ）。
+// 3 日後の放送日にだけ「テスト番組」を返す。自分のエリアは JP13 で、TBS はどの放送日も自分のエリアの局
+// （非会員は自分のエリアの外の局に予約を当てないので、展開が自分のエリアの局一覧を取る。#32）。
 func fakeGuide(t *testing.T, day domain.BroadcastDay) *httptest.Server {
 	t.Helper()
 	date := fmt.Sprintf("%04d%02d%02d", day.Year, int(day.Month), day.Day)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v3/station/region/full.xml", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `<region><stations><station><id>TBS</id><name>TBS RADIO</name><tf_max_delay>90</tf_max_delay></station></stations></region>`)
+	})
+	mux.HandleFunc("/v2/api/auth1", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Radiko-AuthToken", "tok")
+		w.Header().Set("X-Radiko-KeyOffset", "0")
+		w.Header().Set("X-Radiko-KeyLength", "16")
+	})
+	mux.HandleFunc("/v2/api/auth2", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "JP13,東京都,tokyo Japan\n")
+	})
+	mux.HandleFunc("/v3/program/date/", func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/JP13.xml") {
+			http.NotFound(w, r)
+			return
+		}
+		fmt.Fprint(w, `<radiko><stations><station id="TBS"><name>TBS RADIO</name><progs></progs></station></stations></radiko>`)
 	})
 	mux.HandleFunc("/v3/program/station/date/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v3/program/station/date/"+date+"/TBS.xml" {
