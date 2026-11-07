@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 	_ "time/tzdata" // Windows とコンテナでも Asia/Tokyo を使えるように埋め込む
@@ -46,7 +47,8 @@ var (
 	// ErrTemporary は、一時的な失敗（ネットワーク、5xx、タイムフリーのチャンクの継ぎ目の不一致、ライブの PDT の無いセグメント、Deadline までに 1 つも書けなかったライブ）を表す。再試行してよい。
 	ErrTemporary = errors.New("radiko: temporary failure")
 
-	// errAuthExpired は、トークンが無効（401/403）だったことを表す。FetchTimefree と FetchLive の connect の中で認証をやり直す。
+	// errAuthExpired は、トークンが無効（401/403）だったことを表す。FetchTimefree と FetchLive の connect の中で、reauthRun が最大 2 段で認証をやり直す
+	// （1 段目はセッションを捨てない。2 段目はセッションを捨てて radiko のログインをし直す。取得の途中の 401・403 がセッションの拒否かトークンの切れかは未確認）。
 	errAuthExpired = errors.New("radiko: token rejected")
 )
 
@@ -81,6 +83,8 @@ type Client struct {
 	Account func() (Account, bool)
 	// OnLogin は、radiko のログインを試すたびに、その結果を渡して呼ぶ（nil なら呼ばない）。認証の中で呼ぶので、待たせない。
 	OnLogin func(LoginEvent)
+	// Log は、取得の途中の 401・403 での認証のやり直し（auth.go の reauthRun）を INFO で出す先。nil なら出さない。トークンとセッションの値は出さない。
+	Log *slog.Logger
 	// Now は現在時刻。テストで差し替える。
 	Now func() time.Time
 	// LivePollInterval はライブの medialist を取り直す間隔、LiveRetryInterval は失敗してから繋ぎ直すまでの待ち。

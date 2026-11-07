@@ -30,6 +30,8 @@ type fakeRadiko struct {
 	areaBody             string
 	badFirstCandidate    bool // 1 つ目の候補が 500 を返す
 	expireAtPlaylistReq  int  // この回数目のマスタの要求の前にトークンを失効させる（0 なら失効させない）
+	expireAtPlaylistReq2 int  // 上と同じ。2 つ目（認証し直した後のトークンを失効させる。0 なら無効）
+	expireFrom           int  // この回数目以降のマスタの要求は、毎回トークンを失効させる（0 なら無効）
 	gapFromSeek          time.Time
 	gap                  time.Duration // gapFromSeek 以降のチャンクの PROGRAM-DATE-TIME をずらす量
 	gapFirstOnly         bool          // gap を 1 つ目の候補にだけ入れる
@@ -183,7 +185,7 @@ func (f *fakeRadiko) playlist(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.playlistReq++
 	f.playlistPaths = append(f.playlistPaths, r.URL.Path)
-	if f.expireAtPlaylistReq != 0 && f.playlistReq == f.expireAtPlaylistReq {
+	if f.expireAtPlaylistReq != 0 && (f.playlistReq == f.expireAtPlaylistReq || f.playlistReq == f.expireAtPlaylistReq2) || f.expireFrom != 0 && f.playlistReq >= f.expireFrom {
 		f.validToken = "expired"
 	}
 	ok := r.Header.Get("X-Radiko-AuthToken") == f.validToken && f.validToken != ""
