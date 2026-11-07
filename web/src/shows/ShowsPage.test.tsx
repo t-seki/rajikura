@@ -9,6 +9,8 @@ import {
   groupSummary,
   groupWeekly,
   nextAiringLabel,
+  notAreaFreeShowMessage,
+  outOfAreaStations,
   toBroadcastClock,
   ungroupWeekly,
   unmatchedDayLines,
@@ -1113,5 +1115,99 @@ describe("ShowsPage", () => {
     await user.click(await within(list).findByRole("button", { name: /を消す$/ }));
     expect(await within(list).findByRole("alert")).toHaveTextContent("1 回の予約を消せない: 1 回の予約が無い");
     expect(within(list).getByText(/すっぴん/)).toBeInTheDocument();
+  });
+});
+
+// 自分のエリアの外の局（#32）。局の名前に局のエリアの名前を添え、エリアフリー・ダブルプランでないときは当てない旨を出す。
+describe("自分のエリアの外の局", () => {
+  const areaStations = [
+    { id: "TBS", name: "TBSラジオ", areaName: "東京都", outOfArea: false },
+    { id: "MBS", name: "MBSラジオ", areaName: "大阪府", outOfArea: true },
+    // 自分のエリアの外の局か分からない局
+    { id: "HBC", name: "HBCラジオ", areaName: "北海道" },
+  ];
+  const osaka: Show = {
+    name: "大阪の番組",
+    enabled: true,
+    split: "none",
+    check_title: true,
+    weekly: [
+      { station: "MBS", weekday: 1, start: "08:30" },
+      { station: "MBS", weekday: 2, start: "08:30" },
+      { station: "TBS", weekday: 3, start: "08:30" },
+    ],
+  };
+  const onlyOnce: Show = { name: "1 回だけ", enabled: true, split: "none", check_title: true, weekly: [] };
+  const mbsOnce = {
+    id: 9,
+    stationId: "MBS",
+    stationName: "MBSラジオ",
+    start: "2026-10-07T13:00:00+09:00",
+    end: "2026-10-07T14:00:00+09:00",
+    title: "大阪の特番",
+    missing: false,
+  };
+  const areas = (switchable: boolean) => () => ({
+    status: 200,
+    body: { own: "JP13", switchable, pastDays: 7, areas: [{ id: "JP13", name: "東京都" }] },
+  });
+  const message = "エリアフリー・ダブルプランでないので、自分のエリアの外の局（MBSラジオ（大阪府））の放送回には当てない。";
+
+  it("format: 局の名前にエリアの名前を添えるのは自分のエリアの外の局だけ。当てない局は重ねずに返す", () => {
+    expect(weeklySummaries(osaka.weekly, areaStations)).toEqual(["MBSラジオ（大阪府） 月・火 08:30", "TBSラジオ 水 08:30"]);
+    expect(weeklySummaries([{ station: "HBC", weekday: 1, start: "08:30" }], areaStations)).toEqual(["HBCラジオ 月 08:30"]);
+    expect(outOfAreaStations(["MBS", "TBS", "MBS", "HBC", "QRR"], areaStations)).toEqual(["MBSラジオ（大阪府）"]);
+    expect(notAreaFreeShowMessage(["MBSラジオ（大阪府）"])).toBe(message);
+  });
+
+  it("エリアフリー・ダブルプランでないときは、一覧とダイアログに当てない旨を出す。局の選択肢にもエリアの名前を添える", async () => {
+    mockApi({
+      "GET /api/shows": () => ({ status: 200, body: [osaka, onlyOnce] }),
+      "GET /api/stations": () => ({ status: 200, body: areaStations }),
+      "GET /api/guide/areas": areas(false),
+      [`GET /api/shows/${encodeURIComponent(osaka.name)}`]: () => ({ status: 200, body: { ...osaka, onces: [] } }),
+      [`GET /api/shows/${encodeURIComponent(onlyOnce.name)}`]: () => ({ status: 200, body: { ...onlyOnce, onces: [mbsOnce] } }),
+    });
+    const user = userEvent.setup();
+    renderPage();
+    // 毎週の予約の局と、毎週の予約が無い番組の 1 回の予約の局で決める。
+    await waitFor(() => expect(screen.getAllByTestId("not-area-free")).toHaveLength(2));
+    for (const el of screen.getAllByTestId("not-area-free")) expect(el).toHaveTextContent(message);
+    expect(screen.getByText("MBSラジオ（大阪府） 月・火 08:30")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: `${osaka.name} を編集` }));
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByTestId("not-area-free")).toHaveTextContent(message);
+    await user.click(within(screen.getByLabelText("予約 1")).getByRole("combobox", { name: "局" }));
+    // 局の欄はカードごとにあり、選択肢も欄ごとに出る。
+    expect(await screen.findAllByRole("option", { name: "MBSラジオ（大阪府）（MBS）", hidden: true })).not.toHaveLength(0);
+    expect(screen.getAllByRole("option", { name: "TBSラジオ（TBS）", hidden: true })).not.toHaveLength(0);
+    expect(screen.getAllByRole("option", { name: "HBCラジオ（HBC）", hidden: true })).not.toHaveLength(0);
+    await user.click(within(dialog).getByRole("button", { name: "やめる" }));
+
+    // 1 回の予約だけが自分のエリアの外の局でも、ダイアログに出す。
+    await user.click(screen.getByRole("button", { name: `${onlyOnce.name} を編集` }));
+    const dialog2 = await screen.findByRole("dialog");
+    expect(await within(dialog2).findByTestId("not-area-free")).toHaveTextContent(message);
+  });
+
+  it("エリアフリー・ダブルプランなら当てない旨を出さない。会員種別を読めなくても出さない", async () => {
+    for (const handler of [areas(true), () => ({ status: 502, body: { error: "取れない" } })]) {
+      mockApi({
+        "GET /api/shows": () => ({ status: 200, body: [osaka] }),
+        "GET /api/stations": () => ({ status: 200, body: areaStations }),
+        "GET /api/guide/areas": handler,
+        [`GET /api/shows/${encodeURIComponent(osaka.name)}`]: () => ({ status: 200, body: { ...osaka, onces: [] } }),
+      });
+      const user = userEvent.setup();
+      const { unmount } = renderPage();
+      expect(await screen.findByText("MBSラジオ（大阪府） 月・火 08:30")).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: `${osaka.name} を編集` }));
+      const dialog = await screen.findByRole("dialog");
+      expect(await within(dialog).findByText("1 回の予約は無い。")).toBeInTheDocument();
+      expect(screen.queryByTestId("not-area-free")).toBeNull();
+      unmount();
+      vi.unstubAllGlobals();
+    }
   });
 });

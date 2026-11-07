@@ -1,5 +1,6 @@
 import { Alert, Badge, Button, Group, Loader, Modal, Stack, Switch, Table, Text, Title } from "@mantine/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getGuideAreas } from "../guide/api";
 import { listJobs } from "../jobs/jobsApi";
 import { SortableTh } from "../ui/SortableTh";
 import type { SortState } from "../ui/sort";
@@ -15,7 +16,7 @@ import {
   type Show,
   type Station,
 } from "./api";
-import { nextAiringLabel, unmatchedDayLines, weeklySummaries } from "./format";
+import { nextAiringLabel, notAreaFreeShowMessage, outOfAreaStations, unmatchedDayLines, weeklySummaries } from "./format";
 import { ShowForm } from "./ShowForm";
 
 const message = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
@@ -61,6 +62,9 @@ export function ShowsPage({
 }: { openName?: string | null; onOpenEdit?: (name: string) => void; onCloseEdit?: () => void; onMissingEdit?: () => void } = {}) {
   const [shows, setShows] = useState<Show[] | null>(null);
   const [stations, setStations] = useState<Station[] | null>(null);
+  // 会員種別がエリアフリー・ダブルプランか（番組表のエリアの一覧の switchable。読めなければ null で、当てない旨を出さない。
+  // キーワードの画面と同じ）。
+  const [areaFree, setAreaFree] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   // editing は、編集中の番組（undefined なら作成、null ならフォームを閉じている）。
   const [editing, setEditing] = useState<Show | undefined | null>(null);
@@ -76,6 +80,8 @@ export function ShowsPage({
   const [loaded, setLoaded] = useState(false);
   // 毎週の予約が無い番組ごとの、1 回の予約の数（番組を 1 つ読んで数える）。読めなかった番組は入らない。
   const [onceCounts, setOnceCounts] = useState<Record<string, number>>({});
+  // 毎週の予約が無い番組ごとの、1 回の予約の局（1 回の予約の数と一緒に読む）。当てない旨を出すのに使う。
+  const [onceStations, setOnceStations] = useState<Record<string, string[]>>({});
   const [showIdle, setShowIdle] = useState(false);
   // 予約の無い番組（毎週も 1 回も持たない）の名前。1 回の予約の数が分かった番組だけ。
   const idle = useMemo(
@@ -97,6 +103,10 @@ export function ShowsPage({
     reload();
     // 局の一覧は、取れなければ局 ID を手で打つ（フォームが TextInput にする）。
     listStations().then(setStations, () => setStations([]));
+    getGuideAreas().then(
+      (a) => setAreaFree(a.switchable),
+      () => setAreaFree(null),
+    );
   }, [reload]);
 
   // 一覧は 1 回の予約の数を持たないので、毎週が無い番組だけ 1 つずつ読んで数える（読めなければ分けずに一覧に残す）。
@@ -107,7 +117,11 @@ export function ShowsPage({
     for (const r of shows) {
       if (r.weekly.length > 0) continue;
       getShow(r.name).then(
-        (d) => live && setOnceCounts((c) => ({ ...c, [r.name]: (d.onces ?? []).length })),
+        (d) => {
+          if (!live) return;
+          setOnceCounts((c) => ({ ...c, [r.name]: (d.onces ?? []).length }));
+          setOnceStations((c) => ({ ...c, [r.name]: (d.onces ?? []).map((o) => o.stationId) }));
+        },
         () => {},
       );
     }
@@ -285,6 +299,22 @@ export function ShowsPage({
                         </Text>
                       ))
                     )}
+                    {/* 自分のエリアの外の局の予約は、エリアフリー・ダブルプランでなければ当てない（#32）。1 回の予約の局は、
+                        毎週の予約が無い番組だけ分かる（一覧は 1 回の予約を持たない）。 */}
+                    {areaFree === false &&
+                      (() => {
+                        const labels = outOfAreaStations(
+                          [...s.weekly.map((r) => r.station), ...(onceStations[s.name] ?? [])],
+                          stations,
+                        );
+                        return (
+                          labels.length > 0 && (
+                            <Text size="sm" c="yellow.8" data-testid="not-area-free">
+                              {notAreaFreeShowMessage(labels)}
+                            </Text>
+                          )
+                        );
+                      })()}
                   </Table.Td>
                   <Table.Td>
                     {nextAiringLabel(s.next_airing, s.enabled)}
@@ -339,6 +369,7 @@ export function ShowsPage({
             key={editing?.name ?? ""}
             initial={editing}
             stations={stations}
+            areaFree={areaFree}
             onSubmit={save}
             onCancel={closeForm}
           />

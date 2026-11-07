@@ -1,5 +1,6 @@
 import type { UnmatchedDay, Weekly, Station } from "./api";
 import { broadcastClock, broadcastDayOf, dayLabel, weekdayOf } from "../guide/format";
+import { outOfAreaLabels, stationLabel as areaStationLabel } from "../keywords/keywordsApi";
 
 /** 曜日の名前。添字は 0 = 日曜。 */
 export const weekdayNames = ["日", "月", "火", "水", "木", "金", "土"];
@@ -87,9 +88,29 @@ export function ungroupWeekly(groups: WeeklyGroup[]): Weekly[] {
   );
 }
 
+/**
+ * 番組の画面の局の名前。自分のエリアの外の局（outOfArea）には局のエリアの名前を添える（例: 「MBSラジオ（大阪府）」。
+ * キーワードの画面と同じ）。局の一覧に無い局と、名前の無い局は局 ID。
+ */
 function stationLabel(id: string, stations: Station[]): string {
-  return stations.find((s) => s.id === id)?.name || id;
+  const s = stations.find((x) => x.id === id);
+  return s?.name ? areaStationLabel(s) : id;
 }
+
+/**
+ * 局 ids（毎週と 1 回の予約の局。重なってよい）のうち、自分のエリアの外の局（outOfArea）の名前を、重ねずに返す（局のエリアの
+ * 名前を添える）。局の一覧に無い局と、自分のエリアの外の局か分からない局は入れない。
+ */
+export function outOfAreaStations(ids: string[], stations: Station[] | null): string[] {
+  return outOfAreaLabels([...new Set(ids)], stations);
+}
+
+/**
+ * 会員種別がエリアフリー・ダブルプランでないときに、自分のエリアの外の局の予約を持つ番組に出す文（展開はその局の放送回に
+ * 予約を当てない。#32）。labels は outOfAreaStations。
+ */
+export const notAreaFreeShowMessage = (labels: string[]) =>
+  `エリアフリー・ダブルプランでないので、自分のエリアの外の局（${labels.join("・")}）の放送回には当てない。`;
 
 /**
  * まとまり（start は API の値）の要約（一覧と番組表の詳細に出す）。時刻は放送日の時刻。例: `TBSラジオ 月・火・水・木 08:30（2026-10-20 から）`、`ニッポン放送 土 25:00`。

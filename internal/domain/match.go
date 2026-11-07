@@ -169,3 +169,29 @@ func (s Show) Matches(a Airing) bool {
 	}
 	return false
 }
+
+// WithoutStation は、番組 shows から局 station の予約（毎週と 1 回）を除いたものを返す（shows は書き換えない）。
+// 予約を当てない局の展開に使う（App.syncDay。会員種別がエリアフリー・ダブルプランでないときの、自分のエリアの外の局）。
+// 番組そのものは残すので、その局の放送回を持つ展開が触るジョブ（人が決めたジョブも）は、無効な番組のジョブと同じく、
+// その局の放送回を外され、放送回が 0 になれば消える（Expand）。当たらない日も、その局では調べる枠が無くなる
+// （FindUnmatchedDays。今ある記録は store.ReplaceUnmatchedDays が消す）。
+func WithoutStation(shows []Show, station string) []Show {
+	out := make([]Show, len(shows))
+	for i, s := range shows {
+		var ws []Weekly
+		for _, r := range s.Weekly {
+			if r.StationID != station {
+				ws = append(ws, r)
+			}
+		}
+		var os []Once
+		for _, o := range s.Onces {
+			if o.StationID != station {
+				os = append(os, o)
+			}
+		}
+		s.Weekly, s.Onces = ws, os
+		out[i] = s
+	}
+	return out
+}

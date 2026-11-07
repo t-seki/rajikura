@@ -112,6 +112,7 @@ pnpm screenshots
 - SQLite のドライバは `modernc.org/sqlite`（cgo 不要）。マイグレーションは、埋め込んだ SQL を順に当てる仕組みを自前で書く。
 - 時刻は日本時間で扱う。`time.LoadLocation("Asia/Tokyo")` を使い、`time/tzdata` を埋め込む（Windows とコンテナでも動かすため）。
 - テストで radiko に実際につながない。`httptest` で偽のサーバーを立てる。
+- radiko のタイムフリーのプレイリストは、自分のエリアの外の局を頼んだときも、トークンが無効なときも、同じ 403（本文 `forbidden`、ヘッダ `X-Radiko-Reject-Code: 113`）を返し、ステータス・本文・reject code のどれでも見分けられない（2026-11-07 に非会員の認証で 2 つの配信の候補から取って確かめた）。そのため、試行の失敗からはエリアの外かを決めず、エリアフリー・ダブルプランでない会員種別では展開で自分のエリアの外の局に予約を当てない（#32）。
 - 設定（保存先、会員種別など）は DB に置き、人は Web UI で変える（[ADR 0015](adr/0015-settings-and-secrets-in-db.md)）。設定・番組を TOML で受け渡す口は無い（[ADR 0017](adr/0017-backup-by-db-copy.md)）。DB を開く前に要る起動の設定は、`serve` のフラグ `-data`・`-listen`・`-allowed-hosts` だけ。
 - Web UI の画面の挙動（並び、知らせ方、入力の受け付け方など）を変えるときは、`docs/web-ui.md` のその画面の節を、番組・キーワード・設定の画面なら `docs/shows.md`・`docs/settings.md` のその箇所も、同じ PR で直す。API の挙動（`/api/` のルート、要求と応答の形、断るとき）を変えるときは、`docs/api.md` を同じ PR で直す。
 - コミットは Conventional Commits。次の PR の決まり（`Closes #N`）は作者の開発の決まりで、外の人に求めるものではない（Pull Request は受けていない）。作者の PR は `Closes #N` を書く（Renovate の PR は issue を持たないので例外）。
@@ -162,7 +163,7 @@ pnpm screenshots
 | タイムフリーの対象外 | domain の `Airing.TimeFreeExcluded`（値は、`Airing.OutOfArea` が立っていなければ `TimeFreeFlags.InNG`、立っていれば `TimeFreeFlags.OutNG`。radiko の番組表の `ts_in_ng`・`ts_out_ng`、`Program.TSInNG`・`Program.TSOutNG`。DB は `job_airings.ts_in_ng`・`job_airings.ts_out_ng`）。番組表の API の JSON は `notAvailable`（画面では「ライブで録る」）。フラグの読み方は #27 |
 | 自分のエリア | radiko の `Token.AreaID`（認証の応答のエリア ID）。最後に見た値は DB の `app_state` のキー `own_area`（読み書きは `Store.OwnArea`・`Store.SetOwnArea`）。比べるのは app の `App.SeeOwnArea`（番組表の画面の認証は `RadikoAreaGuide.OnArea` から）、変わったときの付け直しは `internal/app/own_area.go`。通知の種類は `area_changed` |
 | 全国の検索 | 番組表の API の `GET /api/guide/search?scope=all`（server の `guideScope`、応答の JSON は `scope`・`failedStations`・`stationAreaName`・`stationAreaId`）。探すのは app の `RadikoAreaGuide.NationwideAirings`（app の `NationwideGuide` を満たす。`internal/app/nationwide.go`）、裏の取り込みは `App.runNationwide`（`RadikoAreaGuide.PrefetchNationwide`）、全国の分を捨てるのは `RadikoAreaGuide.DropNationwide`（radiko の `Client.DropStationPrograms`）。取り直しを緩めて読むのは radiko の `Client.ProgramsRelaxed`。画面の URL は `?scope=all`（[ADR 0035](adr/0035-nationwide-search-from-prefetched-station-guides.md)） |
-| 自分のエリアの外の局 | domain の `Airing.OutOfArea`（DB は `job_airings.out_of_area`）。決めるのは、展開では app の `App.markOutOfArea`、番組表の画面では `RadikoAreaGuide.AreaAiringsOf`（自分のエリアの局一覧に無い局で立てる）、キーワードの照合（`App.keywordHits`）とプレビュー（server の `previewKeyword`）では app の `OutOfAreaKeywordStations`（名指しした局のうち、自分のエリアの局一覧に無い局の番組表を足して引いて立てる）。局の一覧の API の JSON は `outOfArea`（server の `ownStations` で決める） |
+| 自分のエリアの外の局 | domain の `Airing.OutOfArea`（DB は `job_airings.out_of_area`）。決めるのは、展開では app の `App.markOutOfArea`（エリアフリー・ダブルプランでないときに、その局に番組の予約を当てないか（#32）は `App.unrecordableOutOfArea` で、当てないなら `domain.WithoutStation` でその局の予約を外して展開する）、番組表の画面では `RadikoAreaGuide.AreaAiringsOf`（自分のエリアの局一覧に無い局で立てる）、キーワードの照合（`App.keywordHits`）とプレビュー（server の `previewKeyword`）では app の `OutOfAreaKeywordStations`（名指しした局のうち、自分のエリアの局一覧に無い局の番組表を足して引いて立てる）。局の一覧の API の JSON は `outOfArea`（server の `ownStations` で決める） |
 | ジョブ | `Job` |
 | 再試行待ち | domain の `StateRetrying`（DB と JSON は `retrying`）。録音か検証に失敗したジョブの状態で、画面では「録音予定（失敗・再試行待ち）」。人は手動再試行で戻せる（CLI は `retry`） |
 | 期限切れ | domain の `StateExpired`（DB と JSON は `expired`）。録音期限までに録音できなかったジョブの状態で、画面では「録音できなかった」 |

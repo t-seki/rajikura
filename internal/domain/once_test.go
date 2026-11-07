@@ -228,3 +228,29 @@ func TestExpandOnceConflict(t *testing.T) {
 		t.Errorf("Conflicts = %+v", plan.Conflicts)
 	}
 }
+
+// WithoutStation は局の毎週と 1 回の予約だけを外し、番組とほかの局の予約は残す。元の番組は書き換えない（#32）。
+func TestWithoutStation(t *testing.T) {
+	shows := []Show{
+		{Name: "A", Weekly: []Weekly{NewWeekly("TBS", time.Monday, Clock{Hour: 9}), NewWeekly("QRR", time.Monday, Clock{Hour: 9})},
+			Onces: []Once{{StationID: "TBS", Start: jst(2026, 10, 7, 9, 0)}, {StationID: "QRR", Start: jst(2026, 10, 7, 9, 0)}}},
+		{Name: "B", Weekly: []Weekly{NewWeekly("TBS", time.Monday, Clock{Hour: 10})}},
+	}
+	got := WithoutStation(shows, "TBS")
+	if len(got) != 2 || got[0].Name != "A" || got[1].Name != "B" {
+		t.Fatalf("番組は残る: %+v", got)
+	}
+	if len(got[0].Weekly) != 1 || got[0].Weekly[0].StationID != "QRR" || len(got[0].Onces) != 1 || got[0].Onces[0].StationID != "QRR" {
+		t.Errorf("ほかの局の予約だけ残る: %+v", got[0])
+	}
+	if len(got[1].Weekly) != 0 || len(got[1].Onces) != 0 {
+		t.Errorf("予約が残った: %+v", got[1])
+	}
+	if len(shows[0].Weekly) != 2 || len(shows[0].Onces) != 2 || len(shows[1].Weekly) != 1 {
+		t.Errorf("元の番組を書き換えた: %+v", shows)
+	}
+	a := Airing{StationID: "TBS", Start: jst(2026, 10, 7, 9, 0), End: jst(2026, 10, 7, 10, 0)}
+	if got[0].Matches(a) {
+		t.Errorf("外した局の放送回に当たった")
+	}
+}
