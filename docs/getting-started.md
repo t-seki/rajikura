@@ -80,7 +80,7 @@ CLI（`jobs`・`retry`・`skip`・`record`・`rerecord`・`chapters`・`move`・
 
 - 版は、`rajikura version` か、Web UI のナビの下に出る。
 - ログは、コンソールで動かす `serve` では標準エラーに出る。コンテナでは `docker logs rajikura`。Windows のサービスでは、データのフォルダの `logs\rajikura.log`（[windows.md](windows.md)）。ログを人に見せるときは、Webhook の URL、パスワード、API トークン、セットアップコードを伏せる。 <!-- 足したら直す: データのフォルダ -->
-- Web UI のパスワードを忘れた: `serve -reset-password` で起動し、セットアップコードから決め直す。API トークンも発行し直しになる（[cli.md の「serve」](cli.md#serve)）。
+- Web UI のパスワードを忘れた・IdP のログインで締め出された: `serve -reset-password` で起動し、セットアップコードから決め直す。API トークンは発行し直しになり、IdP のログインの紐づけも消えるので紐づけ直す（IdP の設定は残る。[cli.md の「serve」](cli.md#serve)）。
 - Web UI を名前で開くと 421 で断られる: `-allowed-hosts` にその名前を渡す（[起動の設定とデータのフォルダ](cli.md#起動の設定とデータのフォルダ)）。
 - 録れない・録り終えなかった: ナビの「ジョブ」で、ジョブの状態と詳細を見る。
 - 上で足りないとき: [Issues](https://github.com/t-seki/rajikura/issues) に、[CONTRIBUTING.md](../CONTRIBUTING.md) のとおり書く。

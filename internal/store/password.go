@@ -6,7 +6,7 @@ import (
 	"errors"
 )
 
-// keyPasswordHash は、Web UI のパスワードの bcrypt の hash の app_state のキー（docs/adr/0016-first-password-by-setup-code.md）。
+// keyPasswordHash は、Web UI のパスワードの bcrypt の hash の app_state のキー（docs/adr/0041-first-password-by-setup-code-and-reset-clears-binding.md）。
 const keyPasswordHash = "password_hash"
 
 // PasswordHash は、Web UI のパスワードの bcrypt の hash を返す。まだ決めていなければ空。
@@ -26,11 +26,12 @@ func (s *Store) SetPasswordHash(ctx context.Context, hash string) error {
 	return err
 }
 
-// ResetPassword は、パスワード・ログインのセッション・API トークンを全部消す（serve -reset-password）。
+// ResetPassword は、パスワード・ログインのセッション・API トークン・IdP のログインの紐づけを全部消す（serve -reset-password）。
+// IdP の設定（client secret を含む）は残す（docs/adr/0041-first-password-by-setup-code-and-reset-clears-binding.md）。
 // 消した後は、パスワードが無いので、セットアップコードからやり直す。
 func (s *Store) ResetPassword(ctx context.Context) error {
 	return s.tx(ctx, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM app_state WHERE key = ?`, keyPasswordHash); err != nil {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM app_state WHERE key IN (?, ?)`, keyPasswordHash, keyIdPBinding); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM sessions`); err != nil {

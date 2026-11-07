@@ -59,7 +59,7 @@ groups:
 
 ## Web UI の JSON API（`/api/`）
 
-`serve` は、`/healthz` と同じ `-listen` で、Web UI の JSON API（`/api/`）と SPA も待ち受ける。作りは [ADR 0008](adr/0008-web-ui-shape.md)。ログインする利用者は 1 人で、パスワードの bcrypt の hash は DB に置く。パスワードは、初めて Web UI を開いた人が、`serve` の作ったセットアップコードを入れて決める（[ADR 0016](adr/0016-first-password-by-setup-code.md)）。
+`serve` は、`/healthz` と同じ `-listen` で、Web UI の JSON API（`/api/`）と SPA も待ち受ける。作りは [ADR 0008](adr/0008-web-ui-shape.md)。ログインする利用者は 1 人で、パスワードの bcrypt の hash は DB に置く。パスワードは、初めて Web UI を開いた人が、`serve` の作ったセットアップコードを入れて決める（[ADR 0041](adr/0041-first-password-by-setup-code-and-reset-clears-binding.md)）。パスワードのほかに、紐づけた IdP のログインでも入れる（下の「[IdP のログイン](#idp-のログイン)」）。
 
 ### セットアップとログイン
 
@@ -68,7 +68,7 @@ groups:
 - パスワードがまだ無い間は、`POST /api/setup` のほかの `/api/` は、API トークンがあっても 503（JSON `{"error": "...", "setup": true, "locked": <5 回間違えて受け付けないか>}`）を返す。SPA と `/healthz` は返す。
 - `POST /api/setup`（JSON `{"code": "<セットアップコード>", "password": "<新しいパスワード>"}`）: 決めると 200 と、ログインと同じセッションの cookie。コードが違えば 401（`{"error": "...", "remaining": <あと何回間違えてよいか>, "locked": <これで受け付けなくなったか>}`）、5 回間違えた後は 429、パスワードがもう決まっていれば 409、パスワードが空か 72 バイトを超える・JSON が読めないときは 400（間違えた回数に数えない）。コードは時間で漏れない比べ方で比べる。
 - パスワードを変える: ログインしてから `PUT /api/password`（JSON `{"current": "<今のパスワード>", "password": "<新しいパスワード>"}`）。今のパスワードが違えば 403、新しいパスワードが空か 72 バイトを超えれば 400。今のパスワードの間違いは、ログインの間違いと同じ数に入り、ログインの受け付けを止めている間は 429（下の「ログインの総当たりの制限」）。変えても、ログインのセッションと API トークンはそのまま使える。
-- `POST /api/login`（JSON `{"password": "..."}`）でログインすると、セッションの cookie（`HttpOnly`、`Secure`、`SameSite=Strict`、`Path=/`）が返る。期限は 30 日。cookie には元のセッションの ID を渡し、DB にはその SHA-256 の hash を置く（API トークンと同じ。DB のファイルが外に出ても、そのセッションでログインした状態にならない）。`POST /api/logout` でセッションを消し、cookie も消す。`GET /api/me` は、認証が通れば 200（JSON `{"authenticated": true, "version": "..."}`。`version` は `rajikura version` と同じ値で、開発のビルドでは `dev`）、通らなければ 401、パスワードがまだ無ければ 503（上）。`/api/login`・`/api/setup` 以外の `/api/` は、認証（セッション、または下の API トークン）が通らなければ 401。パスワードが違えば `POST /api/login` は 401、ログインの受け付けを止めている間は 429（下）。
+- `POST /api/login`（JSON `{"password": "..."}`）でログインすると、セッションの cookie（`HttpOnly`、`Secure`、`SameSite=Strict`、`Path=/`）が返る。期限は 30 日。cookie には元のセッションの ID を渡し、DB にはその SHA-256 の hash を置く（API トークンと同じ。DB のファイルが外に出ても、そのセッションでログインした状態にならない）。`POST /api/logout` でセッションを消し、cookie も消す。`GET /api/me` は、認証が通れば 200（JSON `{"authenticated": true, "version": "..."}`。`version` は `rajikura version` と同じ値で、開発のビルドでは `dev`）、通らなければ 401、パスワードがまだ無ければ 503（上）。`/api/login`・`/api/setup` と IdP のログインの口（`GET /api/idp/login-option`・`GET /api/idp/login`・`GET /api/idp/callback`。下の「[IdP のログイン](#idp-のログイン)」）以外の `/api/` は、認証（セッション、または下の API トークン）が通らなければ 401。パスワードが違えば `POST /api/login` は 401、ログインの受け付けを止めている間は 429（下）。
 
 ### ブラウザ経由の攻撃とログインの総当たりへの守り
 
@@ -76,8 +76,55 @@ groups:
 
 - `Host` の検査: `/api/` と SPA は、要求の `Host` が IP のアドレス（v4・v6）・`localhost`・`-allowed-hosts` に並べた名前のときだけ受ける（DNS rebinding への手当て）。名前は大文字小文字を区別せず、ポートは見ない。ほかの `Host` は 421 で断り（`/api/` は JSON `{"error": "..."}`、SPA は平文。どちらも `-allowed-hosts` に足すよう書く）、ログに Warn で断った `Host` を出す。`/healthz`・`/metrics` は `Host` を見ない（監視は IP のアドレスで叩くことがあるため）。名前で開くとき（`rajikura.example.com` など）は、その名前を `-allowed-hosts` に足す（[起動の設定とデータのフォルダ](cli.md#起動の設定とデータのフォルダ)）。
 - ほかのオリジンからの要求: `/api/` の GET・HEAD 以外は、Go の標準の `http.CrossOriginProtection` で確かめ、ほかのオリジンのページからの要求を 403（JSON `{"error": "..."}`）で断る。OPTIONS も標準の検査が通す（`/api/` に OPTIONS の口は無い）。ログインする前の `POST /api/login`・`POST /api/setup` も含む。`Sec-Fetch-Site` も `Origin` も付けない要求（CLI・curl など、ブラウザ以外）は通す。
-- ログインの総当たりの制限: `POST /api/login` のパスワードの間違いと、`PUT /api/password` の今のパスワードの間違いを、接続元を区別せず `serve` 全体で数える。5 回続けて間違えたら 1 分受け付けず、その後も間違えるたびに止める時間を倍にする（上限 15 分）。止めている間は、正しいパスワードも 429（`Retry-After` ヘッダと JSON `{"error": "...", "retry_after": <あと何秒>}`）で断る。成功したら 0 に戻す。止め始めたときにログに Warn を 1 行出す（通知は送らない）。回数は `serve` の中にだけ持ち、起動し直すと 0 に戻る。今のセッションと API トークンは、止めている間も（`PUT /api/password` のほかは）そのまま使える。ログインの画面は、429 のとき「あと N 秒待ってほしい」と出す。
+- ログインの総当たりの制限: `POST /api/login` のパスワードの間違いと、`PUT /api/password` の今のパスワードの間違いを、接続元を区別せず `serve` 全体で数える。5 回続けて間違えたら 1 分受け付けず、その後も間違えるたびに止める時間を倍にする（上限 15 分）。止めている間は、正しいパスワードも 429（`Retry-After` ヘッダと JSON `{"error": "...", "retry_after": <あと何秒>}`）で断る。成功したら 0 に戻す。止め始めたときにログに Warn を 1 行出す（通知は送らない）。回数は `serve` の中にだけ持ち、起動し直すと 0 に戻る。今のセッションと API トークンは、止めている間も（`PUT /api/password` と `POST /api/idp/link` のほかは）そのまま使える。ログインの画面は、429 のとき「あと N 秒待ってほしい」と出す。`POST /api/idp/link` の今のパスワードの間違いも同じ数に入る。IdP のログインの失敗は数えない（下の「[IdP のログイン](#idp-のログイン)」）。
 - セットアップコードの制限（5 回続けて間違えたら次の起動まで受け付けない）は、[web-ui.md の「初めて開いたとき」](web-ui.md#初めて開いたとき)のとおりで、ログインの制限とは別に数える。
+
+### IdP のログイン
+
+決定は [ADR 0040](adr/0040-idp-login-by-generic-oidc.md)。rajikura が OpenID Connect の RP になり（Authorization Code + PKCE、issuer の discovery）、紐づけた 1 つの `iss` + `sub` の組だけを通す。パスワードのログインは残る。求める scope は `openid email` で、`email` は紐づけた相手を画面で見分けるためにだけ使う。用語は [GLOSSARY.md](../GLOSSARY.md) の「IdP」「IdP のログイン」「紐づけ」。
+
+- IdP の設定と紐づけの口（`GET /api/idp`・`PUT /api/idp`・`POST /api/idp/link`・`DELETE /api/idp/link`）は、Web UI のセッションの cookie でだけ通す。`Authorization: Bearer` を付けた要求は、トークンが有効でも、cookie が付いていても 403。ログインしていなければ 401。IdP の設定は `GET /api/settings` に出さない。
+- `GET /api/idp`: `{"issuer": "...", "client_id": "...", "web_url": "...", "client_secret_set": <client secret があるか>, "client_secret_unreadable": <復号できないか>, "redirect_url": "...", "web_host": "...", "web_host_allowed": <Web UI の URL の host を受けるか>, "binding": null | {"issuer": "...", "subject": "...", "email": "..."}}`。
+  - `redirect_url` は IdP に登録する戻り先の URL（`<web_url>/api/idp/callback`）。設定していなければ空。
+  - `web_host` は `web_url` の host（ポートがあれば付く）。`web_host_allowed` が `false` なら、その名前は `-allowed-hosts` に無く、戻り先の要求が 421 で断られる（上の「`Host` の検査」）。設定していなければ `true`。
+  - `binding` は紐づけ（無ければ `null`）。`email` は ID トークンに無ければ空。client secret の値は返さない。
+- `PUT /api/idp`: IdP の設定を置き換え、200 と `GET` と同じ形を返す。本文の例（`client_secret` は省ける）:
+
+  ```json
+  {"issuer": "https://idp.example", "client_id": "rajikura", "web_url": "https://rajikura.example", "client_secret": "..."}
+  ```
+
+  - `issuer`・`client_id`・`web_url` は 3 つとも書く。全部空の文字列なら、IdP の設定を消す。
+  - `issuer` と `web_url` は `http://` か `https://` の URL（ユーザー名・`?`・`#` なし）。`web_url` は scheme と host（とポート）だけを書き、末尾の `/` は除いて保存する。
+  - `client_secret` は、書けば変え、空の文字列なら消し、省けば今のまま残す。client secret が無いときは、secret を送らない public client（PKCE だけ）として扱う。DB の中では、設定の秘密と同じ鍵のファイルで暗号化する。
+  - `issuer` か `client_id` を変えたら、紐づけを消す。`web_url` と `client_secret` だけを変えても消さない。
+  - 値の誤り・知らないキー・JSON が読めないときは 400 で、何も変えない。
+- `POST /api/idp/link`（JSON `{"password": "<今のパスワード>"}`）: 紐づけを始める。200 と `{"url": "<IdP へ移る URL>"}` を返し、画面はその URL へ top-level で移る。
+  - 今のパスワードが違えば 403。間違いは `PUT /api/password` と同じく、ログインの失敗の数に入り、止めている間は 429（上の「ログインの総当たりの制限」）。
+  - IdP を設定していないときと、要求の `Host` が `web_host` と違うときは 409（後者は `{"error": "...", "web_url": "..."}`。ログインの途中の cookie はホストごとに分かれるので、Web UI の URL で開いた画面から始める）。
+  - IdP の discovery に失敗したら 502。
+  - IdP から戻ってきた `iss` + `sub` を紐づける（紐づけは 1 つだけで、前の紐づけは置き換える）。戻った後は `/settings?idp_linked=1` へ移る。失敗したら `/settings?idp_error=<理由>` へ移る（理由は下）。
+- `DELETE /api/idp/link`: 紐づけを外す。パスワードは求めない。200 と `GET` と同じ形を返す。
+- `GET /api/idp/login-option`（ログインの外）: `{"linked": <IdP を設定して紐づけているか>, "issuer_host": "<issuer のホスト名>"}`。`linked` が `false` なら `issuer_host` は空。パスワードがまだ無い間は、ほかの `/api/` と同じく 503。
+- `GET /api/idp/login`（ログインの外。画面が top-level で移る）: IdP のログインを始め、IdP の認可の画面へ 302 で移る。
+  - 要求の `Host` が `web_host` と違えば、まず `<web_url>/api/idp/login` へ 302 で移る。
+  - 紐づけていない・IdP を設定していないときは `/?idp_error=unavailable` へ、discovery に失敗したら `/?idp_error=failed` へ移る。パスワードがまだ無い間は `/` へ移る。
+- `GET /api/idp/callback`: IdP からの戻り先（`redirect_url`）。
+  - ログインなら、ID トークンの `iss` + `sub` が紐づけと合えば、パスワードのログインと同じセッションの cookie（上の `POST /api/login`）を付けて `/` へ 302 で移る。
+  - 失敗したら `/?idp_error=<理由>` へ移り、セッションは作らない。
+  - GET なので、ほかのオリジンからの要求の検査（上）には掛からない。`Host` の検査は掛かる。
+- ログインの途中の状態（state・nonce・PKCE の verifier）は、`serve` のメモリに state をキーにして 10 分置く（同時に置くのは 64 まで。超えたら古いものから捨てる）。
+  - ブラウザには state を入れた cookie `rajikura_idp_state`（`HttpOnly`、`Secure`、`SameSite=Lax`、`Path=/api/idp/`、期限は 10 分）を渡し、戻ってきた `state` と突き合わせる。
+  - state は 1 回しか使えない。`serve` を起動し直すと、途中のログインは失敗する。
+- `idp_error` の理由:
+  - `unavailable`: IdP を設定していない・紐づけていない、またはログインの途中で IdP の設定が変わった
+  - `denied`: IdP が拒んだ
+  - `expired`: ログインの途中の状態が無い（10 分を過ぎた・起動し直した・state の cookie と合わない）
+  - `failed`: discovery・code の引き換え・ID トークンの検証（署名・`iss`・`aud`・期限）・nonce の確かめのどれかに失敗した
+  - `mismatch`: 紐づけた `iss` + `sub` と違う利用者だった
+- IdP のログインの失敗は、ログインの失敗の数（上の「ログインの総当たりの制限」）に入れない。
+- `serve -reset-password` で戻すと、紐づけは消え、IdP の設定（client secret を含む）は残る（[ADR 0041](adr/0041-first-password-by-setup-code-and-reset-clears-binding.md)）。
+- rajikura からログアウトしても、IdP からはログアウトしない。
 
 ### API トークン
 

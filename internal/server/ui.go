@@ -27,7 +27,8 @@ type Sessions interface {
 	DeleteSession(ctx context.Context, id string) error
 }
 
-// UI は Web UI の JSON API（/api/）と SPA の配信。利用者は 1 人で、パスワードの bcrypt の hash（DB に置く）で認証する。
+// UI は Web UI の JSON API（/api/）と SPA の配信。利用者は 1 人で、パスワードの bcrypt の hash（DB に置く）か、
+// 紐づけた IdP のログイン（idp.go）で認証する。
 type UI struct {
 	Sessions Sessions
 	// Passwords はパスワードの hash の保存先（setup.go）。パスワードが無い間は、POST /api/setup のほかの /api/（/api/me も）は 503 を返す。
@@ -83,9 +84,17 @@ type UI struct {
 	Log *slog.Logger
 	// AllowedHosts は、IP のアドレスと localhost のほかに、/api/ と SPA が受ける Host の名前（serve の -allowed-hosts。protect.go）。
 	AllowedHosts []string
+	// IdP は IdP のログインの設定と紐づけの保存先（idp.go）。IdP か IdPSecrets が nil なら、IdP のログインの口を載せない。
+	IdP IdPStore
+	// IdPSecrets は IdP の client secret の暗号化と復号（*secret.Box。設定の秘密と同じ鍵のファイル）。
+	IdPSecrets SecretBox
+	// IdPClient は IdP（discovery・鍵・token の口）へ出す HTTP の client。nil なら時間切れを付けた既定の client。
+	IdPClient *http.Client
 
 	// limiter はログインの総当たりの制限（protect.go）。register が作る。
 	limiter *loginLimiter
+	// idp は IdP のログインの途中の状態（idp.go）。registerIdP が作る。
+	idp *idpFlows
 }
 
 var _ Sessions = (*store.Store)(nil)
@@ -139,6 +148,7 @@ func (u *UI) register(mux *http.ServeMux) {
 	u.registerSettings(mux)
 	u.registerBackup(mux)
 	u.registerFolders(mux)
+	u.registerIdP(mux)
 	mux.HandleFunc("/api/", u.guard(u.authed(func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 	})))

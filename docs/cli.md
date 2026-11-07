@@ -67,10 +67,11 @@ token = "rjk_..."                  # Web UI で発行した API トークン
 - [ライブ録音](recording.md#ライブ録音)のジョブは `running` のまま残り、次の起動で取ったセグメントを残して繋ぎ直す。
 - ログは標準エラーに出す。Windows のサービスとして動くときは、データのフォルダの `logs\rajikura.log` に出す（[windows.md の「ログ」](windows.md#ログ)）。
 
-`serve -reset-password` は、Web UI のパスワードを忘れたときに使う（[ADR 0016](adr/0016-first-password-by-setup-code.md)）。
+`serve -reset-password` は、Web UI のパスワードを忘れたとき・IdP のログインで締め出されたときに使う（[ADR 0041](adr/0041-first-password-by-setup-code-and-reset-clears-binding.md)）。
 
-- 起動するときに、DB のパスワード・ログインのセッション・API トークンを全部消し、そのまま起動を続ける。
-- パスワードが無くなるので、「[初めて開いたとき](web-ui.md#初めて開いたとき)」と同じく、セットアップコードからパスワードを決め直す。CLI と AI の API トークンは発行し直す。
+- 起動するときに、DB のパスワード・ログインのセッション・API トークン・IdP のログインの紐づけを全部消し、そのまま起動を続ける。
+- IdP の設定（issuer・client id・client secret・Web UI の URL）は消さずに残す。
+- パスワードが無くなるので、「[初めて開いたとき](web-ui.md#初めて開いたとき)」と同じく、セットアップコードからパスワードを決め直す。CLI と AI の API トークンは発行し直し、IdP のログインは紐づけ直す。
 - 戻した後は、`-reset-password` を外して起動し直す（付けたままだと、起動のたびに消える）。
 
 ### jobs

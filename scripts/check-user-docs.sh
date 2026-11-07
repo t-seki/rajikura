@@ -82,7 +82,7 @@ perl -CSDA -Mutf8 -Mstrict -Mwarnings -e '
   }
   close $a;
   for my $w (keys %apimd) { $fields{$w} = 1 if $w =~ /^[a-z][a-z0-9]*[A-Z][A-Za-z0-9]*$/; }
-  my @lower = qw(switchable skippable retryable recordable rerecordable movable truncated own);
+  my @lower = qw(switchable skippable retryable recordable rerecordable movable truncated own issuer binding subject linked);
   for my $w (@lower) {
     next if $apimd{$w};
     print "scripts/check-user-docs.sh: 小文字 1 語の欄の一覧の「$w」が docs/api.md のバッククォートの中に出ない（一覧から外すか docs/api.md を直す）\n"; $bad = 1;
