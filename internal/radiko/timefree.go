@@ -378,8 +378,8 @@ func (c *Client) bridgeChunk(ctx context.Context, token Token, candidate, statio
 // FetchTimefree は、放送局 stationID の start〜end（1 放送回分）のタイムフリーの音声を取り、ADTS のまま w に書く。
 //
 // token は呼び出し側が 1 回の試行で使い回すために渡す。チャンクの途中でトークンが失効したら、
-// 認証をやり直してそのチャンクから続ける（1 回の取得で 1 回まで。radiko のログインのセッションを付けたトークンなら、
-// radiko のログインをし直す）。候補 URL と再生リストの type は token で決める（エリアフリーなら areafree=1 の url、セッションを付けたなら type=c）。
+// 認証をやり直してそのチャンクから続ける（reauthRun の最大 2 段。1 段目はセッションを捨てずに認証し直し、それでも拒まれて
+// セッションの付いたトークンなら、2 段目でセッションを捨てて radiko のログインをし直す。非会員は 1 段目だけ。段が尽きたら ErrTemporary）。候補 URL と再生リストの type は token で決める（エリアフリーなら areafree=1 の url、セッションを付けたなら type=c）。
 // 認証をやり直してトークンのエリアフリーが変わっても、候補は取り直さない。
 // 候補 URL はチャンクごとに 1 つ目から並び順に試し、取れなかったり継ぎ目の検証に落ちたりしたら、そのチャンクを次の候補で取り直す
 // （1 回の取得の中で候補が混ざることがある。継ぎ目は PDT の差で確かめる）。
@@ -412,7 +412,7 @@ func (c *Client) FetchTimefree(ctx context.Context, token Token, stationID strin
 	}
 
 	var (
-		reauthed bool
+		reauth   = c.newReauthRun("timefree", stationID)
 		seen     = map[string]bool{}
 		prevEnd  time.Time
 		havePrev bool
@@ -436,6 +436,7 @@ func (c *Client) FetchTimefree(ctx context.Context, token Token, stationID strin
 					}
 				}
 				if err == nil {
+					reauth.succeeded()
 					break
 				}
 			}
@@ -443,13 +444,14 @@ func (c *Client) FetchTimefree(ctx context.Context, token Token, stationID strin
 				return res, ctx.Err()
 			}
 			if errors.Is(err, errAuthExpired) {
-				if reauthed {
+				nt, ok, aerr := reauth.next(ctx, token)
+				if aerr != nil {
+					return res, aerr
+				}
+				if !ok {
 					return res, fmt.Errorf("%w: token rejected again after re-authentication", ErrTemporary)
 				}
-				reauthed = true
-				if token, err = c.reauthenticate(ctx, token); err != nil {
-					return res, err
-				}
+				token = nt
 				continue
 			}
 			if idx+1 < len(cands) {

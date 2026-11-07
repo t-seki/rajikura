@@ -126,7 +126,7 @@ type liveRun struct {
 	cands    []string
 	idx      int
 	fails    int
-	reauthed bool
+	reauth   *reauthRun
 	lsid     string
 	mediaURL string // 空なら繋ぎ直しが要る
 
@@ -250,11 +250,13 @@ func (r *liveRun) step(ctx context.Context) error {
 	}
 	if r.mediaURL == "" {
 		err := r.connect(ctx)
-		if errors.Is(err, errAuthExpired) && !r.reauthed {
-			r.reauthed = true
-			tok, aerr := r.c.reauthenticate(ctx, r.token)
+		for errors.Is(err, errAuthExpired) {
+			tok, ok, aerr := r.reauth.next(ctx, r.token)
 			if aerr != nil {
 				return aerr
+			}
+			if !ok {
+				break
 			}
 			r.token = tok
 			err = r.connect(ctx)
@@ -262,6 +264,7 @@ func (r *liveRun) step(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		r.reauth.succeeded()
 	}
 	return r.poll(ctx)
 }
@@ -281,7 +284,8 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 //
 // セグメントは PDT で見分け、すでに書いたものは書かない。範囲の前のセグメントは書かない（前後の余白は付けない）。
 // 切れたら繋ぎ直し、l=270 で遡って埋める。遡れる範囲の外で取れなかった区間は、LiveResult.Gaps に入れて返す。
-// 401/403 は認証をやり直し（失敗なしに 1 回まで。成功するとまた 1 回できる）、
+// 401/403 は認証をやり直し（reauthRun の最大 2 段をひとまとまりとして、失敗なしに 1 まとまりまで。成功するとまた 1 まとまりできる。
+// 1 段目はセッションを捨てず、2 段目はセッションを捨てて radiko のログインをし直す）、
 // 同じ候補で失敗が続いたら次の候補に移る（最後の候補の次は最初に戻る）。
 // End に届くか Deadline を過ぎるまで続ける。Deadline で終えたとき、End までの残りは欠落にして error なしで返す。
 // ただし 1 つも書けないまま Deadline を過ぎたときは、最後の失敗を ErrTemporary で包んだ error も返す（このときの Complete は true）。
@@ -293,7 +297,7 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 // 繋ぎ始める時刻（開始の 1 分前）と、番組表の取り直しは呼び出し側の仕事。
 // 同時に繋げる数と、長く繋いだときにセッション・トークンが切れるかは未確認。
 func (c *Client) FetchLive(ctx context.Context, token Token, req LiveRequest, w io.Writer) (result LiveResult, retErr error) {
-	r := &liveRun{c: c, req: req, w: w, token: token}
+	r := &liveRun{c: c, req: req, w: w, token: token, reauth: c.newReauthRun("live", req.StationID)}
 	start := req.Start.In(JST).Truncate(time.Second)
 	r.end = req.End.In(JST).Truncate(time.Second)
 	if !r.end.After(start) {
@@ -321,7 +325,7 @@ func (c *Client) FetchLive(ctx context.Context, token Token, req LiveRequest, w 
 		err := r.step(ctx)
 		if err == nil {
 			r.fails = 0
-			r.reauthed = false
+			r.reauth.reset()
 			if !r.done() {
 				if err := sleepCtx(ctx, c.livePollInterval()); err != nil {
 					return r.res, err

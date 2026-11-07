@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
@@ -246,9 +247,18 @@ func TestSessionRejectedAtAuth2LogsInAgain(t *testing.T) {
 	}
 }
 
-// 取得の途中でセッションを付けたトークンが拒まれたら、セッションも捨ててログインし直し、続きから取る。
-func TestTokenRejectedDuringFetchLogsInAgain(t *testing.T) {
+// logBuf は slog の出力を溜める（Client.Log に渡す）。
+func logBuf(c *Client) *bytes.Buffer {
+	var buf bytes.Buffer
+	c.Log = slog.New(slog.NewTextHandler(&buf, nil))
+	return &buf
+}
+
+// fetchTimefreeWithExpiry は、会員のトークンでタイムフリーを取る。マスタの要求の expire1 回目（と expire2 回目）でトークンを失効させる。
+func fetchTimefreeWithExpiry(t *testing.T, expire1, expire2 int) (*fakeRadiko, *Client, *bytes.Buffer, error) {
+	t.Helper()
 	f, c, _ := loginEnv(t, true)
+	logs := logBuf(c)
 	tok, err := c.Authenticate(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -256,16 +266,88 @@ func TestTokenRejectedDuringFetchLogsInAgain(t *testing.T) {
 	start, end := jst(2026, 10, 7, 10, 0, 0), jst(2026, 10, 7, 10, 12, 30)
 	f.wantFT = start.Format(timeLayout)
 	f.wantType = "c"
-	f.expireAtPlaylistReq = 2
+	f.expireAtPlaylistReq, f.expireAtPlaylistReq2 = expire1, expire2
 	var out bytes.Buffer
-	if _, err := c.FetchTimefree(context.Background(), tok, "TBS", start, end, &out, nil); err != nil {
-		t.Fatal(err)
-	}
-	if out.String() != expectedAudio(start, end) {
+	_, err = c.FetchTimefree(context.Background(), tok, "TBS", start, end, &out, nil)
+	if err == nil && out.String() != expectedAudio(start, end) {
 		t.Fatalf("audio = %q", out.String())
 	}
+	return f, c, logs, err
+}
+
+// 取得の途中でセッションを付けたトークンが拒まれたら、1 段目はセッションを捨てずに認証し直して続きから取る。
+func TestTimefreeTokenRejectedFirstStageKeepsSession(t *testing.T) {
+	f, _, logs, err := fetchTimefreeWithExpiry(t, 2, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.loginCount != 1 {
+		t.Fatalf("logins = %d, want 1 (the session is kept at the first stage)", f.loginCount)
+	}
+	if want := []string{"S1", "S1"}; !slices.Equal(f.authSessions, want) {
+		t.Fatalf("auth2 sessions = %q, want %q", f.authSessions, want)
+	}
+	out := logs.String()
+	for _, want := range []string{"取得の途中でトークンが拒まれた", "kind=timefree", "station=TBS", "1 段目で認証し直す", "認証し直した後に取れた", "stage=1"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log lacks %q: %s", want, out)
+		}
+	}
+	if strings.Contains(out, "2 段目に進む") {
+		t.Errorf("log must not reach the second stage: %s", out)
+	}
+	for _, secret := range []string{"S1", "secret-pass", "tok"} {
+		if strings.Contains(out, secret) {
+			t.Errorf("log leaks %q: %s", secret, out)
+		}
+	}
+}
+
+// 1 段目の後のトークンも拒まれたら、2 段目でセッションを捨てて radiko のログインをし直す。
+func TestTimefreeTokenRejectedSecondStageLogsInAgain(t *testing.T) {
+	f, _, logs, err := fetchTimefreeWithExpiry(t, 2, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if f.loginCount != 2 {
-		t.Fatalf("logins = %d, want 2 (logged in again after the token was rejected)", f.loginCount)
+		t.Fatalf("logins = %d, want 2 (logged in again at the second stage)", f.loginCount)
+	}
+	if want := []string{"S1", "S1", "S2"}; !slices.Equal(f.authSessions, want) {
+		t.Fatalf("auth2 sessions = %q, want %q", f.authSessions, want)
+	}
+	out := logs.String()
+	for _, want := range []string{"1 段目で認証し直す", "2 段目に進む", "stage=2"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log lacks %q: %s", want, out)
+		}
+	}
+	if strings.Contains(out, "S2") || strings.Contains(out, "secret-pass") {
+		t.Errorf("log leaks a secret: %s", out)
+	}
+}
+
+// 2 段目の後も拒まれたら ErrTemporary。
+func TestTimefreeTokenRejectedAfterBothStages(t *testing.T) {
+	f, c, _ := loginEnv(t, true)
+	logs := logBuf(c)
+	tok, err := c.Authenticate(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	start, end := jst(2026, 10, 7, 10, 0, 0), jst(2026, 10, 7, 10, 12, 30)
+	f.wantFT = start.Format(timeLayout)
+	f.wantType = "c"
+	f.expireFrom = 2
+	var out bytes.Buffer
+	_, err = c.FetchTimefree(context.Background(), tok, "TBS", start, end, &out, nil)
+	if !errors.Is(err, ErrTemporary) {
+		t.Fatalf("err = %v, want ErrTemporary", err)
+	}
+	if f.loginCount != 2 {
+		t.Fatalf("logins = %d, want 2", f.loginCount)
+	}
+	if !strings.Contains(logs.String(), "取得を諦める") {
+		t.Errorf("log lacks the give-up line: %s", logs.String())
 	}
 }
 

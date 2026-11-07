@@ -72,6 +72,7 @@ func serve(ctx context.Context, boot config.Boot, opts serveOptions, stdout, std
 	}
 	// 番組表のキャッシュは、会員種別によらず、会員種別の最大の録音期限（30 日）の前から持つ（会員種別を保存したらすぐ効くように）。
 	// エリアフリー・ダブルプランでは、全国の検索のために全国の局の番組表も、ここに gzip のまま持つ（ADR 0035）。
+	client.Log = log
 	client.EnableProgramCache(domain.MaxAvailableDays(domain.MembershipDouble), int64(cfg.RadikoProgramCacheMB)<<20, log)
 	// radiko のログインは、認証のたびに設定の最新の写しからログイン情報を読む。会員種別かログイン情報を保存するときは、
 	// 保存の前に radiko のログインを試す（ADR 0034）。

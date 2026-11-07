@@ -75,13 +75,67 @@ func (c *Client) Authenticate(ctx context.Context) (Token, error) {
 	return tok, err
 }
 
-// reauthenticate は、取得の途中でトークン tok が拒まれた（401・403）ときに認証し直す。tok が radiko のログインのセッションを
-// 付けたものなら、そのセッションも拒まれたものとして捨て、radiko のログインをし直す。
-func (c *Client) reauthenticate(ctx context.Context, tok Token) (Token, error) {
-	if tok.sess != nil {
-		c.dropSession(tok.sess)
+// reauthRun は、取得 1 回分（FetchTimefree 1 回、または FetchLive の接続の 1 まとまり）の、取得の途中の 401・403 での認証のやり直し。
+// 段は最大 2 つ。
+//
+//  1. 1 段目: セッションを捨てずに認証し直す（Authenticate を呼ぶ。auth2 がセッションを拒めば、Authenticate の中で radiko のログインをし直す）。
+//  2. 2 段目: 1 段目で得たトークンでも 401・403 が来て、そのトークンにセッションが付いているときだけ、セッションを捨てて radiko のログインをし直す。
+//
+// セッションの付いていないトークン（非会員）は 1 段目だけ。段が尽きたら、呼び出し側が ErrTemporary で返す。
+// どの段で何が起きたかは Client.Log に INFO で出す（トークンとセッションの値は出さない）。
+type reauthRun struct {
+	c       *Client
+	kind    string // ログに出す取得の種別（"timefree" か "live"）
+	station string
+	n       int // やり直した段の数
+	logged  int // 「取れた」をログに出した段の数
+}
+
+func (c *Client) newReauthRun(kind, station string) *reauthRun {
+	return &reauthRun{c: c, kind: kind, station: station}
+}
+
+// next は、取得の途中でトークン tok が拒まれた（401・403）ときに、次の段で認証し直す。段が尽きていたら ok=false を返す（認証はしない）。
+func (r *reauthRun) next(ctx context.Context, tok Token) (nt Token, ok bool, err error) {
+	member := tok.sess != nil
+	if r.n == 0 {
+		r.c.logInfo("取得の途中でトークンが拒まれた（401・403）", "kind", r.kind, "station", r.station, "member", member)
 	}
-	return c.Authenticate(ctx)
+	if r.n >= 2 || (r.n == 1 && !member) {
+		r.c.logInfo("認証し直した後のトークンも拒まれた。取得を諦める", "kind", r.kind, "station", r.station, "stages_done", r.n)
+		return Token{}, false, nil
+	}
+	r.n++
+	if r.n == 2 {
+		r.c.logInfo("2 段目に進む（セッションを捨てて radiko のログインをし直す）", "kind", r.kind, "station", r.station)
+		r.c.dropSession(tok.sess)
+	} else {
+		r.c.logInfo("1 段目で認証し直す（セッションを捨てない）", "kind", r.kind, "station", r.station, "member", member)
+	}
+	nt, err = r.c.Authenticate(ctx)
+	if err != nil {
+		r.c.logInfo("認証し直しに失敗した", "kind", r.kind, "station", r.station, "stage", r.n, "error", err.Error())
+		return Token{}, true, err
+	}
+	return nt, true, nil
+}
+
+// succeeded は、認証し直した後に取得が通ったときに呼ぶ（段ごとに 1 回だけログに出す）。
+func (r *reauthRun) succeeded() {
+	if r.n > r.logged {
+		r.logged = r.n
+		r.c.logInfo("認証し直した後に取れた", "kind", r.kind, "station", r.station, "stage", r.n)
+	}
+}
+
+// reset は段の数を 0 に戻す（ライブで、1 まとまりの接続が成功したあと）。
+func (r *reauthRun) reset() { r.n, r.logged = 0, 0 }
+
+// logInfo は Client.Log が nil でなければ INFO を出す。
+func (c *Client) logInfo(msg string, args ...any) {
+	if c.Log != nil {
+		c.Log.Info(msg, args...)
+	}
 }
 
 // authenticate は auth1 / auth2 を 1 回ずつ呼ぶ。s が nil でなければ、auth2 に radiko_session を付ける。

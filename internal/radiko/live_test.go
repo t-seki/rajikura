@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -34,6 +35,8 @@ type fakeLive struct {
 	hitsA, hitsB         int
 	masters              []string // マスタの l（検査用）
 	noLive               bool
+	rejectUntilAuth      int // auth の回数がこれより少ない間、マスタを 403 にする（時計は進める。0 なら無効）
+	loginCount           int // radiko のログインの回数
 }
 
 func newFakeLive(t *testing.T, clock time.Time) *fakeLive {
@@ -45,6 +48,7 @@ func newFakeLive(t *testing.T, clock time.Time) *fakeLive {
 	mux.HandleFunc("/v3/station/stream/pc_html5/TBS.xml", f.streamXML)
 	mux.HandleFunc("/liveA/playlist.m3u8", func(w http.ResponseWriter, r *http.Request) { f.master(w, r, "liveA") })
 	mux.HandleFunc("/liveB/playlist.m3u8", func(w http.ResponseWriter, r *http.Request) { f.master(w, r, "liveB") })
+	mux.HandleFunc("/v4/api/member/login", f.memberLogin)
 	mux.HandleFunc("/media.m3u8", f.medialist)
 	mux.HandleFunc("/seg/", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "[%s]", strings.TrimPrefix(r.URL.Path, "/seg/"))
@@ -85,6 +89,14 @@ func (f *fakeLive) auth2(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, "JP13,東京都,tokyo Japan\n")
 }
 
+func (f *fakeLive) memberLogin(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	f.loginCount++
+	n := f.loginCount
+	f.mu.Unlock()
+	fmt.Fprintf(w, `{"radiko_session":"S%d","areafree":"0"}`, n)
+}
+
 func (f *fakeLive) streamXML(w http.ResponseWriter, r *http.Request) {
 	if f.noLive {
 		fmt.Fprintf(w, `<urls><url areafree="0" timefree="1"><playlist_create_url>%s/tf/playlist.m3u8</playlist_create_url></url></urls>`, f.srv.URL)
@@ -122,6 +134,11 @@ func (f *fakeLive) master(w http.ResponseWriter, r *http.Request, name string) {
 	tok := r.Header.Get("X-Radiko-AuthToken")
 	if tok == "" {
 		http.Error(w, "no token", http.StatusUnauthorized)
+		return
+	}
+	if f.authCount < f.rejectUntilAuth {
+		f.clock = f.clock.Add(5 * time.Second)
+		http.Error(w, "rejected token", http.StatusForbidden)
 		return
 	}
 	if tok != f.validToken {
@@ -427,5 +444,92 @@ func TestFetchLive_InvalidRequest(t *testing.T) {
 	req.Deadline = time.Time{}
 	if _, _, err := runLive(t, f, req); err == nil {
 		t.Error("want error for missing deadline")
+	}
+}
+
+// liveMember は、会員（ログイン情報あり）の Client でライブを取り、Log の出力を返す。
+func liveMember(t *testing.T, f *fakeLive, member bool) (LiveResult, error, *bytes.Buffer) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	c := f.client()
+	if member {
+		c.Account = func() (Account, bool) { return Account{Mail: "me@example.com", Password: "secret-pass"}, true }
+	}
+	var logs bytes.Buffer
+	c.Log = slog.New(slog.NewTextHandler(&logs, nil))
+	tok, err := c.Authenticate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	res, err := c.FetchLive(ctx, tok, liveReq(1), &buf)
+	return res, err, &logs
+}
+
+func TestFetchLive_MemberReauthFirstStageKeepsSession(t *testing.T) {
+	f := newFakeLive(t, liveStart.Add(-time.Minute))
+	f.rejectUntilAuth = 2 // 最初のトークンだけ拒まれる
+	_, err, logs := liveMember(t, f, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.authCount != 2 || f.loginCount != 1 {
+		t.Errorf("authCount = %d, loginCount = %d, want 2 and 1 (session kept)", f.authCount, f.loginCount)
+	}
+	out := logs.String()
+	for _, want := range []string{"kind=live", "station=TBS", "1 段目で認証し直す", "認証し直した後に取れた", "stage=1"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log lacks %q: %s", want, out)
+		}
+	}
+	if strings.Contains(out, "2 段目に進む") || strings.Contains(out, "S1") || strings.Contains(out, "secret-pass") {
+		t.Errorf("unexpected log: %s", out)
+	}
+}
+
+func TestFetchLive_MemberReauthSecondStageLogsInAgain(t *testing.T) {
+	f := newFakeLive(t, liveStart.Add(-time.Minute))
+	f.rejectUntilAuth = 3 // 1 段目のトークンも拒まれる
+	_, err, logs := liveMember(t, f, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.authCount != 3 || f.loginCount != 2 {
+		t.Errorf("authCount = %d, loginCount = %d, want 3 and 2", f.authCount, f.loginCount)
+	}
+	out := logs.String()
+	for _, want := range []string{"1 段目で認証し直す", "2 段目に進む", "stage=2"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log lacks %q: %s", want, out)
+		}
+	}
+}
+
+func TestFetchLive_MemberRejectedAfterBothStages(t *testing.T) {
+	f := newFakeLive(t, liveStart.Add(-time.Minute))
+	f.rejectUntilAuth = 99
+	_, err, logs := liveMember(t, f, true)
+	if !errors.Is(err, ErrTemporary) {
+		t.Fatalf("err = %v, want ErrTemporary", err)
+	}
+	if f.authCount != 3 || f.loginCount != 2 {
+		t.Errorf("authCount = %d, loginCount = %d, want 3 and 2 (no more than two stages)", f.authCount, f.loginCount)
+	}
+	if !strings.Contains(logs.String(), "取得を諦める") {
+		t.Errorf("log lacks the give-up line: %s", logs.String())
+	}
+}
+
+// 非会員は 1 段だけ（セッションが無いので、2 段目は無い）。
+func TestFetchLive_NonMemberReauthsOnce(t *testing.T) {
+	f := newFakeLive(t, liveStart.Add(-time.Minute))
+	f.rejectUntilAuth = 99
+	_, err, _ := liveMember(t, f, false)
+	if !errors.Is(err, ErrTemporary) {
+		t.Fatalf("err = %v, want ErrTemporary", err)
+	}
+	if f.authCount != 2 || f.loginCount != 0 {
+		t.Errorf("authCount = %d, loginCount = %d, want 2 and 0", f.authCount, f.loginCount)
 	}
 }
