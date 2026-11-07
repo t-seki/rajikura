@@ -19,7 +19,7 @@ import (
 	"github.com/t-seki/rajikura/internal/store"
 )
 
-// パスワードを決める・変える口（docs/adr/0016-first-password-by-setup-code.md）。
+// パスワードを決める・変える口（docs/adr/0041-first-password-by-setup-code-and-reset-clears-binding.md）。
 //
 //   - POST /api/setup: パスワードが無い間に、セットアップコードを入れてパスワードを決める。決めたらログインした状態にする
 //   - PUT /api/password: ログインしてから、今のパスワードを入れてパスワードを変える（今のパスワードの間違いは、ログインの総当たりの制限に数える。protect.go）
@@ -236,15 +236,24 @@ func (u *UI) changePassword(w http.ResponseWriter, r *http.Request) {
 
 // startSession はセッションを作り、cookie を付けて {"authenticated": true} を返す（ログインと、パスワードを決めたとき）。
 func (u *UI) startSession(w http.ResponseWriter, r *http.Request) {
-	id, exp, err := u.Sessions.CreateSession(r.Context(), u.now())
+	c, err := u.newSessionCookie(r.Context())
 	if err != nil {
 		u.log().Error("セッションを作れない", "err", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "内部エラー"})
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, c)
+	writeJSON(w, http.StatusOK, map[string]bool{"authenticated": true})
+}
+
+// newSessionCookie はセッションを作り、それを渡す cookie を返す（パスワードのログインと IdP のログインで同じ形。ADR 0008・0040）。
+func (u *UI) newSessionCookie(ctx context.Context) (*http.Cookie, error) {
+	id, exp, err := u.Sessions.CreateSession(ctx, u.now())
+	if err != nil {
+		return nil, err
+	}
+	return &http.Cookie{
 		Name: SessionCookie, Value: id, Path: "/", Expires: exp, MaxAge: int(store.SessionTTL / time.Second),
 		HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
-	})
-	writeJSON(w, http.StatusOK, map[string]bool{"authenticated": true})
+	}, nil
 }

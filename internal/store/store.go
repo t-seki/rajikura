@@ -7,7 +7,8 @@
 // （docs/adr/0037-deadline-near-not-for-passed-deadline.md）。
 // ジョブの id は AUTOINCREMENT で振り、消したジョブの id を別のジョブに使い回さない（docs/adr/0026-job-id-not-reused.md）。
 // 最後にジョブを保存した時刻は app_state に持ち、/metrics を再起動で 0 に戻さないために使う（app_state.go）。
-// Web UI のパスワードの bcrypt の hash も app_state に持つ（password.go。docs/adr/0016-first-password-by-setup-code.md）。
+// Web UI のパスワードの bcrypt の hash も app_state に持つ（password.go。docs/adr/0041-first-password-by-setup-code-and-reset-clears-binding.md）。
+// IdP のログインの設定（client secret を除く）と紐づけも app_state に持ち、client secret は暗号化して secrets に持つ（idp.go。docs/adr/0040-idp-login-by-generic-oidc.md）。
 // 最後に自動のバックアップを取れた時刻も app_state に持つ（app_state.go。取る先を変えたら忘れる）。
 // 設定（秘密を除く値の JSON）は settings に、暗号化した秘密は secrets に持つ（settings.go。中身は解釈しない）。
 // DB のバックアップは、VACUUM INTO で作った写しから sessions を消したもの（backup.go。docs/adr/0017-backup-by-db-copy.md）。

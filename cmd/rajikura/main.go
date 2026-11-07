@@ -25,8 +25,8 @@
 // （docs/adr/0015-settings-and-secrets-in-db.md）。0.x の -config は無くなったので、付けたら入れ方の docs を添えて止める。
 //
 // Web UI のパスワードは、初めて Web UI を開いた人が、serve が作ったセットアップコード（データのフォルダの
-// setup-code.txt とログに出す）を入れて決める（docs/adr/0016-first-password-by-setup-code.md）。忘れたときは
-// serve -reset-password で、パスワード・ログインのセッション・API トークンを消して、セットアップコードからやり直す。
+// setup-code.txt とログに出す）を入れて決める（docs/adr/0041-first-password-by-setup-code-and-reset-clears-binding.md）。忘れたときは
+// serve -reset-password で、パスワード・ログインのセッション・API トークン・IdP のログインの紐づけを消して（IdP の設定は残す）、セットアップコードからやり直す。
 //
 // jobs・retry・skip・record・rerecord・chapters・move・backup は serve の HTTP API を呼ぶ（internal/client。docs/adr/0009-cli-over-http.md）。
 // 接続先と API トークンは、フラグ → 環境変数（RAJIKURA_URL・RAJIKURA_TOKEN）→ 設定ファイル（os.UserConfigDir の下の
@@ -217,7 +217,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 func runServe(ctx context.Context, global bootFlags, globalSet map[string]bool, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("rajikura serve", flag.ContinueOnError)
 	local := addBootFlags(fs)
-	resetPassword := fs.Bool("reset-password", false, "Web UI のパスワード・ログインのセッション・API トークンを消して、セットアップコードからやり直す（起動は続ける）")
+	resetPassword := fs.Bool("reset-password", false, "Web UI のパスワード・ログインのセッション・API トークン・IdP のログインの紐づけを消して、セットアップコードからやり直す（IdP の設定は残す。起動は続ける）")
 	if err := parseFlags(fs, args, stderr); err != nil {
 		return 2
 	}
@@ -327,7 +327,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "サブコマンド:")
 	fmt.Fprintln(w, "  serve                 常駐して番組表の同期と録音を回す（DB を開くのは serve だけ）")
-	fmt.Fprintln(w, "                        -reset-password: Web UI のパスワード・ログインのセッション・API トークンを消して、セットアップコードからやり直す")
+	fmt.Fprintln(w, "                        -reset-password: Web UI のパスワード・ログインのセッション・API トークン・IdP のログインの紐づけを消して、セットアップコードからやり直す（IdP の設定は残す）")
 	fmt.Fprintln(w, "  jobs [-state 状態]    ジョブを一覧する（状態はカンマ区切りで複数指定できる）")
 	fmt.Fprintln(w, "  jobs ID               ジョブ 1 件の詳細（放送回・試行の履歴・チャプターの書き込みの履歴・保存先の移しの履歴を含む）を出す")
 	fmt.Fprintln(w, "  retry ID...           retrying / expired / skipped（録らなかった）のジョブの次の試行をすぐに行わせる（serve がすぐ拾う）")

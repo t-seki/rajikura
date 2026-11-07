@@ -25,13 +25,13 @@ import (
 	"github.com/t-seki/rajikura/web"
 )
 
-// SetupCodeFile は、データのフォルダに置く、セットアップコードを書いたファイルの名前（docs/adr/0016-first-password-by-setup-code.md）。
+// SetupCodeFile は、データのフォルダに置く、セットアップコードを書いたファイルの名前（docs/adr/0041-first-password-by-setup-code-and-reset-clears-binding.md）。
 // 足したら直す: データのフォルダ
 const SetupCodeFile = "setup-code.txt"
 
 // serveOptions は、起動の設定のほかに serve に渡すフラグ。
 type serveOptions struct {
-	// resetPassword は、起動するときに Web UI のパスワード・ログインのセッション・API トークンを消す（-reset-password）。
+	// resetPassword は、起動するときに Web UI のパスワード・ログインのセッション・API トークン・IdP のログインの紐づけを消す（-reset-password）。
 	resetPassword bool
 }
 
@@ -138,6 +138,9 @@ func serve(ctx context.Context, boot config.Boot, opts serveOptions, stdout, std
 		Files:         web.FS(),
 		Log:           log,
 		AllowedHosts:  boot.AllowedHosts,
+		// IdP のログインの client secret は、設定の秘密と同じ鍵のファイルで暗号化する（ADR 0040）。
+		IdP:        st,
+		IdPSecrets: settings.Secrets,
 	}
 	// serve の終了（ctx の取り消し）で HTTP も止める。HTTP が先に落ちたら、serve も止める。
 	sctx, cancel := context.WithCancel(ctx)
@@ -155,7 +158,7 @@ func serve(ctx context.Context, boot config.Boot, opts serveOptions, stdout, std
 	return err
 }
 
-// prepareSetupCode は、-reset-password ならパスワード・ログインのセッション・API トークンを消し、パスワードが無ければ
+// prepareSetupCode は、-reset-password ならパスワード・ログインのセッション・API トークン・IdP のログインの紐づけを消し（IdP の設定は残す）、パスワードが無ければ
 // セットアップコードを作って、データのフォルダの setup-code.txt とログ（Info）に出す。パスワードがあれば nil を返し、
 // 前の起動で残ったセットアップコードのファイルを消す。
 func prepareSetupCode(ctx context.Context, st *store.Store, boot config.Boot, opts serveOptions, log *slog.Logger) (*server.SetupCode, error) {
@@ -164,7 +167,7 @@ func prepareSetupCode(ctx context.Context, st *store.Store, boot config.Boot, op
 		if err := st.ResetPassword(ctx); err != nil {
 			return nil, fmt.Errorf("パスワードを戻せない: %w", err)
 		}
-		log.Warn("-reset-password: Web UI のパスワード・ログインのセッション・API トークンを消した。セットアップコードからパスワードを決め直し、API トークンは発行し直す")
+		log.Warn("-reset-password: Web UI のパスワード・ログインのセッション・API トークン・IdP のログインの紐づけを消した。セットアップコードからパスワードを決め直し、API トークンは発行し直し、IdP のログインは紐づけ直す（IdP の設定は残した）")
 	}
 	hash, err := st.PasswordHash(ctx)
 	if err != nil {

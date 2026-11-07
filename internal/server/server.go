@@ -2,17 +2,19 @@
 //
 //   - GET /healthz: k8s の liveness probe 用。認証の外に置く
 //   - GET /metrics: Prometheus 用。ログインなし。WithMetrics で足す（メトリクスは internal/metrics）
-//   - /api/: Web UI の JSON API（ログインは ui.go、パスワードを決める・変えるのは setup.go、番組の管理は shows.go、1 回の予約は onces.go、キーワードは keywords.go、ジョブは jobs.go、番組表は guide.go、API トークンは tokens.go、通知は notifications.go、設定は settings.go、バックアップは backup.go、フォルダの一覧は folders.go）。
-//     POST /api/login と POST /api/setup 以外は、セッションの cookie か、有効な API トークン（Authorization: Bearer）が要り、無ければ 401
+//   - /api/: Web UI の JSON API（ログインは ui.go、パスワードを決める・変えるのは setup.go、番組の管理は shows.go、1 回の予約は onces.go、キーワードは keywords.go、ジョブは jobs.go、番組表は guide.go、API トークンは tokens.go、通知は notifications.go、設定は settings.go、バックアップは backup.go、フォルダの一覧は folders.go、IdP のログインは idp.go）。
+//     POST /api/login と POST /api/setup と IdP のログインの口（GET /api/idp/login-option・GET /api/idp/login・GET /api/idp/callback）以外は、
+//     セッションの cookie か、有効な API トークン（Authorization: Bearer）が要り、無ければ 401。IdP の設定と紐づけの口は、セッションの cookie でだけ通す
 //   - それ以外のパス: Web UI の SPA（ui.go）。ファイルが無いパスは index.html を返す
 //
 // 足したら直す: 待ち受ける口
 //
-// 利用者は 1 人で、パスワードの bcrypt の hash（DB に置く）で認証する。パスワードがまだ無い間は、POST /api/setup
+// 利用者は 1 人で、パスワードの bcrypt の hash（DB に置く）か、紐づけた IdP のログイン（idp.go）で認証する。パスワードがまだ無い間は、POST /api/setup
 // （セットアップコードを入れてパスワードを決める）のほかの /api/ は 503 を返す（API トークンがあっても通さない）。SPA は返す。
 // /api/ と SPA は、Host が IP のアドレス・localhost・serve の -allowed-hosts の名前のときだけ受け（ほかは 421）、/api/ の GET・HEAD
 // 以外はほかのオリジンからの要求を 403 で断り、ログインのパスワードの間違いを全体で数えて続けば 429 で止める（protect.go）。
-// 作りは docs/adr/0008-web-ui-shape.md と docs/adr/0016-first-password-by-setup-code.md、守りは docs/adr/0021-web-ui-origin-host-and-login-limit.md にある。
+// 作りは docs/adr/0008-web-ui-shape.md と docs/adr/0041-first-password-by-setup-code-and-reset-clears-binding.md、IdP のログインは
+// docs/adr/0040-idp-login-by-generic-oidc.md、守りは docs/adr/0021-web-ui-origin-host-and-login-limit.md にある。
 package server
 
 import (

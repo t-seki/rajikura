@@ -887,7 +887,8 @@ func TestServeWithoutPassword(t *testing.T) {
 	}
 }
 
-// serve -reset-password は、パスワード・ログインのセッション・API トークンを消して起動を続け、セットアップコードを出す。
+// serve -reset-password は、パスワード・ログインのセッション・API トークン・IdP のログインの紐づけを消して起動を続け、
+// セットアップコードを出す。IdP の設定は残す（ADR 0041）。
 func TestServeResetPassword(t *testing.T) {
 	useFakeRadiko(t, fakeGuide(t, domain.BroadcastDayOf(time.Now()).AddDays(3)))
 	data := t.TempDir()
@@ -902,10 +903,17 @@ func TestServeResetPassword(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, token, err := st.CreateAPIToken(ctx, "テスト", time.Now())
-	st.Close()
 	if err != nil {
 		t.Fatal(err)
 	}
+	const idpBody = `{"issuer":"https://idp.example","client_id":"rajikura","web_url":"https://rajikura.example"}`
+	if err := st.SaveIdPSettings(ctx, store.IdPSave{Body: idpBody, SecretName: config.SecretIdPClientSecret, SetSecret: true, Sealed: []byte("sealed")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetIdPBinding(ctx, `{"issuer":"https://idp.example","subject":"alice"}`); err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
 
 	addr, logs, stop := startServe(t, "-data", data, "serve", "-reset-password", "-listen", "127.0.0.1:0")
 	url := "http://" + addr
@@ -933,6 +941,17 @@ func TestServeResetPassword(t *testing.T) {
 	}
 	if code := stop(); code != 0 {
 		t.Fatalf("serve の終了コード = %d: %s", code, logs())
+	}
+	st, err = store.Open(ctx, filepath.Join(data, config.DBFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if b, err := st.IdPBinding(ctx); err != nil || b != "" {
+		t.Errorf("戻した後の紐づけ = %q, %v（消えるはず）", b, err)
+	}
+	if body, sealed, err := st.IdPSettings(ctx, config.SecretIdPClientSecret); err != nil || body != idpBody || string(sealed) != "sealed" {
+		t.Errorf("戻した後の IdP の設定 = %q, %q, %v（残るはず）", body, sealed, err)
 	}
 }
 
