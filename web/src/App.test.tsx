@@ -50,6 +50,62 @@ describe("App", () => {
     expect(await screen.findByLabelText(/パスワード/)).toBeInTheDocument();
   });
 
+  it("紐づけが済んでいれば、ログインの画面のパスワードの欄の上に「<issuer のホスト名> でログイン」を出す", async () => {
+    mockApi({
+      "GET /api/me": () => ({ status: 401 }),
+      "GET /api/idp/login-option": () => ({ status: 200, body: { linked: true, issuer_host: "idp.example" } }),
+    });
+    renderApp();
+    const link = await screen.findByRole("link", { name: "idp.example でログイン" });
+    expect(link).toHaveAttribute("href", "/api/idp/login");
+    const password = screen.getByLabelText(/パスワード/);
+    expect(link.compareDocumentPosition(password) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // パスワードのログインはそのまま使える
+    expect(screen.getByRole("button", { name: "ログイン" })).toBeInTheDocument();
+  });
+
+  it("紐づけが無ければ、IdP のログインのボタンを出さない", async () => {
+    mockApi({
+      "GET /api/me": () => ({ status: 401 }),
+      "GET /api/idp/login-option": () => ({ status: 200, body: { linked: false, issuer_host: "" } }),
+    });
+    renderApp();
+    await screen.findByLabelText(/パスワード/);
+    await waitFor(() => expect(screen.queryByRole("link", { name: /でログイン/ })).not.toBeInTheDocument());
+  });
+
+  it("IdP のログインの案内を読めなくても、パスワードのログインの画面は出る", async () => {
+    mockApi({
+      "GET /api/me": () => ({ status: 401 }),
+      "GET /api/idp/login-option": () => ({ status: 500 }),
+    });
+    renderApp();
+    expect(await screen.findByLabelText(/パスワード/)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /でログイン/ })).not.toBeInTheDocument();
+  });
+
+  it("パスワードがまだ無い間（セットアップコードの画面）は、IdP のログインのボタンを出さず、案内も読まない", async () => {
+    const calls = mockApi({
+      "GET /api/me": () => ({ status: 503, body: { setup: true, locked: false } }),
+      "GET /api/idp/login-option": () => ({ status: 200, body: { linked: true, issuer_host: "idp.example" } }),
+    });
+    renderApp();
+    expect(await screen.findByLabelText(/セットアップコード/)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /でログイン/ })).not.toBeInTheDocument();
+    expect(calls).not.toContain("GET /api/idp/login-option");
+  });
+
+  it("IdP のログインに失敗して戻ってきた（?idp_error=）ら、理由を出し、URL からそのキーだけを消す", async () => {
+    window.history.replaceState(null, "", "/?idp_error=mismatch&x=1");
+    mockApi({
+      "GET /api/me": () => ({ status: 401 }),
+      "GET /api/idp/login-option": () => ({ status: 200, body: { linked: true, issuer_host: "idp.example" } }),
+    });
+    renderApp();
+    expect(await screen.findByRole("alert")).toHaveTextContent("紐づけた相手と違う利用者だった");
+    expect(window.location.search).toBe("?x=1");
+  });
+
   it("/notifications を開くと通知の画面が出る", async () => {
     window.history.replaceState(null, "", "/notifications");
     mockApi({

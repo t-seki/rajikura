@@ -1,4 +1,4 @@
-// rajikura serve の /api/ を呼ぶ。作りは docs/adr/0008-web-ui-shape.md と docs/adr/0016-first-password-by-setup-code.md。
+// rajikura serve の /api/ を呼ぶ。作りは docs/adr/0008-web-ui-shape.md と docs/adr/0041-first-password-by-setup-code-and-reset-clears-binding.md（IdP のログインは docs/adr/0040-idp-login-by-generic-oidc.md）。
 
 /**
  * ログインの状態。setup は、パスワードがまだ決まっていない（503。セットアップコードを入れてパスワードを決める）。
@@ -116,6 +116,23 @@ export async function changePassword(current: string, password: string): Promise
   if (res.status === 429) throw await limitedOf(res);
   if (res.status === 401) throw new ApiError("ログインが切れた。再読み込みしてログインし直してほしい");
   throw new ApiError(await errorOf(res, `/api/password が ${res.status} を返した`));
+}
+
+/** ログインの画面に出す IdP のログインの案内（GET /api/idp/login-option）。linked が false なら issuerHost は空。 */
+export type IdpLoginOption = { linked: boolean; issuerHost: string };
+
+/** 紐づけが済んでいるかを読む。読めない・503（パスワードがまだ無い）・想定外の形のときは、ボタンを出さない（linked: false）。 */
+export async function fetchIdpLoginOption(): Promise<IdpLoginOption> {
+  const none = { linked: false, issuerHost: "" };
+  try {
+    const res = await fetch("/api/idp/login-option", { credentials: "same-origin" });
+    if (!res.ok) return none;
+    const body = (await res.json().catch(() => ({}))) as { linked?: unknown; issuer_host?: unknown };
+    if (body.linked !== true || typeof body.issuer_host !== "string") return none;
+    return { linked: true, issuerHost: body.issuer_host };
+  } catch {
+    return none;
+  }
 }
 
 export async function logout(): Promise<void> {

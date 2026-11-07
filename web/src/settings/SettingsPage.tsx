@@ -4,10 +4,11 @@ import { notifySuccess } from "../ui/toast";
 import { BackupApiError, downloadBackup } from "./backupApi";
 import { formatDateTime } from "../jobs/format";
 import { ChangePasswordForm } from "../ChangePasswordForm";
+import { IdpSection } from "./IdpSection";
 import { FolderPicker } from "./FolderPicker";
 import { fetchSettings, patchSettings, secretLabels, SettingsApiError, type SettingsValues, type SettingsView } from "./settingsApi";
 
-// 設定の画面。区切りは「保存先」「radiko の会員種別」「通知」「Jellyfin との連携」「バックアップ」「詳しい設定」「Web UI のパスワード」。「Web UI のパスワード」は ChangePasswordForm をそのまま出し、「保存」は付けない（フォームのボタンで送る）。ほかの区切りは区切りごとに保存し、
+// 設定の画面。区切りは「保存先」「radiko の会員種別」「通知」「Jellyfin との連携」「バックアップ」「詳しい設定」「IdP のログイン」「Web UI のパスワード」。「IdP のログイン」は IdpSection（設定の API ではなく IdP の専用の口を使い、区切りの中で保存する）。「Web UI のパスワード」は ChangePasswordForm をそのまま出し、「保存」は付けない（フォームのボタンで送る）。ほかの区切りは区切りごとに保存し、
 // 保存したらすぐに効く（番組表のキャッシュの大きさだけは、serve の再起動まで効かない）。「radiko の会員種別」は会員種別と、
 // 非会員でないときの radiko のログインに使うログイン情報（メールアドレスとパスワード）を保存する。「バックアップ」は自動のバックアップの取る先と残す数を保存し、最後に自動で取れた日時を出す。DB の写しをダウンロードもさせる。
 // 秘密の欄は値を返さない。空のまま保存したら変えず、「消す」を押したときだけ空の文字列を送る。
@@ -48,6 +49,7 @@ export function SettingsPage({ onChanged }: { onChanged: (view: SettingsView) =>
           </Alert>
         )
       )}
+      <IdpSection Section={Section} />
       <PasswordSection />
     </Stack>
   );

@@ -9,6 +9,7 @@ rajikura の設定（保存先・通知先・会員種別など、動かし方�
 - [m4a への格納（`muxer`）](#m4a-への格納muxer)
 - [チャプター（`chapters`）](#チャプターchapters)
 - [番組表のキャッシュ](#番組表のキャッシュ)
+- [IdP のログイン](#idp-のログイン)
 - [ライブラリの再スキャン（`jellyfin`）](#ライブラリの再スキャンjellyfin)
 
 設定のほかに、次がある。
@@ -201,3 +202,27 @@ radiko がタイムフリーの番組に付けるチャプター（用語集の�
 - 次に頼めたら、復旧を通知する。
 - 異常が続いている間に `jellyfin.url` を空にした（か API キーを復号できなくなった）ときは、次の見回り（1 時間ごと）か次の保存の早いほうで、頼むのを止めたことを復旧として通知する。
 - `serve` を止めたことによる取り消しは通知しない。
+
+## IdP のログイン
+
+Web UI に、パスワードのほかに、IdP（OpenID Connect）でもログインできるようにする。決定は [ADR 0040](adr/0040-idp-login-by-generic-oidc.md)。画面の使い方は [web-ui.md の「設定の画面と帯」](web-ui.md#設定の画面と帯)。用語は [GLOSSARY.md](../GLOSSARY.md) の「IdP」「IdP のログイン」「紐づけ」。
+
+- 設定する IdP は 1 つだけ。特定の IdP には縛らず、OpenID Connect の issuer の discovery に対応していれば使える（Authorization Code + PKCE）。
+- 設定は、Web UI の設定の画面の「IdP のログイン」で行う。スクリプトや AI の API トークンでは読めず、変えられない。設定の `GET`・`PATCH` にも出ない。
+  - issuer: IdP の URL。
+  - client id: IdP に登録した rajikura の client id。
+  - client secret: 秘密。省ける。省くと secret を送らず、PKCE だけで IdP に尋ねる（IdP が対応しているときだけ使える）。DB の中では、ほかの秘密と同じく暗号化する。
+  - Web UI の URL: ブラウザで Web UI を開く URL（例: `https://rajikura.example`）。
+- IdP に登録する戻り先の URL は、Web UI の URL の下の決まったパスになる。設定の画面に、写せる形で出る。要求の `Host` などから組み立てることはしない。
+- Web UI の URL の名前は、`serve` の `-allowed-hosts` に入れておく。入っていないと、IdP から戻る要求が断られる（設定の画面が知らせる）。
+- IdP が受け付ける戻り先の URL の決まりは IdP ごとに違う。たとえば Google は、https の URL（`localhost` は除く）で、生の IP のアドレスではなく、TLD が public suffix list にあるものに限る（[Google の説明](https://developers.google.com/identity/protocols/oauth2/web-server)の「Redirect URI validation rules」）。ほかの IdP の決まりは、その IdP の docs を見る。
+- 求める scope は `openid email`。メールアドレスは、紐づけた利用者を画面で見分けるためだけに使い、入れるかどうかには使わない。
+- 紐づけると、IdP が付ける利用者の識別子の組が 1 つだけ決まる。入れるのは、その利用者だけ。紐づけは 1 つで、つけ替えると前のものは消える。
+  - 紐づけは、パスワードでログインした設定の画面で、今のパスワードを入れて始める。外すときは、パスワードを求めない。
+  - issuer か client id を変えて保存すると、紐づけは消える。
+  - `serve -reset-password` で戻したときも、紐づけは消える。IdP の設定は残る（[ADR 0041](adr/0041-first-password-by-setup-code-and-reset-clears-binding.md)）。
+- パスワードのログインは常に残る。IdP が止まっても、パスワードで入れる。
+- IdP のログインが途中で失敗しても（IdP が拒んだ、紐づけた利用者と違った、途中の状態が合わないなど）、パスワードの間違いの数には入れない。
+- ログインの途中の状態は `serve` のメモリに 10 分だけ置く。`serve` を起動し直すと、途中のログインは失敗する。
+- rajikura からログアウトしても、IdP からはログアウトしない。
+- IdP の設定と紐づけは DB に入るので、バックアップに入る（[backup.md](backup.md)）。
