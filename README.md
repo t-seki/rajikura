@@ -35,7 +35,7 @@ radiko の放送を録音し、Jellyfin などのライブラリへ自動で保�
 ## 配布物
 
 - コンテナのイメージ: `ghcr.io/t-seki/rajikura:vX.Y.Z`（x64）。
-- バイナリ: GitHub Release の Windows・Linux（x64）。`serve` と手元で使う CLI は同じバイナリ。
+- バイナリ: GitHub Release の Windows（x64）・Linux（x64・arm64）。`serve` と手元で使う CLI は同じバイナリ。
 
 入れ方は [はじめに](docs/getting-started.md)。Windows の PC に常駐させる入れ方は [Windows のサービスとして入れる](docs/windows.md)。
 
