@@ -7,7 +7,7 @@
 # Windows は ffmpeg を入れない。runner に有ればテストが走り、無ければ skip を許す（失敗にしない）。skip されたテストは一覧にして出すだけ。
 # トリガは PR（pull_request）と main への push に絞る。全ブランチの push も拾うと、PR のブランチに push するたびに同じ変更で 2 回走るため。同じ ref の古い実行は concurrency で捨てる。
 # web の job で、フロントエンド（web/）の型チェック・テスト・ビルドを Linux で回す。
-# 別の job で、docs と README.md と GLOSSARY.md の定義文が GLOSSARY.md の _Avoid_ に当たらないことと、その検査の例文テスト（scripts/check-glossary_test.sh）を Linux で流す。同じ job で、docs と README.md がバッククォートで名指しするコードのパス（internal/・cmd/）と `型.メソッド` が実在することと、その例文テスト（scripts/check-code-refs_test.sh）も流す。同じ job で、Go のソースのコメントが名指しする .go のファイルが実在することと、その例文テスト（scripts/check-go-comment-refs_test.sh）も流す。同じ job で、docs/development.md の「足したら直す列挙」の印（直す場所に置く項の名前）が列挙の項と合うことと、その例文テスト（scripts/check-fix-markers_test.sh）も流す。同じ job で、使う人向けの docs に rajikura の API のパス（/api/…）・API の欄の名前・検証の記録の言い回しが書かれていないことと、その例文テスト（scripts/check-user-docs_test.sh）も流す。
+# 別の job で、docs と README.md と GLOSSARY.md の定義文が GLOSSARY.md の _Avoid_ に当たらないことと、その検査の例文テスト（scripts/check-glossary_test.sh）を Linux で流す。同じ job で、docs と README.md がバッククォートで名指しするコードのパス（internal/・cmd/）と `型.メソッド` が実在することと、その例文テスト（scripts/check-code-refs_test.sh）も流す。同じ job で、Go のソースのコメントが名指しする .go のファイルが実在することと、その例文テスト（scripts/check-go-comment-refs_test.sh）も流す。同じ job で、docs/development.md の「足したら直す列挙」の印（直す場所に置く項の名前）が列挙の項と合うことと、その例文テスト（scripts/check-fix-markers_test.sh）も流す。同じ job で、使う人向けの docs に rajikura の API のパス（/api/…）・API の欄の名前・検証の記録の言い回しが書かれていないことと、その例文テスト（scripts/check-user-docs_test.sh）も流す。同じ job で、docs の頭の目次が本文の ## の見出しと順・数・アンカー・表示で合うことと、その例文テスト（scripts/check-toc_test.sh）も流す。
 name: CI
 
 on:
@@ -34,6 +34,7 @@ jobs:
   #   1 つ以上あるか（scripts/check-fix-markers.sh。docs/adr/ と列挙の節の中は数えない）と、その例文テスト（scripts/check-fix-markers_test.sh）。
   # - 使う人向けの docs の実装の仕様と検証の記録: README.md と使う人向けの docs に rajikura の API のパス（/api/…）・docs/api.md が挙げる API の欄の名前（小文字 1 語の欄はスクリプトの一覧の名前をバッククォートで書いた箇所だけ）・
   #   検証の記録の言い回しが無いか（scripts/check-user-docs.sh。免除の印は無い。外の URL の中の /api/ と欄の名前は当てない。対象の一覧は docs/development.md の「docs の書き方」と揃える）と、その例文テスト（scripts/check-user-docs_test.sh）。
+  # - 目次: docs/*.md の頭の目次が、本文の ## の見出しと順・数・アンカー・表示で合うか（scripts/check-toc.sh。目次を持たない docs と ### 以下の入れ子の項は見ない）と、その例文テスト（scripts/check-toc_test.sh）。
   glossary:
     runs-on: ubuntu-latest
     steps:
@@ -60,6 +61,10 @@ jobs:
         run: scripts/check-user-docs.sh
       - name: 使う人向けの docs の実装の仕様と検証の記録の検査の例文テスト
         run: scripts/check-user-docs_test.sh
+      - name: docs の目次が本文の ## の見出しと合うこと
+        run: scripts/check-toc.sh
+      - name: 目次の検査の例文テスト
+        run: scripts/check-toc_test.sh
 
   go:
     strategy:

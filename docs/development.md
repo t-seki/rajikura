@@ -122,6 +122,7 @@ pnpm screenshots
 - docs と README.md がバッククォートで名指しするコードのパス（`internal/…`・`cmd/…`）と `型.メソッド`（`Store.ListJobs` など）は、実在するものだけを書く（`scripts/check-code-refs.sh` が CI の Linux で検査する。`docs/adr/` も対象）。免除と細則はスクリプトの冒頭に書いてある。検査の形を変えたら `scripts/check-code-refs_test.sh` に例を足す。
 - Go のコメントが名指しする `.go` のファイルは、実在するものだけを書く（`scripts/check-go-comment-refs.sh` が CI の Linux で検査する）。`internal/…`・`cmd/…` で始まるパスは repo root から、スラッシュの無い名前は同じディレクトリで照合する。別のパッケージのファイルはパスで書く。免除（コメント末尾の `code-ref-ok: 名指し`）と限界はスクリプトの冒頭に書いてある。検査の形を変えたら `scripts/check-go-comment-refs_test.sh` に例を足す。
 - 「足したら直す列挙」の印は、列挙の項の名前で書く（`scripts/check-fix-markers.sh` が CI の Linux で検査する。git が追うファイルが対象で、`docs/adr/` とこの docs の「足したら直す列挙」の節は対象外）。列挙のどれかの項の印が 1 つも無いか、列挙に無い名前の印があるか、Go・TS の行だけのコメントの印がコメントのブロックの途中（次の行が文字のある `//` の行）にあると落ちる。印の付け忘れは見つけない。細則はスクリプトの冒頭に書いてある。検査の形を変えたら `scripts/check-fix-markers_test.sh` に例を足す。
+- docs の頭の目次（本文の `## ` の見出しへのリンクの箇条書き）は、本文の `## ` の見出しと順・数・アンカー・表示を合わせる（`scripts/check-toc.sh` が CI の Linux で検査する。`docs/*.md` が対象で、目次を持たない docs と `###` 以下の入れ子の項は見ない）。目次の作り直しはしない。細則はスクリプトの冒頭に書いてある。検査の形を変えたら `scripts/check-toc_test.sh` に例を足す。
 
 ## docs の書き方
 
