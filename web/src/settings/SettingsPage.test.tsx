@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SettingsBanners } from "./SettingsBanners";
 import { SettingsPage } from "./SettingsPage";
+import type { IdpView } from "./idpApi";
 import type { SettingsView } from "./settingsApi";
 
 const base: SettingsView = {
@@ -38,6 +39,18 @@ const base: SettingsView = {
   radiko_login: null,
 };
 
+const idpBase: IdpView = {
+  issuer: "",
+  client_id: "",
+  web_url: "",
+  client_secret_set: false,
+  client_secret_unreadable: false,
+  redirect_url: "",
+  web_host: "",
+  web_host_allowed: true,
+  binding: null,
+};
+
 interface Call {
   method: string;
   body: unknown;
@@ -48,6 +61,7 @@ function mockApi(
   view: SettingsView,
   patch?: (body: unknown) => { status: number; body: unknown },
   folders?: (path: string) => { status: number; body: unknown },
+  idp?: (method: string, url: string, body: unknown) => { status: number; body: unknown },
 ) {
   const calls: Call[] = [];
   vi.stubGlobal(
@@ -58,6 +72,12 @@ function mockApi(
         const path = decodeURIComponent(url.slice("/api/folders?path=".length));
         calls.push({ method: "GET folders", body: path });
         const r = folders(path);
+        return new Response(JSON.stringify(r.body), { status: r.status });
+      }
+      if (url.startsWith("/api/idp")) {
+        const b = init?.body ? JSON.parse(init.body as string) : undefined;
+        calls.push({ method: `${method} ${url}`, body: b });
+        const r = idp ? idp(method, url, b) : { status: 200, body: idpBase };
         return new Response(JSON.stringify(r.body), { status: r.status });
       }
       if (url !== "/api/settings") throw new Error(`想定外の呼び出し: ${method} ${url}`);
@@ -88,7 +108,7 @@ afterEach(() => {
 });
 
 describe("SettingsPage", () => {
-  it("保存先・radiko の会員種別・通知・Jellyfin との連携・バックアップ・詳しい設定・Web UI のパスワードの 7 つの区切りを出す", async () => {
+  it("保存先・radiko の会員種別・通知・Jellyfin との連携・バックアップ・詳しい設定・IdP のログイン・Web UI のパスワードの 8 つの区切りを出す", async () => {
     mockApi(base);
     renderPage();
     expect(await screen.findByRole("region", { name: "保存先" })).toBeInTheDocument();
@@ -97,6 +117,7 @@ describe("SettingsPage", () => {
     expect(screen.getByRole("region", { name: "Jellyfin との連携" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "バックアップ" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "詳しい設定" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "IdP のログイン" })).toBeInTheDocument();
     // 最後の区切りは、ダイアログではなくフォームをそのまま出し、「保存」は付けない
     const pw = screen.getByRole("region", { name: "Web UI のパスワード" });
     expect(within(pw).getByLabelText(/今のパスワード/)).toBeInTheDocument();
@@ -339,13 +360,14 @@ describe("SettingsPage", () => {
   it("最初の設定を読めなかったら、その理由を出す", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "読めない" }), { status: 500 })));
     renderPage();
-    expect(await screen.findByRole("alert")).toHaveTextContent("読めない");
+    // 設定と IdP のログインの区切りの両方が読めない
+    expect((await screen.findAllByRole("alert"))[0]).toHaveTextContent("読めない");
   });
 
   it("設定を読めなくても、「Web UI のパスワード」の区切りは出す", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "読めない" }), { status: 500 })));
     renderPage();
-    expect(await screen.findByRole("alert")).toHaveTextContent("読めない");
+    expect((await screen.findAllByRole("alert"))[0]).toHaveTextContent("読めない");
     expect(screen.getByRole("region", { name: "Web UI のパスワード" })).toBeInTheDocument();
   });
 
@@ -443,6 +465,7 @@ function mockBackupApi(backup?: () => Response) {
     vi.fn(async (url: string) => {
       urls.push(url);
       if (url === "/api/settings") return new Response(JSON.stringify(base), { status: 200 });
+      if (url === "/api/idp") return new Response(JSON.stringify(idpBase), { status: 200 });
       if (url === "/api/backup") {
         return backup
           ? backup()
@@ -738,5 +761,183 @@ describe("SettingsPage のフォルダを選ぶダイアログ", () => {
     await userEvent.click(within(region).getByRole("button", { name: "自動のバックアップを取る先のフォルダを選ぶ" }));
     expect(await screen.findByRole("button", { name: "x" })).toBeInTheDocument();
     expect(folderCalls(calls)).toEqual([""]);
+  });
+
+  describe("IdP のログイン", () => {
+    const configured: IdpView = {
+      ...idpBase,
+      issuer: "https://idp.example",
+      client_id: "rajikura",
+      web_url: "https://rajikura.example",
+      redirect_url: "https://rajikura.example/api/idp/callback",
+      web_host: "rajikura.example",
+    };
+
+    afterEach(() => {
+      window.history.replaceState(null, "", "/");
+    });
+
+    it("IdP の設定を保存でき、戻り先の URL を写せる形で出す", async () => {
+      let saved: IdpView = idpBase;
+      const calls = mockApi(base, undefined, undefined, (method, _url, body) => {
+        if (method === "PUT") {
+          const b = body as { issuer: string; client_id: string; web_url: string };
+          saved = { ...configured, ...b, client_secret_set: true };
+        }
+        return { status: 200, body: saved };
+      });
+      renderPage();
+      const region = await screen.findByRole("region", { name: "IdP のログイン" });
+      await within(region).findByLabelText("issuer");
+      expect(within(region).queryByText("https://rajikura.example/api/idp/callback")).toBeNull();
+      await userEvent.type(within(region).getByLabelText("issuer"), "https://idp.example");
+      await userEvent.type(within(region).getByLabelText("client id"), "rajikura");
+      await userEvent.type(within(region).getByLabelText("client secret"), "s3cret");
+      await userEvent.type(within(region).getByLabelText(/Web UI の URL/), "https://rajikura.example");
+      await userEvent.click(within(region).getByRole("button", { name: "保存" }));
+      expect(await within(region).findByText("https://rajikura.example/api/idp/callback")).toBeInTheDocument();
+      expect(within(region).getByRole("button", { name: "写す" })).toBeInTheDocument();
+      expect(calls.find((c) => c.method === "PUT /api/idp")?.body).toEqual({
+        issuer: "https://idp.example",
+        client_id: "rajikura",
+        web_url: "https://rajikura.example",
+        client_secret: "s3cret",
+      });
+      // 保存した後、client secret の欄は空に戻り、「消す」を出す
+      expect(within(region).getByLabelText("client secret")).toHaveValue("");
+      expect(within(region).getByRole("button", { name: "client secret を消す" })).toBeInTheDocument();
+    });
+
+    it("client secret を空のまま保存したら送らず、「消す」を押したときだけ空の文字列を送る", async () => {
+      const calls = mockApi(base, undefined, undefined, () => ({ status: 200, body: { ...configured, client_secret_set: true } }));
+      renderPage();
+      const region = await screen.findByRole("region", { name: "IdP のログイン" });
+      await userEvent.click(await within(region).findByRole("button", { name: "保存" }));
+      await userEvent.click(within(region).getByRole("button", { name: "client secret を消す" }));
+      const puts = calls.filter((c) => c.method === "PUT /api/idp").map((c) => c.body);
+      expect(puts).toHaveLength(2);
+      expect(puts[0]).not.toHaveProperty("client_secret");
+      expect(puts[1]).toHaveProperty("client_secret", "");
+    });
+
+    it("保存を断られたら理由を区切りに出す", async () => {
+      mockApi(base, undefined, undefined, (method) =>
+        method === "PUT" ? { status: 400, body: { error: "issuer が URL ではない" } } : { status: 200, body: idpBase },
+      );
+      renderPage();
+      const region = await screen.findByRole("region", { name: "IdP のログイン" });
+      await userEvent.click(await within(region).findByRole("button", { name: "保存" }));
+      expect(await within(region).findByRole("alert")).toHaveTextContent("issuer が URL ではない");
+    });
+
+    it("Web UI の URL の名前が -allowed-hosts に無ければ知らせる", async () => {
+      mockApi(base, undefined, undefined, () => ({ status: 200, body: { ...configured, web_host_allowed: false } }));
+      renderPage();
+      const region = await screen.findByRole("region", { name: "IdP のログイン" });
+      expect(await within(region).findByRole("status")).toHaveTextContent("rajikura.example");
+      expect(within(region).getByRole("status")).toHaveTextContent("-allowed-hosts");
+    });
+
+    it("Web UI の URL の名前が -allowed-hosts にあれば知らせを出さない", async () => {
+      mockApi(base, undefined, undefined, () => ({ status: 200, body: configured }));
+      renderPage();
+      const region = await screen.findByRole("region", { name: "IdP のログイン" });
+      await within(region).findByText("https://rajikura.example/api/idp/callback");
+      expect(within(region).queryByRole("status")).toBeNull();
+    });
+
+    it("今のパスワードを入れて紐づけを始めると、返った URL へ移る", async () => {
+      const assign = vi.fn();
+      vi.stubGlobal("location", { ...window.location, assign, href: window.location.href });
+      const calls = mockApi(base, undefined, undefined, (method, url) =>
+        method === "POST" && url === "/api/idp/link"
+          ? { status: 200, body: { url: "https://idp.example/authorize?x=1" } }
+          : { status: 200, body: configured },
+      );
+      renderPage();
+      const region = await screen.findByRole("region", { name: "IdP のログイン" });
+      await userEvent.type(await within(region).findByLabelText(/今のパスワード/), "pw");
+      await userEvent.click(within(region).getByRole("button", { name: "IdP を紐づける" }));
+      await waitFor(() => expect(assign).toHaveBeenCalledWith("https://idp.example/authorize?x=1"));
+      expect(calls.find((c) => c.method === "POST /api/idp/link")?.body).toEqual({ password: "pw" });
+    });
+
+    it("パスワードが違えば理由を出して移らない。Web UI の URL で開き直すよう求められたら、そのリンクを出す", async () => {
+      const assign = vi.fn();
+      vi.stubGlobal("location", { ...window.location, assign, href: window.location.href });
+      let status = 403;
+      mockApi(base, undefined, undefined, (method, url) => {
+        if (method === "POST" && url === "/api/idp/link") {
+          return status === 403
+            ? { status, body: { error: "今のパスワードが違う" } }
+            : { status, body: { error: "Web UI の URL で開いてほしい", web_url: "https://rajikura.example" } };
+        }
+        return { status: 200, body: configured };
+      });
+      renderPage();
+      const region = await screen.findByRole("region", { name: "IdP のログイン" });
+      await userEvent.type(await within(region).findByLabelText(/今のパスワード/), "bad");
+      await userEvent.click(within(region).getByRole("button", { name: "IdP を紐づける" }));
+      expect(await within(region).findByRole("alert")).toHaveTextContent("今のパスワードが違う");
+      status = 409;
+      await userEvent.click(within(region).getByRole("button", { name: "IdP を紐づける" }));
+      expect(await within(region).findByRole("link", { name: "https://rajikura.example" })).toHaveAttribute(
+        "href",
+        "https://rajikura.example/settings",
+      );
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it("IdP の設定を保存するまで、紐づけは始められない", async () => {
+      mockApi(base);
+      renderPage();
+      const region = await screen.findByRole("region", { name: "IdP のログイン" });
+      await within(region).findByRole("button", { name: "保存" });
+      expect(within(region).queryByRole("button", { name: "IdP を紐づける" })).toBeNull();
+    });
+
+    it("紐づけた相手（email）を出し、外せる。外すときパスワードは求めない", async () => {
+      let view: IdpView = { ...configured, binding: { issuer: "https://idp.example", subject: "sub-1", email: "me@example.com" } };
+      const calls = mockApi(base, undefined, undefined, (method) => {
+        if (method === "DELETE") view = { ...view, binding: null };
+        return { status: 200, body: view };
+      });
+      renderPage();
+      const region = await screen.findByRole("region", { name: "IdP のログイン" });
+      expect(await within(region).findByText("me@example.com")).toBeInTheDocument();
+      expect(within(region).queryByLabelText(/今のパスワード/)).toBeNull();
+      await userEvent.click(within(region).getByRole("button", { name: "紐づけを外す" }));
+      expect(await within(region).findByRole("button", { name: "IdP を紐づける" })).toBeInTheDocument();
+      expect(within(region).queryByText("me@example.com")).toBeNull();
+      expect(calls.find((c) => c.method === "DELETE /api/idp/link")?.body).toBeUndefined();
+    });
+
+    it("email が無ければ sub を出す", async () => {
+      mockApi(base, undefined, undefined, () => ({
+        status: 200,
+        body: { ...configured, binding: { issuer: "https://idp.example", subject: "sub-only", email: "" } },
+      }));
+      renderPage();
+      const region = await screen.findByRole("region", { name: "IdP のログイン" });
+      expect(await within(region).findByText("sub-only")).toBeInTheDocument();
+    });
+
+    it("紐づけて戻ってきた（?idp_linked=1）ら知らせ、URL からそのキーだけを消す", async () => {
+      window.history.replaceState(null, "", "/settings?idp_linked=1&x=1");
+      mockApi(base);
+      renderPage();
+      const region = await screen.findByRole("region", { name: "IdP のログイン" });
+      expect(within(region).getByRole("status")).toHaveTextContent("IdP を紐づけた");
+      expect(window.location.pathname + window.location.search).toBe("/settings?x=1");
+    });
+
+    it("紐づけに失敗して戻ってきた（?idp_error=）ら理由を出す", async () => {
+      window.history.replaceState(null, "", "/settings?idp_error=denied");
+      mockApi(base);
+      renderPage();
+      const region = await screen.findByRole("region", { name: "IdP のログイン" });
+      expect(within(region).getByRole("alert")).toHaveTextContent("IdP がログインを拒んだ");
+      expect(window.location.search).toBe("");
+    });
   });
 });

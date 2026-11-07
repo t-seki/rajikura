@@ -1,6 +1,7 @@
-import { Alert, Button, Card, Center, Group, Image, PasswordInput, Stack, Text, TextInput, Title } from "@mantine/core";
-import { useState } from "react";
-import { LoginLimitedError, login, setupPassword, type AuthState } from "./api";
+import { Alert, Button, Card, Center, Divider, Group, Image, PasswordInput, Stack, Text, TextInput, Title } from "@mantine/core";
+import { useEffect, useState } from "react";
+import { LoginLimitedError, fetchIdpLoginOption, login, setupPassword, type AuthState, type IdpLoginOption } from "./api";
+import { idpErrorMessage, takeQuery } from "./settings/idpApi";
 
 /** ログインとパスワードを決める画面の枠（アイコンと rajikura の文字）。 */
 function AuthCard({ children, onSubmit }: { children: React.ReactNode; onSubmit: (e: React.FormEvent) => void }) {
@@ -25,6 +26,22 @@ export function LoginForm({ onState }: { onState: (s: AuthState) => void }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // IdP のログインが失敗して戻ってきたときの理由（?idp_error=。読んだら URL から消す）
+  const [idpError] = useState(() => {
+    const r = takeQuery("idp_error");
+    return r === null ? null : idpErrorMessage(r);
+  });
+  // 紐づけが済んでいるときだけ、IdP のログインのボタンを出す（画面を開いたときに自動では移らない）
+  const [idp, setIdp] = useState<IdpLoginOption>({ linked: false, issuerHost: "" });
+  useEffect(() => {
+    let alive = true;
+    void fetchIdpLoginOption().then((o) => {
+      if (alive) setIdp(o);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -44,10 +61,18 @@ export function LoginForm({ onState }: { onState: (s: AuthState) => void }) {
 
   return (
     <AuthCard onSubmit={submit}>
-      {error && (
+      {(error ?? idpError) && (
         <Alert color="red" role="alert">
-          {error}
+          {error ?? idpError}
         </Alert>
+      )}
+      {idp.linked && (
+        <>
+          <Button component="a" href="/api/idp/login" variant="default">
+            {idp.issuerHost} でログイン
+          </Button>
+          <Divider label="または" />
+        </>
       )}
       <PasswordInput
         label="パスワード"
