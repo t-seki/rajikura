@@ -19,9 +19,10 @@ import (
 //     名前のときだけ受け、ほかは 421 で断る（DNS rebinding への手当て）。/healthz・/metrics には掛けない
 //   - オリジンの検査: /api/ の GET・HEAD 以外は、標準の http.CrossOriginProtection で、ほかのオリジンからの要求を 403 で断る
 //     （Sec-Fetch-Site も Origin も無い要求は、CLI などブラウザ以外とみなして通す。OPTIONS も標準の検査が通すが、/api/ に OPTIONS の口は無い）
-//   - ログインの総当たりの制限: POST /api/login のパスワードと PUT /api/password の今のパスワードの間違いを、接続元を区別せず
-//     serve 全体で数える。LoginMaxFailures 回続けて間違えたら loginFirstLock の間受け付けず、その後も間違えるたびに止める
-//     時間を倍にする（上限 loginMaxLock）。止めている間は正しいパスワードも 429 で断る。成功したら 0 に戻す
+//   - ログインの総当たりの制限: POST /api/login のパスワードと、PUT /api/password・POST /api/idp/link（idp.go）の今のパスワードの
+//     間違いを、接続元を区別せず serve 全体で数える。LoginMaxFailures 回続けて間違えたら loginFirstLock の間受け付けず、その後も間違えるたびに止める
+//     時間を倍にする（上限 loginMaxLock）。止めている間は正しいパスワードも 429 で断る。成功したら 0 に戻す。IdP のログインの失敗は数えない
+//     （docs/adr/0040-idp-login-by-generic-oidc.md）
 
 // LoginMaxFailures は、ログインのパスワードを続けて間違えてよい回数。これだけ間違えたら、しばらく受け付けない。
 const LoginMaxFailures = 5
@@ -91,7 +92,8 @@ func (u *UI) protect(next http.Handler) http.Handler {
 	})
 }
 
-// loginLimiter は、ログインのパスワードを続けて間違えた回数と、受け付けない時間。serve の中にだけ持ち、起動し直すと 0 に戻る。
+// loginLimiter は、ログインのパスワード（POST /api/login）と今のパスワード（PUT /api/password・POST /api/idp/link）を続けて間違えた回数と、
+// 受け付けない時間。IdP のログインの失敗は数えない。serve の中にだけ持ち、起動し直すと 0 に戻る。
 type loginLimiter struct {
 	mu       sync.Mutex
 	failures int

@@ -1,4 +1,4 @@
-// Package store は rajikura の状態（番組と毎週の予約、1 回の予約、キーワードとその足した放送回の記録、当たらない日の記録、ジョブ、ジョブの放送回、試行、通知、Web UI のパスワードの hash、Web UI のログインのセッション、API トークンの hash）を SQLite に保存する。
+// Package store は rajikura の状態（番組と毎週の予約、1 回の予約、キーワードとその足した放送回の記録、当たらない日の記録、ジョブ、ジョブの放送回、試行、通知、Web UI のパスワードの hash、Web UI のログインのセッション、API トークンの hash、IdP のログインの設定と紐づけ）を SQLite に保存する。
 // 当たらない日の記録（unmatched_days）は、その当たらない日を通知したかの印（notified_at）も持ち、通知と同じトランザクションで立てる（unmatched.go）。
 // キーワードの判定と、1 回の予約・番組・記録・通知の書き込みは 1 つのトランザクションで行う（keywords.go の ApplyKeywords）。
 // 通知は 1 件ずつ notifications の行にする（種類・本文・作った時刻・送った時刻・送れなかった印・既読。notify.go）。
