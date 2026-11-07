@@ -177,6 +177,10 @@ describe("JobDetailModal の「保存先を移す」", () => {
     expect(within(rows[2]).getByText("書けない")).toBeInTheDocument();
     expect(within(rows[3]).getByText("10/11 13:10 ・ 移した")).toBeInTheDocument();
     expect(within(rows[4]).getByText("10/11 13:40 ・ 保存先は同じなので、アルバムの名前だけ書き換えた")).toBeInTheDocument();
+    // 移す前と移し先が同じ行は、パスを 1 回だけ出す。
+    expect(within(rows[4]).getByText("/lib/b/b 2026-10-11.m4a")).toBeInTheDocument();
+    expect(rows[4].textContent).not.toContain("→");
+    expect(within(rows[3]).getByText("/lib/a/a 2026-10-11.m4a → /lib/b/b 2026-10-11.m4a")).toBeInTheDocument();
     expect(screen.getAllByTestId("attempt")).toHaveLength(1);
     unmount();
     for (const body of [{ ...job, outputMoves: [] }, job]) {

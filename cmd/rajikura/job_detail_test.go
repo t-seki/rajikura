@@ -52,6 +52,12 @@ func TestJobsDetail(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("jobs ID: %d %q", code, errOut)
 	}
+	// 移す前と移し先が同じ行（album_rewritten）は、パスを 1 回だけ出す（移し先の列は「-」）。
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "アルバムの名前だけ書き換えた") && strings.Count(line, "/library/a.m4a") != 1 {
+			t.Errorf("album_rewritten の行にパスが 1 回でない: %q", line)
+		}
+	}
 	for _, want := range []string{
 		"保存先の移しの履歴", "移し先に同じ名前のファイルがあるので移さなかった", "/library/局/新/新 2026-10-05.m4a",
 		"保存先が番組の名前の形でないので移さなかった", "移せなかった（ファイルは前のまま）", "書けない", "保存先にファイルが無いので移さなかった",

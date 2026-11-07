@@ -232,7 +232,12 @@ func showJob(ctx context.Context, connect func() (*client.Client, error), id int
 		if m.Error != "" {
 			errText = oneLine(m.Error)
 		}
-		moves = append(moves, []string{formatTimeSec(m.At), outputMoveResultText(m.Result), orDash(m.From), orDash(m.To), errText})
+		to := m.To
+		if to == m.From {
+			// album_rewritten は移す前と移し先が同じパス。同じパスを 2 回並べず、移し先は「-」にする。
+			to = ""
+		}
+		moves = append(moves, []string{formatTimeSec(m.At), outputMoveResultText(m.Result), orDash(m.From), orDash(to), errText})
 	}
 	return section("保存先の移しの履歴", "時刻\t結果\t移す前\t移し先\tエラー", moves)
 }
