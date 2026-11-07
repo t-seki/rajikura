@@ -1,6 +1,6 @@
 #!/bin/sh
 # rajikura のバイナリに埋め込む、Go の分のライセンスの一覧を作る（rajikura licenses が出す。cmd/rajikura/licenses.go）。
-# Dockerfile の build と build-windows の段（golang の alpine。busybox の sh）で、バイナリをビルドする前に流す。
+# Dockerfile の build・build-linux-arm64・build-windows の段（golang の alpine。busybox の sh）で、バイナリをビルドする前に流す。
 # 一覧は repo に置かない（出力先の cmd/rajikura/licenses/ は .gitkeep だけを git に入れる）。手元の go build は一覧なしで通る。
 #
 # 使い方: GOOS=<OS> GOARCH=<arch> CGO_ENABLED=0 sh scripts/gen-licenses.sh <出力のファイル> <パッケージ>...

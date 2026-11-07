@@ -13,7 +13,7 @@ import (
 //
 // 一覧は 2 つの部分からなり、どちらもビルドのたびに作って埋め込む（repo には置かない）。
 //   - Go の分（licenses/licenses.txt）: rajikura 自身の LICENSE、Go 本体の LICENSE と PATENTS、依存の module ごとのライセンスの文と NOTICE。
-//     Dockerfile の build と build-windows の段が、バイナリをビルドする前に scripts/gen-licenses.sh で作る（数える範囲は OS ごとのビルドの対象と同じ）
+//     Dockerfile の build・build-linux-arm64・build-windows の段が、バイナリをビルドする前に scripts/gen-licenses.sh で作る（数える範囲は OS ごとのビルドの対象と同じ）
 //   - Web UI の分（web/dist/.vite/license.md）: Vite の build.license の出力（web/vite.config.ts）。go:embed all:dist でバイナリに入る
 //
 // licenses には .gitkeep しか git に入れないので、一覧を作らずにビルドしても go:embed が通る（手元の go build・go test は一覧なしで通る）。

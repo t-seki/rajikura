@@ -39,17 +39,17 @@ docker logs rajikura 2>&1 | grep setup_code      # セットアップコード
 
 ## 手元に CLI を入れる
 
-手元の PC やほかのマシンから使う CLI は、GitHub Release の配布物（Windows・Linux の x64。素のバイナリと `SHA256SUMS`）を落として入れる。CLI と `serve` は同じバイナリ。下の例は `gh` で落とす。`<タグ>` は [Release のページ](https://github.com/t-seki/rajikura/releases)にある版（`vX.Y.Z` の形）に替える。`gh` を使わないときは、Release のページから、使う OS の `rajikura_*` のファイルと `SHA256SUMS` をブラウザで落とし、同じように確かめて置く。
+手元の PC やほかのマシンから使う CLI は、GitHub Release の配布物（Windows の x64、Linux の x64・arm64。素のバイナリと `SHA256SUMS`）を落として入れる。CLI と `serve` は同じバイナリ。下の例は `gh` で落とす。`<タグ>` は [Release のページ](https://github.com/t-seki/rajikura/releases)にある版（`vX.Y.Z` の形）に替える。`gh` を使わないときは、Release のページから、使う OS の `rajikura_*` のファイルと `SHA256SUMS` をブラウザで落とし、同じように確かめて置く。
 
 ```bash
-gh release download <タグ> -R t-seki/rajikura -p 'rajikura_*_linux_amd64' -p SHA256SUMS      # Windows は 'rajikura_*_windows_amd64.exe'
+gh release download <タグ> -R t-seki/rajikura -p 'rajikura_*_linux_amd64' -p SHA256SUMS      # Linux arm64 は 'rajikura_*_linux_arm64'、Windows は 'rajikura_*_windows_amd64.exe'
 sha256sum --ignore-missing -c SHA256SUMS      # 落としたものだけを確かめる
-chmod +x rajikura_*_linux_amd64      # Linux のみ
-mv rajikura_*_linux_amd64 ~/.local/bin/rajikura      # PATH の通った場所へ。名前は rajikura にする
+chmod +x rajikura_*_linux_*      # Linux のみ
+mv rajikura_*_linux_* ~/.local/bin/rajikura      # PATH の通った場所へ。名前は rajikura にする
 rajikura version
 ```
 
-Windows では `rajikura_<タグ>_windows_amd64.exe` を `rajikura.exe` に改名して PATH の通った場所へ置く（`chmod` は要らない）。macOS と arm64 の配布物は無い。
+Windows では `rajikura_<タグ>_windows_amd64.exe` を `rajikura.exe` に改名して PATH の通った場所へ置く（`chmod` は要らない）。macOS の配布物は無い。
 
 ## 初めて入れるとき
 

@@ -30,7 +30,7 @@ target "image" {
   output   = ["type=docker"]
 }
 
-# 配布物（Linux・Windows のバイナリ）
+# 配布物（Linux の x64・arm64 と Windows の x64 のバイナリ）
 target "artifacts" {
   inherits = ["_common"]
   target   = "artifacts"
