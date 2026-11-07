@@ -84,11 +84,12 @@ func (c *Client) Authenticate(ctx context.Context) (Token, error) {
 // セッションの付いていないトークン（非会員）は 1 段目だけ。段が尽きたら、呼び出し側が ErrTemporary で返す。
 // どの段で何が起きたかは Client.Log に INFO で出す（トークンとセッションの値は出さない）。
 type reauthRun struct {
-	c       *Client
-	kind    string // ログに出す取得の種別（"timefree" か "live"）
-	station string
-	n       int // やり直した段の数
-	logged  int // 「取れた」をログに出した段の数
+	c         *Client
+	kind      string // ログに出す取得の種別（"timefree" か "live"）
+	station   string
+	n         int  // やり直した段の数
+	logged    int  // 「取れた」をログに出した段の数
+	exhausted bool // 段を使い切ったことをログに出したか
 }
 
 func (c *Client) newReauthRun(kind, station string) *reauthRun {
@@ -102,7 +103,15 @@ func (r *reauthRun) next(ctx context.Context, tok Token) (nt Token, ok bool, err
 		r.c.logInfo("取得の途中でトークンが拒まれた（401・403）", "kind", r.kind, "station", r.station, "member", member)
 	}
 	if r.n >= 2 || (r.n == 1 && !member) {
-		r.c.logInfo("認証し直した後のトークンも拒まれた。取得を諦める", "kind", r.kind, "station", r.station, "stages_done", r.n)
+		// 段を使い切ったことは、reset まで 1 回だけ出す（ライブは繋ぎ直しのたびにここへ来る）。
+		if !r.exhausted {
+			r.exhausted = true
+			if r.kind == "live" {
+				r.c.logInfo("認証し直した後のトークンも拒まれた。認証のやり直しは使い切った（締め切りまで繋ぎ直しを続ける）", "kind", r.kind, "station", r.station, "stages_done", r.n)
+			} else {
+				r.c.logInfo("認証し直した後のトークンも拒まれた。取得を諦める", "kind", r.kind, "station", r.station, "stages_done", r.n)
+			}
+		}
 		return Token{}, false, nil
 	}
 	r.n++
@@ -129,7 +138,7 @@ func (r *reauthRun) succeeded() {
 }
 
 // reset は段の数を 0 に戻す（ライブで、1 まとまりの接続が成功したあと）。
-func (r *reauthRun) reset() { r.n, r.logged = 0, 0 }
+func (r *reauthRun) reset() { r.n, r.logged, r.exhausted = 0, 0, false }
 
 // logInfo は Client.Log が nil でなければ INFO を出す。
 func (c *Client) logInfo(msg string, args ...any) {

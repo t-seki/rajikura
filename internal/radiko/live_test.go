@@ -516,8 +516,11 @@ func TestFetchLive_MemberRejectedAfterBothStages(t *testing.T) {
 	if f.authCount != 3 || f.loginCount != 2 {
 		t.Errorf("authCount = %d, loginCount = %d, want 3 and 2 (no more than two stages)", f.authCount, f.loginCount)
 	}
-	if !strings.Contains(logs.String(), "取得を諦める") {
-		t.Errorf("log lacks the give-up line: %s", logs.String())
+	if n := strings.Count(logs.String(), "認証のやり直しは使い切った"); n != 1 {
+		t.Errorf("exhausted line count = %d, want 1 (once even though the live keeps reconnecting): %s", n, logs.String())
+	}
+	if strings.Contains(logs.String(), "取得を諦める") {
+		t.Errorf("live must not say it gives up: %s", logs.String())
 	}
 }
 
