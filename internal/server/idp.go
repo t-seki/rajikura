@@ -22,7 +22,7 @@ import (
 	"github.com/t-seki/rajikura/internal/store"
 )
 
-// IdP のログイン（docs/adr/0040-idp-login-by-generic-oidc.md）。rajikura は汎用の OpenID Connect の RP になり
+// IdP のログイン（docs/adr/0042-idp-binding-shows-preferred-username.md）。rajikura は汎用の OpenID Connect の RP になり
 // （Authorization Code + PKCE、issuer の discovery）、紐づけた 1 つの iss + sub の組だけを通す。パスワードのログインは残る。
 //
 //   - GET /api/idp: IdP の設定と紐づけ（Web UI のセッションだけで通す。API トークンは 403）

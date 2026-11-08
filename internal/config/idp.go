@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// IdP のログインの設定（docs/adr/0040-idp-login-by-generic-oidc.md）。
+// IdP のログインの設定（docs/adr/0042-idp-binding-shows-preferred-username.md）。
 //
 // IdP の設定は PATCH /api/settings の Config・Patch には入れず、専用の口（internal/server の idp.go）で読み書きする
 // （API トークンでは読めも変えもしないため）。DB には、秘密を除く値を app_state に、client secret を secrets の表に置く

@@ -7,7 +7,7 @@ import { fetchIdp, IdpApiError, idpErrorMessage, saveIdp, startIdpLink, takeQuer
 type SectionComponent = React.ComponentType<{ title: string; hint?: string; error: string | null; children: React.ReactNode }>;
 
 /**
- * 設定の画面の区切り「IdP のログイン」（ADR 0040）。IdP の設定（issuer・client id・client secret・Web UI の URL）を保存し、
+ * 設定の画面の区切り「IdP のログイン」（ADR 0042）。IdP の設定（issuer・client id・client secret・Web UI の URL）を保存し、
  * 今のパスワードを入れて紐づけを始め、紐づけた相手を出して外せる。紐づけて戻ってきたときの idp_linked・idp_error は、
  * 読んだら URL から消す。
  */
