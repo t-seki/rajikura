@@ -63,7 +63,7 @@ COPY --from=build-linux-arm64 /out/rajikura /rajikura_${VERSION}_linux_arm64
 COPY --from=build-windows /out/rajikura.exe /rajikura_${VERSION}_windows_amd64.exe
 
 # 実行用のイメージ（最後の段）
-FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
+FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 # OCI のラベル。版のラベルは付けない（イメージのタグが版を表す）。licenses は rajikura 自身のライセンス（依存のものは rajikura licenses で出す）
 LABEL org.opencontainers.image.source="https://github.com/t-seki/rajikura" \
       org.opencontainers.image.licenses="MIT" \
