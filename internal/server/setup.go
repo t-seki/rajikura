@@ -246,7 +246,7 @@ func (u *UI) startSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"authenticated": true})
 }
 
-// newSessionCookie はセッションを作り、それを渡す cookie を返す（パスワードのログインと IdP のログインで同じ形。ADR 0008・0040）。
+// newSessionCookie はセッションを作り、それを渡す cookie を返す（パスワードのログインと IdP のログインで同じ形。ADR 0008・0042）。
 func (u *UI) newSessionCookie(ctx context.Context) (*http.Cookie, error) {
 	id, exp, err := u.Sessions.CreateSession(ctx, u.now())
 	if err != nil {

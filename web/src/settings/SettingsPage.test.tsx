@@ -896,26 +896,36 @@ describe("SettingsPage のフォルダを選ぶダイアログ", () => {
       expect(within(region).queryByRole("button", { name: "IdP を紐づける" })).toBeNull();
     });
 
-    it("紐づけた相手（email）を出し、外せる。外すときパスワードは求めない", async () => {
-      let view: IdpView = { ...configured, binding: { issuer: "https://idp.example", subject: "sub-1", email: "me@example.com" } };
+    it("紐づけた相手（preferred_username）を出し、外せる。外すときパスワードは求めない", async () => {
+      let view: IdpView = { ...configured, binding: { issuer: "https://idp.example", subject: "sub-1", email: "me@example.com", preferred_username: "me-name" } };
       const calls = mockApi(base, undefined, undefined, (method) => {
         if (method === "DELETE") view = { ...view, binding: null };
         return { status: 200, body: view };
       });
       renderPage();
       const region = await screen.findByRole("region", { name: "IdP のログイン" });
-      expect(await within(region).findByText("me@example.com")).toBeInTheDocument();
+      expect(await within(region).findByText("me-name")).toBeInTheDocument();
       expect(within(region).queryByLabelText(/今のパスワード/)).toBeNull();
       await userEvent.click(within(region).getByRole("button", { name: "紐づけを外す" }));
       expect(await within(region).findByRole("button", { name: "IdP を紐づける" })).toBeInTheDocument();
-      expect(within(region).queryByText("me@example.com")).toBeNull();
+      expect(within(region).queryByText("me-name")).toBeNull();
       expect(calls.find((c) => c.method === "DELETE /api/idp/link")?.body).toBeUndefined();
     });
 
-    it("email が無ければ sub を出す", async () => {
+    it("preferred_username が無ければ email を出す", async () => {
       mockApi(base, undefined, undefined, () => ({
         status: 200,
-        body: { ...configured, binding: { issuer: "https://idp.example", subject: "sub-only", email: "" } },
+        body: { ...configured, binding: { issuer: "https://idp.example", subject: "sub-1", email: "me@example.com", preferred_username: "" } },
+      }));
+      renderPage();
+      const region = await screen.findByRole("region", { name: "IdP のログイン" });
+      expect(await within(region).findByText("me@example.com")).toBeInTheDocument();
+    });
+
+    it("preferred_username も email も無ければ sub を出す", async () => {
+      mockApi(base, undefined, undefined, () => ({
+        status: 200,
+        body: { ...configured, binding: { issuer: "https://idp.example", subject: "sub-only", email: "", preferred_username: "" } },
       }));
       renderPage();
       const region = await screen.findByRole("region", { name: "IdP のログイン" });

@@ -14,7 +14,7 @@
 // /api/ と SPA は、Host が IP のアドレス・localhost・serve の -allowed-hosts の名前のときだけ受け（ほかは 421）、/api/ の GET・HEAD
 // 以外はほかのオリジンからの要求を 403 で断り、ログインのパスワードの間違いを全体で数えて続けば 429 で止める（protect.go）。
 // 作りは docs/adr/0008-web-ui-shape.md と docs/adr/0041-first-password-by-setup-code-and-reset-clears-binding.md、IdP のログインは
-// docs/adr/0040-idp-login-by-generic-oidc.md、守りは docs/adr/0021-web-ui-origin-host-and-login-limit.md にある。
+// docs/adr/0042-idp-binding-shows-preferred-username.md、守りは docs/adr/0021-web-ui-origin-host-and-login-limit.md にある。
 package server
 
 import (

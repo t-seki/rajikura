@@ -1,4 +1,4 @@
-// rajikura serve の /api/ を呼ぶ。作りは docs/adr/0008-web-ui-shape.md と docs/adr/0041-first-password-by-setup-code-and-reset-clears-binding.md（IdP のログインは docs/adr/0040-idp-login-by-generic-oidc.md）。
+// rajikura serve の /api/ を呼ぶ。作りは docs/adr/0008-web-ui-shape.md と docs/adr/0041-first-password-by-setup-code-and-reset-clears-binding.md（IdP のログインは docs/adr/0042-idp-binding-shows-preferred-username.md）。
 
 /**
  * ログインの状態。setup は、パスワードがまだ決まっていない（503。セットアップコードを入れてパスワードを決める）。

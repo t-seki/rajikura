@@ -205,7 +205,7 @@ radiko がタイムフリーの番組に付けるチャプター（用語集の�
 
 ## IdP のログイン
 
-Web UI に、パスワードのほかに、IdP（OpenID Connect）でもログインできるようにする。決定は [ADR 0040](adr/0040-idp-login-by-generic-oidc.md)。画面の使い方は [web-ui.md の「設定の画面と帯」](web-ui.md#設定の画面と帯)。用語は [GLOSSARY.md](../GLOSSARY.md) の「IdP」「IdP のログイン」「紐づけ」。
+Web UI に、パスワードのほかに、IdP（OpenID Connect）でもログインできるようにする。決定は [ADR 0042](adr/0042-idp-binding-shows-preferred-username.md)。画面の使い方は [web-ui.md の「設定の画面と帯」](web-ui.md#設定の画面と帯)。用語は [GLOSSARY.md](../GLOSSARY.md) の「IdP」「IdP のログイン」「紐づけ」。
 
 - 設定する IdP は 1 つだけ。特定の IdP には縛らず、OpenID Connect の issuer の discovery に対応していれば使える（Authorization Code + PKCE）。
 - 設定は、Web UI の設定の画面の「IdP のログイン」で行う。スクリプトや AI の API トークンでは読めず、変えられない。設定の `GET`・`PATCH` にも出ない。
@@ -216,7 +216,7 @@ Web UI に、パスワードのほかに、IdP（OpenID Connect）でもログ�
 - IdP に登録する戻り先の URL は、Web UI の URL の下の決まったパスになる。設定の画面に、写せる形で出る。要求の `Host` などから組み立てることはしない。
 - Web UI の URL の名前は、`serve` の `-allowed-hosts` に入れておく。入っていないと、IdP から戻る要求が断られる（設定の画面が知らせる）。
 - IdP が受け付ける戻り先の URL の決まりは IdP ごとに違う。たとえば Google は、https の URL（`localhost` は除く）で、生の IP のアドレスではなく、TLD が public suffix list にあるものに限る（[Google の説明](https://developers.google.com/identity/protocols/oauth2/web-server)の「Redirect URI validation rules」）。ほかの IdP の決まりは、その IdP の docs を見る。
-- 求める scope は `openid email`。メールアドレスは、紐づけた利用者を画面で見分けるためだけに使い、入れるかどうかには使わない。
+- 求める scope は `openid profile email`。IdP の利用者名（`preferred_username`）とメールアドレスは、紐づけた利用者を画面で見分けるためだけに使い、入れるかどうかには使わない。
 - 紐づけると、IdP が付ける利用者の識別子の組が 1 つだけ決まる。入れるのは、その利用者だけ。紐づけは 1 つで、つけ替えると前のものは消える。
   - 紐づけは、パスワードでログインした設定の画面で、今のパスワードを入れて始める。外すときは、パスワードを求めない。
   - issuer か client id を変えて保存すると、紐づけは消える。

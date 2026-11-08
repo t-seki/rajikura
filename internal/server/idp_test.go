@@ -137,8 +137,8 @@ func (f *fakeIdP) authorize(t *testing.T, authURL, sub string, tweak func(map[st
 	if q.Get("code_challenge_method") != "S256" || q.Get("code_challenge") == "" {
 		t.Fatalf("PKCE が無い: %s", authURL)
 	}
-	if q.Get("scope") != "openid email" {
-		t.Errorf("scope = %q、want openid email", q.Get("scope"))
+	if q.Get("scope") != "openid profile email" {
+		t.Errorf("scope = %q、want openid profile email", q.Get("scope"))
 	}
 	if q.Get("redirect_uri") != testWebURL+"/api/idp/callback" {
 		t.Errorf("redirect_uri = %q", q.Get("redirect_uri"))
@@ -146,7 +146,7 @@ func (f *fakeIdP) authorize(t *testing.T, authURL, sub string, tweak func(map[st
 	now := time.Now()
 	claims := map[string]any{
 		"iss": f.issuer(), "sub": sub, "aud": q.Get("client_id"), "nonce": q.Get("nonce"),
-		"iat": now.Unix(), "exp": now.Add(time.Hour).Unix(), "email": sub + "@example.com",
+		"iat": now.Unix(), "exp": now.Add(time.Hour).Unix(), "email": sub + "@example.com", "preferred_username": sub + "-name",
 	}
 	if tweak != nil {
 		tweak(claims)
@@ -262,13 +262,19 @@ func (e *idpEnv) callback(code, state string, stateCookie *http.Cookie) *httptes
 // link は sub を紐づける（パスワードでログインした画面から）。
 func (e *idpEnv) link(t *testing.T, sess *http.Cookie, sub string) {
 	t.Helper()
+	e.linkTweak(t, sess, sub, nil)
+}
+
+// linkTweak は link で、ID トークンの中身を tweak で変える。
+func (e *idpEnv) linkTweak(t *testing.T, sess *http.Cookie, sub string, tweak func(map[string]any)) {
+	t.Helper()
 	rec := e.req("POST", "/api/idp/link", testWebHost, `{"password":"secret"}`, sess)
 	if rec.Code != 200 {
 		t.Fatalf("POST /api/idp/link = %d %s", rec.Code, rec.Body)
 	}
 	var resp struct{ URL string }
 	json.Unmarshal(rec.Body.Bytes(), &resp)
-	code, state := e.idp.authorize(t, resp.URL, sub, nil)
+	code, state := e.idp.authorize(t, resp.URL, sub, tweak)
 	cb := e.callback(code, state, cookieNamed(rec, idpStateCookie))
 	if cb.Code != http.StatusFound || cb.Header().Get("Location") != "/settings?idp_linked=1" {
 		t.Fatalf("紐づけの戻り = %d %s", cb.Code, cb.Header().Get("Location"))
@@ -309,6 +315,12 @@ func TestIdPLoginBoundUser(t *testing.T) {
 	e.link(t, sess, "alice")
 	if b := e.binding(t); !strings.Contains(b, `"subject":"alice"`) || !strings.Contains(b, `"issuer":"`+e.idp.issuer()+`"`) {
 		t.Fatalf("紐づけ = %s", b)
+	}
+	if b := e.binding(t); !strings.Contains(b, `"preferred_username":"alice-name"`) || !strings.Contains(b, `"email":"alice@example.com"`) {
+		t.Fatalf("紐づけに preferred_username と email が入っていない: %s", b)
+	}
+	if rec := e.req("GET", "/api/idp", testWebHost, "", sess); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"preferred_username":"alice-name"`) {
+		t.Errorf("GET /api/idp = %d %s", rec.Code, rec.Body)
 	}
 
 	// ログインの画面は IdP のログインを出す。
@@ -624,5 +636,37 @@ func TestIdPPendingExpiry(t *testing.T) {
 func TestIdPCallbackPath(t *testing.T) {
 	if config.IdPCallbackPath != "/api/idp/callback" {
 		t.Errorf("config.IdPCallbackPath = %q、registerIdP のルートと揃える", config.IdPCallbackPath)
+	}
+}
+
+// preferred_username の欄が無い前の紐づけの JSON は、そのまま読め、空として扱う。
+func TestIdPBindingWithoutPreferredUsername(t *testing.T) {
+	e := newIdPEnv(t)
+	sess := e.login(t)
+	e.configure(t, sess, e.defaultConfig())
+	old := `{"issuer":"` + e.idp.issuer() + `","subject":"alice","email":"alice@example.com"}`
+	if err := e.st.SetIdPBinding(context.Background(), old); err != nil {
+		t.Fatal(err)
+	}
+	rec := e.req("GET", "/api/idp", testWebHost, "", sess)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"preferred_username":""`) || !strings.Contains(rec.Body.String(), `"subject":"alice"`) {
+		t.Fatalf("GET /api/idp = %d %s", rec.Code, rec.Body)
+	}
+	// 前の紐づけでも、iss + sub で通る。
+	authURL, sc := e.startLogin(t)
+	code, state := e.idp.authorize(t, authURL, "alice", nil)
+	if cb := e.callback(code, state, sc); cb.Code != http.StatusFound || cb.Header().Get("Location") != "/" {
+		t.Fatalf("戻り = %d %s", cb.Code, cb.Header().Get("Location"))
+	}
+}
+
+// ID トークンに preferred_username が無ければ、空で保存する。
+func TestIdPLinkWithoutPreferredUsernameClaim(t *testing.T) {
+	e := newIdPEnv(t)
+	sess := e.login(t)
+	e.configure(t, sess, e.defaultConfig())
+	e.linkTweak(t, sess, "alice", func(c map[string]any) { delete(c, "preferred_username") })
+	if b := e.binding(t); !strings.Contains(b, `"preferred_username":""`) {
+		t.Fatalf("紐づけ = %s", b)
 	}
 }

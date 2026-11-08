@@ -1,4 +1,4 @@
-// IdP のログインの設定と紐づけの API（docs/api.md の「IdP のログイン」。作りは docs/adr/0040-idp-login-by-generic-oidc.md）を呼ぶ。
+// IdP のログインの設定と紐づけの API（docs/api.md の「IdP のログイン」。作りは docs/adr/0042-idp-binding-shows-preferred-username.md）を呼ぶ。
 // client secret の値は返らない。
 
 export interface IdpBinding {
@@ -6,6 +6,8 @@ export interface IdpBinding {
   subject: string;
   /** ID トークンに無ければ空。 */
   email: string;
+  /** ID トークンに無ければ空。前の紐づけ（この欄が無いもの）も空。 */
+  preferred_username: string;
 }
 
 /** GET /api/idp の応答（PUT /api/idp・DELETE /api/idp/link も同じ形）。 */

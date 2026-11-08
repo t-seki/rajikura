@@ -139,7 +139,7 @@ func serve(ctx context.Context, boot config.Boot, opts serveOptions, stdout, std
 		Files:         web.FS(),
 		Log:           log,
 		AllowedHosts:  boot.AllowedHosts,
-		// IdP のログインの client secret は、設定の秘密と同じ鍵のファイルで暗号化する（ADR 0040）。
+		// IdP のログインの client secret は、設定の秘密と同じ鍵のファイルで暗号化する（ADR 0042）。
 		IdP:        st,
 		IdPSecrets: settings.Secrets,
 	}

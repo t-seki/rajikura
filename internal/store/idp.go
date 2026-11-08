@@ -6,13 +6,13 @@ import (
 	"errors"
 )
 
-// IdP のログインの設定と紐づけ（docs/adr/0040-idp-login-by-generic-oidc.md）。どちらも app_state に置き、新しい表は持たない。
+// IdP のログインの設定と紐づけ（docs/adr/0042-idp-binding-shows-preferred-username.md）。どちらも app_state に置き、新しい表は持たない。
 // 中身（JSON）は解釈しない（internal/server の idp.go が読む）。client secret は暗号化して secrets の表に置く（名前は呼び出し側が渡す）。
 // パスワードを戻す（ResetPassword）と紐づけは消え、IdP の設定と client secret は残る（docs/adr/0041-first-password-by-setup-code-and-reset-clears-binding.md）。
 const (
 	// keyIdPSettings は、IdP の設定（issuer・client id・Web UI の URL。client secret を除く）の JSON の app_state のキー。
 	keyIdPSettings = "idp_settings"
-	// keyIdPBinding は、紐づけ（iss・sub・表示用の email）の JSON の app_state のキー。
+	// keyIdPBinding は、紐づけ（iss・sub・表示用の email と preferred_username。preferred_username の欄が無い前の JSON も読める）の JSON の app_state のキー。
 	keyIdPBinding = "idp_binding"
 )
 
