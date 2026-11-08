@@ -6,6 +6,8 @@ export interface IdpBinding {
   subject: string;
   /** ID トークンに無ければ空。 */
   email: string;
+  /** ID トークンに無ければ空。前の紐づけ（この欄が無いもの）も空。 */
+  preferred_username: string;
 }
 
 /** GET /api/idp の応答（PUT /api/idp・DELETE /api/idp/link も同じ形）。 */

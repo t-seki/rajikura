@@ -29,7 +29,7 @@ radiko の放送を、録れるまで再試行して録り、ライブラリへ�
 - radiko のライブ録音（タイムフリーの対象外の放送回だけ）
 - 毎週の放送を毎週の予約で指定した自動録音（録るものは番組 × 放送日のジョブ単位。ジョブの単位と分割番組の連結は [ADR 0003](adr/0003-job-per-show-and-broadcast-day.md)）
 - Web UI の番組表から放送回を選んで予約（1 回・毎週）
-- Web UI での番組とジョブの管理（ログイン認証あり。パスワードのほかに、紐づけた IdP のログインでも入れる。[ADR 0040](adr/0040-idp-login-by-generic-oidc.md)）
+- Web UI での番組とジョブの管理（ログイン認証あり。パスワードのほかに、紐づけた IdP のログインでも入れる。[ADR 0042](adr/0042-idp-binding-shows-preferred-username.md)）
 - 保存先フォルダへの保存とタグ付け（命名テンプレートと、Jellyfin などのプリセット）
 - タイムフリーから録るファイルへの、radiko のチャプターの埋め込み（タイムフリーからの録音は遅らせずに録り、保存のときに取る。取れなければチャプター無しで保存し、まだできていないだけかもしれないものは、チャプターの取り直しで、音声を取り直さずに保存したファイルへ後から書き込む。設定で切れる。前に保存したファイルにも、人がチャプターの入れ直しで、同じく音声を取り直さずに書き込ませられる（設定がオフでも行う）。[ADR 0027](adr/0027-chapters-refetched-by-rerecording.md)・[ADR 0033](adr/0033-chapters-written-into-saved-file.md)）
 - 録音の成否の検証と通知
@@ -137,7 +137,7 @@ radiko の放送を、録れるまで再試行して録り、ライブラリへ�
 | 外部ツールの管理 | ffmpeg / ffprobe のパスは設定で指定できる。初回起動時に自動で取ってくる機能は作らず、builtin で ffmpeg を要らなくする（[ADR 0013](adr/0013-builtin-m4a-muxer.md)） |
 | Web UI | Go の HTTP サーバーが JSON API を提供し、TypeScript + React の SPA をビルドして go:embed でバイナリに同梱する。PC とスマホのブラウザで使える |
 | CLI | `rajikura` の `jobs`・`retry`・`skip`・`record`・`rerecord`・`chapters`・`move`・`backup` は DB を開かず、`serve` の HTTP API を API トークンで呼ぶ（手元のマシンや AI からリモートで使える）。DB に書くのは `serve` だけ。`version` と `licenses`（埋め込んだ依存のライセンスの一覧を出す）は手元で動く（[ADR 0009](adr/0009-cli-over-http.md)）。`service`（Windows だけ）も API を呼ばず、手元の PC に `serve` を Windows のサービスとして入れる・消す（[ADR 0020](adr/0020-windows-service-with-virtual-account.md)）。あわせて、`rajikura.exe` に埋め込んだトレイを入れる・消す（`install` は最後にトレイを起動する。[ADR 0023](adr/0023-windows-tray-embedded-and-linked-by-loopback.md)）。`tray`（Windows だけ）も API を呼ばず、`serve` を Windows のサービスにしていない PC（`serve` をコンテナなどで動かしている人）に、トレイだけを入れる・消す（`tray install -url` でリモートの `serve` に向ける）。Web UI のパスワードは、初めて Web UI を開いた人がセットアップコードを入れて決める（[ADR 0041](adr/0041-first-password-by-setup-code-and-reset-clears-binding.md)）。設定は DB に置き、Web UI か `serve` の API で変える（TOML による設定・番組の受け渡しは無い。[ADR 0017](adr/0017-backup-by-db-copy.md)）。`serve` の起動の設定はフラグ `-data`（データのフォルダ）と `-listen` と `-allowed-hosts`（Web UI・API を名前で開くときの名前。[ADR 0021](adr/0021-web-ui-origin-host-and-login-limit.md)）だけで、設定ファイルは無い（[ADR 0015](adr/0015-settings-and-secrets-in-db.md)） <!-- 足したら直す: CLI のサブコマンド --> <!-- 足したら直す: service の操作 --> |
-| 認証 | Web UI にログイン認証を付ける。パスワードのログインは常に残し、OpenID Connect の IdP を 1 つ設定して紐づけた 1 人だけを、IdP のログインでも通す（[ADR 0040](adr/0040-idp-login-by-generic-oidc.md)）。radiko のログインに使うログイン情報のうち、パスワードは秘密として DB の中で暗号化して保存する（メールアドレスは設定）。radiko のログインのセッションはメモリにだけ持つ（[ADR 0034](adr/0034-radiko-login-tried-when-saving.md)） |
+| 認証 | Web UI にログイン認証を付ける。パスワードのログインは常に残し、OpenID Connect の IdP を 1 つ設定して紐づけた 1 人だけを、IdP のログインでも通す（[ADR 0042](adr/0042-idp-binding-shows-preferred-username.md)）。radiko のログインに使うログイン情報のうち、パスワードは秘密として DB の中で暗号化して保存する（メールアドレスは設定）。radiko のログインのセッションはメモリにだけ持つ（[ADR 0034](adr/0034-radiko-login-tried-when-saving.md)） |
 | アクセス | LAN と、Tailscale などの VPN の内側だけで使う。インターネットには公開しない |
 | ネットワーク | radiko のエリア判定のため、使う人自身のエリアの回線から接続する。VPN の出口ノードは使わない |
 | 時刻 | 番組表はすべて日本時間で扱う（タイムゾーンは Asia/Tokyo を明示） |

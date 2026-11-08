@@ -91,8 +91,10 @@ type SecretBox interface {
 type idpBinding struct {
 	Issuer  string `json:"issuer"`
 	Subject string `json:"subject"`
-	// Email は表示用（通すかどうかには使わない）。ID トークンに無ければ空。
-	Email string `json:"email"`
+	// Email・PreferredUsername は表示用（通すかどうかには使わない）。ID トークンに無ければ空。
+	// PreferredUsername の欄が無い前の紐づけの JSON は、空として読む（紐づけ直すと入る）。
+	Email             string `json:"email"`
+	PreferredUsername string `json:"preferred_username"`
 }
 
 // idpPending はログインの途中の状態 1 つ。
@@ -494,7 +496,7 @@ func (u *UI) oauth2Config(c idpConfig, p *oidc.Provider) *oauth2.Config {
 	}
 	return &oauth2.Config{
 		ClientID: c.ClientID, ClientSecret: c.clientSecret, Endpoint: ep,
-		RedirectURL: c.RedirectURL(), Scopes: []string{oidc.ScopeOpenID, "email"},
+		RedirectURL: c.RedirectURL(), Scopes: []string{oidc.ScopeOpenID, "profile", "email"},
 	}
 }
 
@@ -653,7 +655,7 @@ func (u *UI) idpCallback(w http.ResponseWriter, r *http.Request) {
 
 // idpIdentity は確かめた ID トークンの中身。
 type idpIdentity struct {
-	Issuer, Subject, Email string
+	Issuer, Subject, Email, PreferredUsername string
 }
 
 // verifyIdP は code を引き換え、ID トークンの署名・iss・aud・期限（go-oidc）と nonce を確かめる。
@@ -683,12 +685,13 @@ func (u *UI) verifyIdP(ctx context.Context, cfg idpConfig, pend idpPending, code
 		return idpIdentity{}, errors.New("ID トークンの nonce が合わない")
 	}
 	var claims struct {
-		Email string `json:"email"`
+		Email             string `json:"email"`
+		PreferredUsername string `json:"preferred_username"`
 	}
 	if err := idt.Claims(&claims); err != nil {
 		return idpIdentity{}, fmt.Errorf("ID トークンの中身が読めない: %w", err)
 	}
-	return idpIdentity{Issuer: idt.Issuer, Subject: idt.Subject, Email: claims.Email}, nil
+	return idpIdentity{Issuer: idt.Issuer, Subject: idt.Subject, Email: claims.Email, PreferredUsername: claims.PreferredUsername}, nil
 }
 
 func (u *UI) finishIdPLink(w http.ResponseWriter, r *http.Request, cfg idpConfig, tok idpIdentity) {
@@ -700,7 +703,7 @@ func (u *UI) finishIdPLink(w http.ResponseWriter, r *http.Request, cfg idpConfig
 		idpRedirect(w, r, true, idpErrUnavailable)
 		return
 	}
-	b, err := json.Marshal(idpBinding{Issuer: tok.Issuer, Subject: tok.Subject, Email: tok.Email})
+	b, err := json.Marshal(idpBinding{Issuer: tok.Issuer, Subject: tok.Subject, Email: tok.Email, PreferredUsername: tok.PreferredUsername})
 	if err == nil {
 		err = u.IdP.SetIdPBinding(r.Context(), string(b))
 	}

@@ -178,7 +178,7 @@ function LinkPart({ view, onChanged, setError }: BodyProps) {
         <Group gap="xs">
           <Text size="sm">紐づけた相手</Text>
           <Badge variant="light" size="lg" tt="none">
-            {view.binding.email !== "" ? view.binding.email : view.binding.subject}
+            {view.binding.preferred_username || view.binding.email || view.binding.subject}
           </Badge>
         </Group>
         <Button variant="default" color="red" loading={busy} onClick={() => void unlink()}>

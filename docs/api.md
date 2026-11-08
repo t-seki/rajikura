@@ -81,13 +81,13 @@ groups:
 
 ### IdP のログイン
 
-決定は [ADR 0040](adr/0040-idp-login-by-generic-oidc.md)。rajikura が OpenID Connect の RP になり（Authorization Code + PKCE、issuer の discovery）、紐づけた 1 つの `iss` + `sub` の組だけを通す。パスワードのログインは残る。求める scope は `openid email` で、`email` は紐づけた相手を画面で見分けるためにだけ使う。用語は [GLOSSARY.md](../GLOSSARY.md) の「IdP」「IdP のログイン」「紐づけ」。
+決定は [ADR 0042](adr/0042-idp-binding-shows-preferred-username.md)。rajikura が OpenID Connect の RP になり（Authorization Code + PKCE、issuer の discovery）、紐づけた 1 つの `iss` + `sub` の組だけを通す。パスワードのログインは残る。求める scope は `openid profile email` で、`preferred_username` と `email` は紐づけた相手を画面で見分けるためにだけ使う。用語は [GLOSSARY.md](../GLOSSARY.md) の「IdP」「IdP のログイン」「紐づけ」。
 
 - IdP の設定と紐づけの口（`GET /api/idp`・`PUT /api/idp`・`POST /api/idp/link`・`DELETE /api/idp/link`）は、Web UI のセッションの cookie でだけ通す。`Authorization: Bearer` を付けた要求は、トークンが有効でも、cookie が付いていても 403。ログインしていなければ 401。IdP の設定は `GET /api/settings` に出さない。
-- `GET /api/idp`: `{"issuer": "...", "client_id": "...", "web_url": "...", "client_secret_set": <client secret があるか>, "client_secret_unreadable": <復号できないか>, "redirect_url": "...", "web_host": "...", "web_host_allowed": <Web UI の URL の host を受けるか>, "binding": null | {"issuer": "...", "subject": "...", "email": "..."}}`。
+- `GET /api/idp`: `{"issuer": "...", "client_id": "...", "web_url": "...", "client_secret_set": <client secret があるか>, "client_secret_unreadable": <復号できないか>, "redirect_url": "...", "web_host": "...", "web_host_allowed": <Web UI の URL の host を受けるか>, "binding": null | {"issuer": "...", "subject": "...", "email": "...", "preferred_username": "..."}}`。
   - `redirect_url` は IdP に登録する戻り先の URL（`<web_url>/api/idp/callback`）。設定していなければ空。
   - `web_host` は `web_url` の host（ポートがあれば付く）。`web_host_allowed` が `false` なら、その名前は `-allowed-hosts` に無く、戻り先の要求が 421 で断られる（上の「`Host` の検査」）。設定していなければ `true`。
-  - `binding` は紐づけ（無ければ `null`）。`email` は ID トークンに無ければ空。client secret の値は返さない。
+  - `binding` は紐づけ（無ければ `null`）。`email`・`preferred_username` は ID トークンに無ければ空（`preferred_username` の欄が無い前の紐づけも空）。client secret の値は返さない。
 - `PUT /api/idp`: IdP の設定を置き換え、200 と `GET` と同じ形を返す。本文の例（`client_secret` は省ける）:
 
   ```json

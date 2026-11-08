@@ -12,7 +12,7 @@ import (
 const (
 	// keyIdPSettings は、IdP の設定（issuer・client id・Web UI の URL。client secret を除く）の JSON の app_state のキー。
 	keyIdPSettings = "idp_settings"
-	// keyIdPBinding は、紐づけ（iss・sub・表示用の email）の JSON の app_state のキー。
+	// keyIdPBinding は、紐づけ（iss・sub・表示用の email と preferred_username。preferred_username の欄が無い前の JSON も読める）の JSON の app_state のキー。
 	keyIdPBinding = "idp_binding"
 )
 
