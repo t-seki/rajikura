@@ -29,6 +29,8 @@ reset() {
 | [0003](0003-c.md) | 新しい | c |
 | [0004](0004-d.md) | 一部更新された（Updated by 0005） | d |
 | [0005](0005-e.md) | 更新した | e |
+| [0006](0006-f.md) | もっと古い（Obsoleted by 0007） | f |
+| [0007](0007-g.md) | 古い（Obsoleted by 0003） | g |
 IDX
 }
 
@@ -118,6 +120,17 @@ check hit internal/x/m.sql '-- ADR 0001 のため adr-ref-ok: 0001' '当たら�
 check hit internal/x/m.sql '-- ADR 0002 のため adr-ref-ok: 0003' 'ADR 0002' '当たらない'
 check hit internal/x/m.sql '-- ADR 0002 のため adr-ref-ok: 0002、0003' '当たらない'
 check hit internal/x/m.sql '-- ADR 0002 のため adr-ref-ok: 0002、0003' '0003'
+check miss internal/x/m.sql '-- ADR 0002・0007 のため adr-ref-ok: 0002, 0007'
+check hit internal/x/m.sql '-- ADR 0002 のため adr-ref-ok: 0002, 0003' '当たらない' '0003'
+check hit internal/x/m.sql '-- ADR 0001 のため adr-ref-ok' '番号を書かない'
+check hit internal/x/m.sql '-- ADR 0001 のため adr-ref-ok:' '番号を書かない'
+check hit internal/x/m.sql '-- ADR 0002 のため adr-ref-ok: 0002、古い' '4 桁の番号でない' '古い'
+check miss scripts/x.sh '# 行末の `adr-ref-ok: 0030` のように書く'
+check hit internal/x/m.sql '-- ADR 0002 は `adr-ref-ok: 0002` で外す' 'ADR 0002 は置き換え済み'
+
+# 置き換えが続くときは、連鎖をたどった最後の ADR を案内する（0006 → 0007 → 0003）
+check hit internal/x/a.go '// ADR 0006 を見る。' 'ADR 0006 は置き換え済み。ADR 0003 へ向ける（Obsoleted by 0007）'
+check hit internal/x/a.go '// ADR 0007 を見る。' 'ADR 0007 は置き換え済み。ADR 0003 へ向ける（Obsoleted by 0003）'
 
 # 索引が無い・Obsoleted by が無いとき
 reset
@@ -130,6 +143,19 @@ printf '%s\n' '| [0001](0001-a.md) | 通常 | a |' > "$code/docs/adr/README.md"
 printf '%s\n' '// ADR 0001' > "$code/internal/x/a.go"
 rc=0; ADR_REFS_ROOT="$code" "$here/check-adr-refs.sh" >"$tmp/out" 2>&1 || rc=$?
 if [ "$rc" -eq 0 ]; then echo "ok: Obsoleted by が無ければ通る"; passed=$((passed + 1)); else echo "FAIL: Obsoleted by が無いのに rc=$rc"; fail=1; failed=$((failed + 1)); fi
+
+# 索引の書き方が変わって読めないときは、黙って通さない
+index_broken() {
+  local name=$1 want=$2 idx=$3 rc=0
+  reset
+  printf '%s\n' "$idx" > "$code/docs/adr/README.md"
+  printf '%s\n' '// ADR 0001' > "$code/internal/x/a.go"
+  ADR_REFS_ROOT="$code" "$here/check-adr-refs.sh" >"$tmp/out" 2>&1 || rc=$?
+  if [ "$rc" -eq 1 ] && grep -q "$want" "$tmp/out"; then echo "ok: $name"; passed=$((passed + 1)); else echo "FAIL: $name: rc=$rc $(cat "$tmp/out")"; fail=1; failed=$((failed + 1)); fi
+}
+index_broken '表の行が読めなければ失敗する' '1 つも読めない' '| [ADR 0001](0001-a.md) | 通常 | a |'
+index_broken '置き換え先の番号が読めなければ失敗する' '置き換え先の番号を読めない' '| [0001](0001-a.md) | 古い（Obsoleted by [0003](0003-c.md)） | a |'
+index_broken 'Obsoleted by の行の番号が読めなければ失敗する' '表の行の番号を読めない' "$(printf '%s\n' '| [0002](0002-b.md) | 新しい | b |' '| 0001 | 古い（Obsoleted by 0002） | a |')"
 
 echo "通った: $passed 件、失敗: $failed 件"
 exit $fail

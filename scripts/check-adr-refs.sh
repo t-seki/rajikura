@@ -14,8 +14,12 @@
 #   - パス: `docs/adr/<番号>-….md`、`adr/<番号>-….md`（相対リンクの `../adr/…` や `(adr/…)` も当たる）。
 #   - 「ADR <番号>」。「ADR 甲・乙」のように「・」「、」「,」で並べた 2 つめ以降の番号も当てる。
 # - 免除は、決めた当時の文脈で古い ADR を指す行（internal/store/migrations/ の SQL のコメント）だけに使う。行末の `adr-ref-ok: 0030` のように、
-#   印の名前の後ろに「:」と 4 桁の番号（複数は全角読点「、」区切り）を書くと、その行のその番号だけを外す。
-#   その行で当たらない番号を書いた印（古い印・書き間違い）はエラー（check-code-refs.sh の code-ref-ok と同じ）。番号の無い書き方は印として読まない。
+#   印の名前の後ろに「:」と 4 桁の番号（複数は全角読点「、」区切り。「,」も読む）を書くと、その行のその番号だけを外す。
+#   その行で当たらない番号を書いた印（古い印・書き間違い）、番号を書かない印、4 桁の番号でないものを書いた印はエラー
+#   （check-code-refs.sh の code-ref-ok と同じ）。
+# - 案内する置き換え先は、`Obsoleted by` の連鎖をたどった最後の ADR（0025 → 0031 → 0036 なら 0036）。
+# - 索引の表の行が 1 つも読めないとき、`Obsoleted by` を持つ表の行から番号か置き換え先が読めないときは、
+#   索引の書き方が変わったとみて失敗する（黙って通さない）。
 #   `Updated by` の ADR を指す行には印を付けない（当たらないのでエラーになる）。
 #
 # 使い方: scripts/check-adr-refs.sh   （repo のどこから呼んでもよい）
@@ -32,14 +36,28 @@ perl -CSDA -Mutf8 -Mstrict -Mwarnings -e '
   my $index = "$root/docs/adr/README.md";
   open(my $ih, "<:encoding(UTF-8)", $index) or do { print "docs/adr/README.md を読めない（索引が無い）\n"; exit 1; };
   my %next;
+  my ($rows, $broken) = (0, 0);
   while (<$ih>) {
     s/\r$//;
-    next unless /^\|\s*\[(\d{4})\]/;
-    my $n = $1;
-    $next{$n} = $1 if /Obsoleted by (\d{4})/;
+    if (/^\|\s*\[(\d{4})\]/) {
+      my $n = $1;
+      $rows++;
+      if (/Obsoleted by (\d{4})\b/) { $next{$n} = $1; }
+      elsif (/Obsoleted by/) { print "docs/adr/README.md:$.: Obsoleted by の置き換え先の番号を読めない\n"; $broken = 1; }
+    } elsif (/^\|/ && /Obsoleted by/) {
+      print "docs/adr/README.md:$.: Obsoleted by を持つ表の行の番号を読めない\n"; $broken = 1;
+    }
   }
   close $ih;
+  if (!$rows) { print "docs/adr/README.md の索引の表の行（| [番号](…) |）を 1 つも読めない\n"; exit 1; }
+  exit 1 if $broken;
   exit 0 unless %next;
+  my %last;
+  for my $n (keys %next) {
+    my ($m, %been) = ($next{$n});
+    while (exists $next{$m} && !$been{$m}++) { $m = $next{$m}; }
+    $last{$n} = $m;
+  }
 
   my @files;
   my $skip = sub { $_[0] =~ m{(^|/)(\.[^/]+|node_modules)(/|$)} };
@@ -70,17 +88,25 @@ perl -CSDA -Mutf8 -Mstrict -Mwarnings -e '
         elsif ($text =~ m{(?:^|\s)(//.*)$}) { $text = $1; }
         else { next; }
       }
-      my %ok;
-      if ($text =~ s/\s*adr-ref-ok:\s*(\d{4}(?:\s*、\s*\d{4})*)\s*$//) { $ok{$_} = 0 for $1 =~ /(\d{4})/g; }
+      my %ok; my $mark = 0;
+      if ($text =~ s/(?:^|\s+)adr-ref-ok:?\s*(.*?)\s*$//) {
+        $mark = 1;
+        for my $w (grep { length } split /\s*[、,]\s*/, $1) {
+          $mark = 2;
+          if ($w =~ /^\d{4}$/) { $ok{$w} = 0; }
+          else { print "$rel:$n: 印 adr-ref-ok の「$w」は 4 桁の番号でない\n"; $bad = 1; }
+        }
+      }
       my %seen;
       while ($text =~ m{adr/(\d{4})-}g) { $seen{$1} = 1; }
       while ($text =~ /ADR\s*(\d{4}(?:\s*[・、,]\s*\d{4})*)/g) { $seen{$_} = 1 for $1 =~ /(\d{4})/g; }
       for my $num (sort keys %seen) {
         next unless exists $next{$num};
         if (exists $ok{$num}) { $ok{$num} = 1; next; }
-        print "$rel:$n: ADR $num は置き換え済み。ADR $next{$num} へ向ける（Obsoleted by $next{$num}）\n"; $bad = 1;
+        print "$rel:$n: ADR $num は置き換え済み。ADR $last{$num} へ向ける（Obsoleted by $next{$num}）\n"; $bad = 1;
       }
       for my $w (sort keys %ok) { next if $ok{$w}; print "$rel:$n: 印 adr-ref-ok の「$w」はこの行で当たらない\n"; $bad = 1; }
+      if ($mark == 1) { print "$rel:$n: 番号を書かない adr-ref-ok の印\n"; $bad = 1; }
     }
     close $h;
   }
