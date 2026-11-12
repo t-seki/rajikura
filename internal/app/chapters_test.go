@@ -475,7 +475,7 @@ func TestChapterRefetchWritesSavedFile(t *testing.T) {
 	}
 }
 
-// パートの長さが DB に残っていない（この決定より前に保存した）連結したファイルでは、2 つ目のパートのチャプターを、番組表の
+// パートの長さが DB に残っていない（長さを残すようになる前に保存した）連結したファイルでは、2 つ目のパートのチャプターを、番組表の
 // 放送時間（終了 − 開始）でずらす（ADR 0038）。
 func TestChapterRefetchGuidePartsWithoutLengths(t *testing.T) {
 	e, f, j := newChapterWaitEnv(t)

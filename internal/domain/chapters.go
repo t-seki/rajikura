@@ -261,7 +261,7 @@ func ChaptersAfterWrite(fetched []ChapterFetch) Chapters {
 
 // ChapterParts は、保存したファイルの放送回 airings（Job.SavedAirings）のパートの長さを返す（連結したファイルで、2 つ目以降の
 // パートのチャプターをずらす量。ADR 0038）。保存のときに DB に残した長さ lengths（Airing.Key → 長さ）が全部の放送回にあれば
-// それを、1 つでも無ければ（この決定より前に保存したファイル）、全部を番組表の放送時間（終了 − 開始）で代える。
+// それを、1 つでも無ければ（パートの長さを DB に残すようになる前に保存したファイル）、全部を番組表の放送時間（終了 − 開始）で代える。
 func ChapterParts(airings []Airing, lengths map[string]time.Duration) []time.Duration {
 	out := make([]time.Duration, len(airings))
 	stored := len(lengths) > 0
