@@ -1,4 +1,4 @@
--- チャプターを、音声を取り直さずに保存したファイルに書き込む（docs/adr/0033-chapters-written-into-saved-file.md）ために、
+-- チャプターを、音声を取り直さずに保存したファイルに書き込む（docs/adr/0033-chapters-written-into-saved-file.md）ために、 adr-ref-ok: 0033
 -- チャプターの書き込みの履歴と、連結したファイルのパートの長さを持たせる。jobs・job_airings・attempts の列は変えない
 -- （新しい表にする。0022_job_autoincrement.sql のように jobs を作り直す移行では、ON DELETE CASCADE で行が消えるので、
 -- その移行で写し直すこと）。

@@ -122,6 +122,7 @@ pnpm screenshots
 - docs と README.md と `GLOSSARY.md` の定義文に、`GLOSSARY.md` の `_Avoid_` の語を書かない（`scripts/check-glossary.sh` が CI の Linux で検査する。`docs/adr/` は対象外）。`_Avoid_` の行には語だけを書く。照合の細則、免除の書き方、`GLOSSARY.md` に求める書式はスクリプトの冒頭に書いてある。検査の正規表現を変えたら `scripts/check-glossary_test.sh` に例を足す。
 - docs と README.md がバッククォートで名指しするコードのパス（`internal/…`・`cmd/…`）と `型.メソッド`（`Store.ListJobs` など）は、実在するものだけを書く（`scripts/check-code-refs.sh` が CI の Linux で検査する。`docs/adr/` も対象）。免除と細則はスクリプトの冒頭に書いてある。検査の形を変えたら `scripts/check-code-refs_test.sh` に例を足す。
 - Go のコメントが名指しする `.go` のファイルは、実在するものだけを書く（`scripts/check-go-comment-refs.sh` が CI の Linux で検査する）。`internal/…`・`cmd/…` で始まるパスは repo root から、スラッシュの無い名前は同じディレクトリで照合する。別のパッケージのファイルはパスで書く。免除（コメント末尾の `code-ref-ok: 名指し`）と限界はスクリプトの冒頭に書いてある。検査の形を変えたら `scripts/check-go-comment-refs_test.sh` に例を足す。
+- 置き換え済み（索引で `Obsoleted by 新`）の ADR を指す参照は、コードのコメントと docs に残さず、置き換え先へ向ける（`scripts/check-adr-refs.sh` が CI の Linux で検査する）。対象は `cmd/`・`internal/`・`web/src/`・`scripts/` のソースのコメントと、`docs/`（`docs/adr/` を除く）・`README.md`・`GLOSSARY.md`。`docs/adr/` の中は対象外で、`Updated by`（一部だけの更新）の ADR を指す参照は通す。参照の形・免除（決めた当時の文脈で古い ADR を指す行だけ）・細則はスクリプトの冒頭に書いてある。検査の形を変えたら `scripts/check-adr-refs_test.sh` に例を足す。
 - 「足したら直す列挙」の印は、列挙の項の名前で書く（`scripts/check-fix-markers.sh` が CI の Linux で検査する。git が追うファイルが対象で、`docs/adr/` とこの docs の「足したら直す列挙」の節は対象外）。列挙のどれかの項の印が 1 つも無いか、列挙に無い名前の印があるか、Go・TS の行だけのコメントの印がコメントのブロックの途中（次の行が文字のある `//` の行）にあると落ちる。印の付け忘れは見つけない。細則はスクリプトの冒頭に書いてある。検査の形を変えたら `scripts/check-fix-markers_test.sh` に例を足す。
 - docs の頭の目次（本文の `## ` の見出しへのリンクの箇条書き）は、本文の `## ` の見出しと順・数・アンカー・表示を合わせる（`scripts/check-toc.sh` が CI の Linux で検査する。`docs/*.md` が対象で、目次を持たない docs と `###` 以下の入れ子の項は見ない）。目次の作り直しはしない。細則はスクリプトの冒頭に書いてある。検査の形を変えたら `scripts/check-toc_test.sh` に例を足す。
 
@@ -138,7 +139,13 @@ pnpm screenshots
 
 ## ADR の決まり
 
-公開した後は、決定を変えるときに、古い ADR に注記を足さず、新しい ADR を書く。古い ADR は、索引（`docs/adr/README.md`）で「置き換え済み（→ 新しい番号）」にする。
+公開した後は、決定を変えるときに、古い ADR に注記を足さず、新しい ADR を書く。
+
+1. 新しい ADR の決定の冒頭に、古い ADR との関係を書く。古い ADR の決定を全部書き直したときは「ADR N を置き換える。」、一部だけ変えたときは「ADR N の一部を更新する。変えるのは…」と書く。
+2. 索引（`docs/adr/README.md`）では、古い ADR の題の後に、置き換えたら `（Obsoleted by 新しい番号）`、一部だけ更新したら `（Updated by 新しい番号）` と書く。
+3. 「置き換える」と書くなら、残す決定も含めて全部を書き直す（新しい ADR に「ADR N のまま」を使わない）。残す決定があるなら、置き換えでなく一部の更新にする。過去の ADR の本文は直さない。
+
+コードのコメントと docs は、`Obsoleted by` の ADR を指したままにしない（検査は「開発の決まり」にある）。
 
 ## コード上の名前
 

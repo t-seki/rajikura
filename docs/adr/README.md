@@ -1,6 +1,6 @@
 # 設計の決定（ADR）
 
-rajikura の設計の決定と、その理由をまとめる。どの ADR も、今の rajikura の決定として書いてある。各 ADR の見出しは「決定／理由／検討した案／帰結」。用語は [GLOSSARY.md](../../GLOSSARY.md) に従う。決定を変えるときの決まりは [development.md](../development.md) にある（新しい ADR を書き、置き換えた ADR はこの表の題の後に「置き換え済み（→ 新しい番号）」と書く）。
+rajikura の設計の決定と、その理由をまとめる。どの ADR も、今の rajikura の決定として書いてある。各 ADR の見出しは「決定／理由／検討した案／帰結」。用語は [GLOSSARY.md](../../GLOSSARY.md) に従う。決定を変えるときの決まりは [development.md](../development.md) にある（新しい ADR を書き、全部を書き直して置き換えた ADR はこの表の題の後に「（Obsoleted by 新しい番号）」、一部だけ更新した ADR は「（Updated by 新しい番号）」と書く）。
 
 | 番号 | 題 | 要約 |
 | --- | --- | --- |
@@ -9,7 +9,7 @@ rajikura の設計の決定と、その理由をまとめる。どの ADR も、
 | [0003](0003-job-per-show-and-broadcast-day.md) | ジョブは放送回ごとに作り、分割番組でつなぐ番組だけ番組と放送日の組でまとめる | 分割番組の設定を 3 つの値で持ち、つなぐのは分割番組だけにする |
 | [0004](0004-station-name-from-radiko.md) | 保存先の局名は radiko の局名にする | 局名は radiko の局一覧の名前をそのまま使い、取れるまで格納を待つ |
 | [0005](0005-run-in-container-with-network-share-library.md) | 常駐はコンテナを主にし、ライブラリへはネットワーク越しの共有に書く | public のコンテナイメージを主な配布形態にする |
-| [0006](0006-show-name-from-radiko.md) | 録るもののまとまりを「番組」と呼び、その名前は radiko の番組名から写す（置き換え済み（→ 0039）） | 「番組」と「予約」の語と、番組の名前の決め方 |
+| [0006](0006-show-name-from-radiko.md) | 録るもののまとまりを「番組」と呼び、その名前は radiko の番組名から写す（Updated by 0039） | 「番組」と「予約」の語と、番組の名前の決め方 |
 | [0007](0007-airing-title-in-title-tag.md) | 放送回の番組名が番組の名前と違えば title に足す | 副題や特番の名前を title のタグに残す |
 | [0008](0008-web-ui-shape.md) | Web UI は利用者 1 人のログインにし、仮のファイルを埋め込み、/healthz と同じ口で受ける | Web UI の認証・埋め込み・待ち受ける口 |
 | [0009](0009-cli-over-http.md) | CLI は HTTP API を呼び、DB に書くのは serve だけにする | CLI は API トークンで serve を呼び、展開は serve の中の展開役だけが行う |
@@ -19,7 +19,7 @@ rajikura の設計の決定と、その理由をまとめる。どの ADR も、
 | [0013](0013-builtin-m4a-muxer.md) | m4a への格納は ffmpeg を使わず Go で行う | 既定の格納を builtin にし、ffmpeg を要らなくする |
 | [0014](0014-keyword-adds-onces-to-shows.md) | キーワードは番組の外に置き、当たった放送回を番組の 1 回の予約として足す | 出演者名などで探して録る仕組みの置き場所 |
 | [0015](0015-settings-and-secrets-in-db.md) | 設定と秘密は DB に置き、起動の設定はフラグだけにする | 設定ファイルを持たず、秘密は DB の中で暗号化する |
-| [0016](0016-first-password-by-setup-code.md) | 初めてのパスワードはセットアップコードで決める（置き換え済み（→ 0041）） | 動かしている当人だけが最初のパスワードを決められるようにする |
+| [0016](0016-first-password-by-setup-code.md) | 初めてのパスワードはセットアップコードで決める（Obsoleted by 0041） | 動かしている当人だけが最初のパスワードを決められるようにする |
 | [0017](0017-backup-by-db-copy.md) | DB を失ったときに戻す手段とマシンを移す手段は、DB の写し（バックアップ）にする | 動いたまま取る DB の写しと、自動のバックアップ |
 | [0018](0018-weekly-from-reaches-past-days.md) | 開始日のある毎週の予約は今日より前の放送日にも当たり、番組名の食い違う回は録らなかったにする | 開始日からの過去の回を録り、特番は録らない |
 | [0019](0019-skip-by-title-and-by-person.md) | 今日から先の放送回も番組名で録らない予定にし、人も録る・録らないを決められるようにする | 録らない予定・録らなかったと、人の「録る」「録らない」 |
@@ -28,21 +28,21 @@ rajikura の設計の決定と、その理由をまとめる。どの ADR も、
 | [0022](0022-live-recording-for-timefree-excluded-airings.md) | タイムフリーの対象外の放送回だけを、別の録音役でライブで録る | ライブ録音の方式・同時に録る数・保存のやり直し |
 | [0023](0023-windows-tray-embedded-and-linked-by-loopback.md) | Windows のトレイは別の exe にして rajikura.exe に埋め込み、ループバックの受け口で連携する | トレイの入れ方と、API トークンの渡し方 |
 | [0024](0024-web-ui-url-per-screen.md) | Web UI は画面ごとに URL を分け、ルーティングに wouter を使う | 画面の URL と、通知から画面を開くリンク |
-| [0025](0025-rerecord-done-job-separately-from-manual-retry.md) | 録音済みのジョブの録り直しは、手動再試行とは別の操作にする（置き換え済み（→ 0031）） | 録り直しの受け付けと、前のファイルの扱い |
+| [0025](0025-rerecord-done-job-separately-from-manual-retry.md) | 録音済みのジョブの録り直しは、手動再試行とは別の操作にする（Obsoleted by 0031） | 録り直しの受け付けと、前のファイルの扱い |
 | [0026](0026-job-id-not-reused.md) | ジョブの id は使い回さない | `jobs.id` を AUTOINCREMENT にする |
-| [0027](0027-chapters-refetched-by-rerecording.md) | チャプターはタイムフリーからの録音の保存のときに取り、取れなければできるのを待って録り直して入れる（置き換え済み（→ 0033）） | チャプターの取り方・形と、チャプターの取り直し |
+| [0027](0027-chapters-refetched-by-rerecording.md) | チャプターはタイムフリーからの録音の保存のときに取り、取れなければできるのを待って録り直して入れる（Updated by 0038） | チャプターの取り方・形と、チャプターの取り直し |
 | [0028](0028-publish-as-oss-under-radiko-terms.md) | radiko の規約の第 4 条を承知で、ソースを公開した OSS として配る | 公開の立場と、守ること |
 | [0029](0029-weekly-until-over-title-based-handover.md) | 番組の切り替えは毎週の予約の終了日で前もって決め、矛盾を番組名で振り分けない | 毎週の予約の終了日 |
-| [0030](0030-radiko-login-follows-chosen-membership.md) | radiko のログインは人が選んだ会員種別に従い、拒まれたら非会員として録る（置き換え済み（→ 0034）） | 会員種別の決め方、radiko のログインのセッションと、拒まれたときの扱い |
-| [0031](0031-rerecord-deadline-follows-current-membership.md) | 録音済みのジョブの録り直しは手動再試行とは別の操作にし、受け付けるかは今の会員種別の録音期限で決める（置き換え済み（→ 0036）） | 録り直しの受け付けと、前のファイルの扱い、録り直しの録音期限 |
+| [0030](0030-radiko-login-follows-chosen-membership.md) | radiko のログインは人が選んだ会員種別に従い、拒まれたら非会員として録る（Obsoleted by 0034） | 会員種別の決め方、radiko のログインのセッションと、拒まれたときの扱い |
+| [0031](0031-rerecord-deadline-follows-current-membership.md) | 録音済みのジョブの録り直しは手動再試行とは別の操作にし、受け付けるかは今の会員種別の録音期限で決める（Obsoleted by 0036） | 録り直しの受け付けと、前のファイルの扱い、録り直しの録音期限 |
 | [0032](0032-revise-deadlines-when-own-area-changes.md) | 自分のエリアが変わったら、まだ終わっていないジョブの録音期限を、会員種別と同じ付け直しで直す | 録音期限の写しの付け直しと、自分のエリアの変化への気付き方 |
-| [0033](0033-chapters-written-into-saved-file.md) | チャプターは音声を取り直さず、保存したファイルに書き込む。人もチャプターの入れ直しで書き込ませられる（置き換え済み（→ 0038）） | チャプターの取り方・形、チャプターの取り直しと入れ直しの書き込み方 |
+| [0033](0033-chapters-written-into-saved-file.md) | チャプターは音声を取り直さず、保存したファイルに書き込む。人もチャプターの入れ直しで書き込ませられる（Obsoleted by 0038） | チャプターの取り方・形、チャプターの取り直しと入れ直しの書き込み方 |
 | [0034](0034-radiko-login-tried-when-saving.md) | radiko のログインは人が選んだ会員種別に従い、保存するときに試して拒まれたら保存しない。録るときに拒まれたら非会員として録る | 会員種別の決め方、保存するときの radiko のログイン、radiko のログインのセッションと、拒まれたときの扱い |
 | [0035](0035-nationwide-search-from-prefetched-station-guides.md) | 全国の検索は、全国の局の番組表を裏で取り込み、gzip のまま持ち、終わった放送日は取り直さない | 全国の検索の番組表の取り方・持ち方・取り直し |
 | [0036](0036-rerecord-deadline-follows-current-membership-and-own-area.md) | 録音済みのジョブの録り直しは手動再試行とは別の操作にし、受け付けるかは今の会員種別と今の自分のエリアの録音期限で決める | 録り直しの受け付けと、前のファイルの扱い、録り直しの録音期限、自分のエリアの局一覧を取れないときの断り方 |
 | [0037](0037-deadline-near-not-for-passed-deadline.md) | 期限間近は録音期限を過ぎたジョブに出さず、期限間近を通知した印は通知したときだけ立てる | 期限間近を出すかの決め方と、ジョブにつき 1 度との関係 |
 | [0038](0038-chapter-write-not-made-worse-by-transient-failure.md) | チャプターは音声を取り直さず、保存したファイルに書き込む。書き込みの前の取得が一時的に失敗したら書かず、取り直しは待ちを残してやり直す | チャプターの取り方・形、チャプターの取り直しと入れ直しの書き込み方、書き込みの前の取得の失敗 |
 | [0039](0039-saved-files-follow-show-rename.md) | 番組の名前を変えたら、全部のジョブを今の名前に付け替え、保存したファイルは rajikura が今の名前へ移す | 「番組」と「予約」の語、番組の名前の決め方、名前を変えたときのジョブと保存先の移し |
-| [0040](0040-idp-login-by-generic-oidc.md) | Web UI のログインに汎用の OIDC を足し、紐づけた 1 人だけを通す（置き換え済み（→ 0042）） | IdP のログイン、紐づけ、IdP の設定と戻り先の URL |
+| [0040](0040-idp-login-by-generic-oidc.md) | Web UI のログインに汎用の OIDC を足し、紐づけた 1 人だけを通す（Obsoleted by 0042） | IdP のログイン、紐づけ、IdP の設定と戻り先の URL |
 | [0041](0041-first-password-by-setup-code-and-reset-clears-binding.md) | 初めてのパスワードはセットアップコードで決め、パスワードを戻すと紐づけも消す | 動かしている当人だけが最初のパスワードを決められるようにする。パスワードを戻すときに消すもの |
 | [0042](0042-idp-binding-shows-preferred-username.md) | Web UI のログインに汎用の OIDC を足し、紐づけた 1 人だけを通す。紐づけた相手は IdP の利用者名で見分ける | IdP のログイン、紐づけ、紐づけた相手の見分け方、IdP の設定と戻り先の URL |
