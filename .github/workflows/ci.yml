@@ -7,7 +7,7 @@
 # Windows は ffmpeg を入れない。runner に有ればテストが走り、無ければ skip を許す（失敗にしない）。skip されたテストは一覧にして出すだけ。
 # トリガは PR（pull_request）と main への push に絞る。全ブランチの push も拾うと、PR のブランチに push するたびに同じ変更で 2 回走るため。同じ ref の古い実行は concurrency で捨てる。
 # web の job で、フロントエンド（web/）の型チェック・テスト・ビルドを Linux で回す。
-# 別の job で、docs と README.md と GLOSSARY.md の定義文が GLOSSARY.md の _Avoid_ に当たらないことと、その検査の例文テスト（scripts/check-glossary_test.sh）を Linux で流す。同じ job で、docs と README.md がバッククォートで名指しするコードのパス（internal/・cmd/）と `型.メソッド` が実在することと、その例文テスト（scripts/check-code-refs_test.sh）も流す。同じ job で、Go のソースのコメントが名指しする .go のファイルが実在することと、その例文テスト（scripts/check-go-comment-refs_test.sh）も流す。同じ job で、docs/development.md の「足したら直す列挙」の印（直す場所に置く項の名前）が列挙の項と合うことと、その例文テスト（scripts/check-fix-markers_test.sh）も流す。同じ job で、使う人向けの docs に rajikura の API のパス（/api/…）・API の欄の名前・検証の記録の言い回しが書かれていないことと、その例文テスト（scripts/check-user-docs_test.sh）も流す。同じ job で、docs の頭の目次が本文の ## の見出しと順・数・アンカー・表示で合うことと、その例文テスト（scripts/check-toc_test.sh）も流す。
+# 別の job で、docs と README.md と GLOSSARY.md の定義文が GLOSSARY.md の _Avoid_ に当たらないことと、その検査の例文テスト（scripts/check-glossary_test.sh）を Linux で流す。同じ job で、docs と README.md がバッククォートで名指しするコードのパス（internal/・cmd/）と `型.メソッド` が実在することと、その例文テスト（scripts/check-code-refs_test.sh）も流す。同じ job で、Go のソースのコメントが名指しする .go のファイルが実在することと、その例文テスト（scripts/check-go-comment-refs_test.sh）も流す。同じ job で、置き換え済み（索引で Obsoleted by）の ADR を指す参照がコードのコメントと docs に残っていないことと、その例文テスト（scripts/check-adr-refs_test.sh）も流す。同じ job で、docs/development.md の「足したら直す列挙」の印（直す場所に置く項の名前）が列挙の項と合うことと、その例文テスト（scripts/check-fix-markers_test.sh）も流す。同じ job で、使う人向けの docs に rajikura の API のパス（/api/…）・API の欄の名前・検証の記録の言い回しが書かれていないことと、その例文テスト（scripts/check-user-docs_test.sh）も流す。同じ job で、docs の頭の目次が本文の ## の見出しと順・数・アンカー・表示で合うことと、その例文テスト（scripts/check-toc_test.sh）も流す。
 name: CI
 
 on:
@@ -30,6 +30,8 @@ jobs:
   #   行末の <!-- code-ref-ok: 名指し --> は書いた名指しだけを外す）と、その例文テスト（scripts/check-code-refs_test.sh）。
   # - Go のコメントの名指し: Go のソースのコメントが名指しする .go のファイルが実在するか（scripts/check-go-comment-refs.sh。
   #   コメント末尾の code-ref-ok: 名指し は書いた名指しだけを外す）と、その例文テスト（scripts/check-go-comment-refs_test.sh）。
+  # - 置き換え済みの ADR を指す参照: docs/adr/README.md の索引で Obsoleted by の ADR を、cmd/・internal/・web/src/・scripts/ のソースのコメントと docs（docs/adr/ を除く）・README.md・GLOSSARY.md が指していないか
+  #   （scripts/check-adr-refs.sh。Updated by の ADR は通す。行末の印は決めた当時の文脈で指す行だけ）と、その例文テスト（scripts/check-adr-refs_test.sh）。
   # - 足したら直す列挙の印: git が追うファイルの印の名前が docs/development.md の「足したら直す列挙」の項の名前と合い、どの項の印も
   #   1 つ以上あるか（scripts/check-fix-markers.sh。docs/adr/ と列挙の節の中は数えない）と、その例文テスト（scripts/check-fix-markers_test.sh）。
   # - 使う人向けの docs の実装の仕様と検証の記録: README.md と使う人向けの docs に rajikura の API のパス（/api/…）・docs/api.md が挙げる API の欄の名前（小文字 1 語の欄はスクリプトの一覧の名前をバッククォートで書いた箇所だけ）・
@@ -53,6 +55,10 @@ jobs:
         run: scripts/check-go-comment-refs.sh
       - name: Go のコメントの名指しの検査の例文テスト
         run: scripts/check-go-comment-refs_test.sh
+      - name: 置き換え済みの ADR を指す参照がコメントと docs に残っていないこと
+        run: scripts/check-adr-refs.sh
+      - name: 置き換え済みの ADR の参照の検査の例文テスト
+        run: scripts/check-adr-refs_test.sh
       - name: 足したら直す列挙の印が列挙の項と合うこと
         run: scripts/check-fix-markers.sh
       - name: 足したら直す列挙の印の検査の例文テスト
