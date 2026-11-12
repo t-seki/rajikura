@@ -14,7 +14,7 @@ import (
 
 // チャプターの値と待ちは、保存（Complete）で書き、待っているジョブを引く時刻の順に読む（DueChapterChecks）。保存したファイルに
 // 書き込んだら（FinishChapterWrite）、done のまま値を付け直して待ちを消し、書き込みの履歴に 1 行足す（状態・試行回数・保存先・
-// 欠落の印は変えない。ADR 0033）。人の録り直しは待ちを消す（ADR 0027）。
+// 欠落の印は変えない。ADR 0038）。人の録り直しは待ちを消す（ADR 0027）。
 func TestChapterWaitFlow(t *testing.T) {
 	ctx := context.Background()
 	s, _ := openTemp(t)
@@ -133,7 +133,7 @@ func TestChapterWaitFlow(t *testing.T) {
 	}
 }
 
-// パートの長さは保存のたびに置き換え（ミリ秒で持つ）、空にすれば消える（ADR 0033）。
+// パートの長さは保存のたびに置き換え（ミリ秒で持つ）、空にすれば消える（ADR 0038）。
 func TestPartLengths(t *testing.T) {
 	ctx := context.Background()
 	s, _ := openTemp(t)

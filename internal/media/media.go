@@ -1,6 +1,6 @@
 // Package media は、入手した ADTS（AAC）を再エンコードせずに m4a へ格納し（タグ・カバー画像・チャプターも書く）、長さを測る。
 // 保存した m4a のチャプターだけを書き直し（WriteChapters）、書き直したファイルの音声のサンプルが元と同じかを確かめる（SameAudio。
-// ADR 0033）。保存した m4a のアルバムの名前（album のタグ）だけを書き直す（RewriteAlbum。保存先の移し。ADR 0039）。
+// ADR 0038）。保存した m4a のアルバムの名前（album のタグ）だけを書き直す（RewriteAlbum。保存先の移し。ADR 0039）。
 // ADTS の入力ごとの長さ（InputLengths。連結したファイルのパートの長さ）も出す。
 // 作り方は 2 つあり、設定 muxer で選ぶ（ADR 0013）。どちらも同じ形の箱を書く（チャプターの形は chapter.go。ADR 0027）。
 //
@@ -186,7 +186,7 @@ func (t *Tools) RemuxWithChapters(ctx context.Context, inputs []string, out stri
 }
 
 // WriteChapters は [Builtin.WriteChapters] と同じく、保存した m4a in のチャプターを chs に置き換えた m4a を out に書き、置いた
-// チャプターの数を返す（ADR 0033）。チャプターの置き方（パートの長さ parts でずらす）は builtin と同じく in を Go で読んで決め、
+// チャプターの数を返す（ADR 0038）。チャプターの置き方（パートの長さ parts でずらす）は builtin と同じく in を Go で読んで決め、
 // 書き直しは ffmpeg に頼む。ffmpeg には in の音声（とカバー画像）・タグをそのまま写させ（-map 0:a・-map_metadata 0・-c copy）、
 // チャプターは ffmetadata のファイルから移させる（-map_chapters。前のチャプターは写さない）。置くチャプターが無ければ、
 // チャプターの無いファイルを書く（-map_chapters -1）。out は上書きされる。

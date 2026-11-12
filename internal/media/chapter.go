@@ -305,7 +305,7 @@ func inputLengths(ctx context.Context, inputs []string) ([]time.Duration, error)
 var ErrAudioMismatch = errors.New("media: audio samples differ")
 
 // sameAudio は、m4a a と b の音声のトラックのサンプルが、数とバイト列で同じかを確かめる（チャプターを書き直したファイルが
-// 元のファイルと同じ音声を持つことの確かめ。ADR 0033）。違えば ErrAudioMismatch を包んだエラー、読めなければそのエラー。
+// 元のファイルと同じ音声を持つことの確かめ。ADR 0038）。違えば ErrAudioMismatch を包んだエラー、読めなければそのエラー。
 // 比べるのはサンプルの並びとバイト列だけで、チャンクの切り方・位置やタイムスケールは比べない。
 func sameAudio(ctx context.Context, a, b string) error {
 	open := func(p string) (*os.File, *m4aFile, error) {

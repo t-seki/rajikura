@@ -24,14 +24,14 @@ type Jobs interface {
 	ListJobsFromDay(ctx context.Context, day domain.BroadcastDay, states ...domain.State) ([]domain.Job, error)
 	GetJob(ctx context.Context, id int64) (domain.Job, error)
 	Attempts(ctx context.Context, jobID int64) ([]domain.Attempt, error)
-	// ChapterWrites は、ジョブの保存したファイルへのチャプターの書き込みの履歴（ADR 0033）。
+	// ChapterWrites は、ジョブの保存したファイルへのチャプターの書き込みの履歴（ADR 0038）。
 	ChapterWrites(ctx context.Context, jobID int64) ([]domain.ChapterWrite, error)
 	LatestAttemptsFromDay(ctx context.Context, day domain.BroadcastDay) (map[int64]domain.Attempt, error)
 	ManualRetry(ctx context.Context, id int64, now time.Time) error
 	SkipByPerson(ctx context.Context, id int64, now time.Time) error
 	RecordByPerson(ctx context.Context, id int64, now time.Time) error
 	Rerecord(ctx context.Context, id int64, m domain.Membership, own map[string]bool, now time.Time) error
-	// RequestChapterRedo と RequestChapterRedoAll は、チャプターの入れ直しの頼みを DB に書く（ADR 0033。書き込みは録音のループ）。
+	// RequestChapterRedo と RequestChapterRedoAll は、チャプターの入れ直しの頼みを DB に書く（ADR 0038。書き込みは録音のループ）。
 	RequestChapterRedo(ctx context.Context, id int64, now time.Time) error
 	RequestChapterRedoAll(ctx context.Context, now time.Time) (int, error)
 	// RequestOutputMove は保存先の移しの頼みを DB に書き、OutputMoves は保存先の移しの履歴を読む（ADR 0039。移すのは録音のループ）。
@@ -106,7 +106,7 @@ type jobSummary struct {
 	// 足したら直す: ジョブの状態の移り方
 	Rerecordable bool `json:"rerecordable"`
 	// ChaptersRedoable は、いまチャプターの入れ直し（POST /api/jobs/{id}/chapters）を受け付けるか（タイムフリーから録った done の
-	// ジョブ。store.RequestChapterRedo と同じく domain.CheckChapterRedo で決める。ADR 0033）。
+	// ジョブ。store.RequestChapterRedo と同じく domain.CheckChapterRedo で決める。ADR 0038）。
 	ChaptersRedoable bool `json:"chaptersRedoable"`
 	// ChaptersRedoRequested は、チャプターの入れ直しを頼んで、録音のループがまだ書き込んでいない間だけ true。
 	ChaptersRedoRequested bool `json:"chaptersRedoRequested"`
@@ -218,7 +218,7 @@ type attemptView struct {
 	DurationSeconds float64 `json:"durationSeconds"`
 }
 
-// chapterWriteView は、チャプターの書き込みの履歴の 1 行（domain.ChapterWrite。ADR 0033）。
+// chapterWriteView は、チャプターの書き込みの履歴の 1 行（domain.ChapterWrite。ADR 0038）。
 type chapterWriteView struct {
 	At time.Time `json:"at"`
 	// By は誰が（refetch: チャプターの取り直し、redo: チャプターの入れ直し）。
@@ -585,7 +585,7 @@ func rerecordRefusal(err error) string {
 	return ""
 }
 
-// redoJobChapters は、ジョブ 1 件のチャプターの入れ直し（ADR 0033）。タイムフリーから録った done のジョブに頼みを DB に書き、
+// redoJobChapters は、ジョブ 1 件のチャプターの入れ直し（ADR 0038）。タイムフリーから録った done のジョブに頼みを DB に書き、
 // 録音のループを起こして、受け付けたジョブの要約を返す（書き込みはまだ。結果はジョブのチャプターの値と、チャプターの書き込みの
 // 履歴に出る）。チャプターの値は問わない（入ったのジョブも置き換える）。拒むときは、done でない・ライブ録音で文言を分けて 409 に
 // する。通知はしない。
@@ -611,7 +611,7 @@ type chapterRedoAllView struct {
 	Accepted int `json:"accepted"`
 }
 
-// redoAllChapters は、まとめてのチャプターの入れ直し（rajikura chapters --all。ADR 0033）。タイムフリーから録った done のジョブの
+// redoAllChapters は、まとめてのチャプターの入れ直し（rajikura chapters --all。ADR 0038）。タイムフリーから録った done のジョブの
 // うち、チャプターの値が値なしか入らなかったのものに頼みを DB に書き、録音のループを起こして、受け付けたジョブの数を返す。
 // 入った・待っているのジョブは飛ばす。放送日では絞らない。当たるジョブが無くても 200（0 件）。
 func (u *UI) redoAllChapters(w http.ResponseWriter, r *http.Request) {

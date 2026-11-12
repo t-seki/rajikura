@@ -9,7 +9,7 @@ import (
 
 // 録り直しの保存は、選んだ名前が前の保存先と同じパスなら上書きし、別名のファイルは増えない。2 回録り直しても失敗しない
 // （Store のままだと 1 回目は別名、2 回目はエラーになる）。Windows（NTFS）でも rename で既にあるファイルを置き換えることを、
-// CI の Windows の job で確かめる（ADR 0025）。
+// CI の Windows の job で確かめる（ADR 0036）。
 func TestStoreOverReplacesPrev(t *testing.T) {
 	root := t.TempDir()
 	res, err := Store(root, layout(), first, writeString("one"))

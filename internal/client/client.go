@@ -264,13 +264,13 @@ func (c *Client) SkipJob(ctx context.Context, id int64) error {
 	return c.do(ctx, http.MethodPost, "/api/jobs/"+strconv.FormatInt(id, 10)+"/skip", nil, nil)
 }
 
-// RerecordJob は done のジョブを録り直す（POST /api/jobs/{id}/rerecord。ADR 0025）。無いジョブは 404、受け付けないジョブ
+// RerecordJob は done のジョブを録り直す（POST /api/jobs/{id}/rerecord。ADR 0036）。無いジョブは 404、受け付けないジョブ
 // （done でない・ライブ録音・録音期限を過ぎた）は 409 の APIError。
 func (c *Client) RerecordJob(ctx context.Context, id int64) error {
 	return c.do(ctx, http.MethodPost, "/api/jobs/"+strconv.FormatInt(id, 10)+"/rerecord", nil, nil)
 }
 
-// RedoJobChapters は、ジョブのチャプターの入れ直しを頼む（POST /api/jobs/{id}/chapters。ADR 0033）。書き込みは serve の録音の
+// RedoJobChapters は、ジョブのチャプターの入れ直しを頼む（POST /api/jobs/{id}/chapters。ADR 0038）。書き込みは serve の録音の
 // ループが後で行う。無いジョブは 404、受け付けないジョブ（done でない・ライブ録音）は 409 の APIError。
 func (c *Client) RedoJobChapters(ctx context.Context, id int64) error {
 	return c.do(ctx, http.MethodPost, "/api/jobs/"+strconv.FormatInt(id, 10)+"/chapters", nil, nil)
@@ -287,7 +287,7 @@ func (c *Client) MoveJob(ctx context.Context, id int64, show string) error {
 	return c.do(ctx, http.MethodPost, "/api/jobs/"+strconv.FormatInt(id, 10)+"/move", body, nil)
 }
 
-// RedoAllChapters は、まとめてのチャプターの入れ直しを頼み（POST /api/jobs/chapters。ADR 0033）、受け付けたジョブの数を返す。
+// RedoAllChapters は、まとめてのチャプターの入れ直しを頼み（POST /api/jobs/chapters。ADR 0038）、受け付けたジョブの数を返す。
 func (c *Client) RedoAllChapters(ctx context.Context) (int, error) {
 	var res struct {
 		Accepted int `json:"accepted"`

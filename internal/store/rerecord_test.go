@@ -90,7 +90,7 @@ func TestRerecord(t *testing.T) {
 	}
 }
 
-// 手動再試行は、録り直しを足した後も done のジョブを拒む（ADR 0025）。
+// 手動再試行は、録り直しを足した後も done のジョブを拒む（ADR 0036）。
 func TestManualRetryStillRefusesDone(t *testing.T) {
 	ctx := context.Background()
 	s, _ := openTemp(t)

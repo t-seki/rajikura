@@ -13,7 +13,7 @@
 // 設定（秘密を除く値の JSON）は settings に、暗号化した秘密は secrets に持つ（settings.go。中身は解釈しない）。
 // DB のバックアップは、VACUUM INTO で作った写しから sessions を消したもの（backup.go。docs/adr/0017-backup-by-db-copy.md）。
 // 保存したファイルへのチャプターの書き込み（チャプターの取り直し・チャプターの入れ直し）の履歴は chapter_writes に、連結したファイルの
-// パート（放送回）ごとの長さは job_part_lengths に持つ（jobs.go。docs/adr/0033-chapters-written-into-saved-file.md）。
+// パート（放送回）ごとの長さは job_part_lengths に持つ（jobs.go。docs/adr/0038-chapter-write-not-made-worse-by-transient-failure.md）。
 // 保存先の移しの頼みの印は jobs.move_requested_at に、移し先の控えは jobs.move_to に、移しの履歴は output_moves に持つ（moves.go。
 // docs/adr/0039-saved-files-follow-show-rename.md）。
 // 足したら直す: DB の表

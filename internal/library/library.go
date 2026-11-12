@@ -2,8 +2,8 @@
 //
 // 命名とタグは [Preset] が決める。今あるのは Jellyfin プリセットだけ（ADR 0002。title は、放送回の番組名が
 // 番組の名前と違えば足す。ADR 0007）。置き方は [Store]
-// （partial に書いてから確定、衝突時は別名）と、録り直しで前の保存先を上書きする [StoreOver]（ADR 0025）と、保存したファイルを
-// partial に書き直してから置き換える [Rewrite]（チャプターの書き込み。ADR 0033。保存先の移しで、移し先が今の保存先と同じときの
+// （partial に書いてから確定、衝突時は別名）と、録り直しで前の保存先を上書きする [StoreOver]（ADR 0036）と、保存したファイルを
+// partial に書き直してから置き換える [Rewrite]（チャプターの書き込み。ADR 0038。保存先の移しで、移し先が今の保存先と同じときの
 // アルバムの名前の書き換えにも使う。ADR 0039）と、保存したファイルを今の番組の名前のフォルダ・ファイル名へ
 // 移す [Move]（保存先の移し。移し先は [MovedPath]、移した後の古いフォルダの片付けは [TidyOldFolder]、途中で止まった移しの回復は
 // [RecoverMove]。ADR 0039）と [CleanPartials]（起動時の残骸の掃除）。番組のフォルダの画像 folder.jpg は [StoreFolderImage] が置く（保存のたびに上書き）。
@@ -246,7 +246,7 @@ func Store(root string, l Layout, firstStart time.Time, write func(partial strin
 }
 
 // StoreOver は [Store] と同じく l の場所に m4a を置くが、選んだ名前（l の名前か、" HHmm" を付けた別名）が prev と同じパスなら、
-// 別名にせずに prev を上書きする（録り直し。ADR 0025）。prev はそのジョブの前の保存先（root を含むパス。前に保存していなければ空で、
+// 別名にせずに prev を上書きする（録り直し。ADR 0036）。prev はそのジョブの前の保存先（root を含むパス。前に保存していなければ空で、
 // 空なら [Store] と同じ）。上書きは write が成功した後のリネームで入れ替えるので、prev が消えるのは新しいファイルが確定するときだけ
 // （write が失敗すれば prev は残る）。prev と違う、同じ名前のほかのファイルには、[Store] と同じ別名の決まりを当てる。
 // 名前が prev と違うパスになったら（局名や保存先が変わったなど）、prev は消さずに残す。
@@ -298,7 +298,7 @@ var ErrNoFile = errors.New("library: 保存先にファイルが無い")
 // （MaxPathNameBytes）に掛からない。
 const rewritePartialPrefix = "rajikura-chapters."
 
-// Rewrite は、保存したファイル path を、write が書いたもので置き換える（チャプターの書き込み。ADR 0033。保存先の移しで、移し先が
+// Rewrite は、保存したファイル path を、write が書いたもので置き換える（チャプターの書き込み。ADR 0038。保存先の移しで、移し先が
 // 今の保存先と同じときのアルバムの名前の書き換え。ADR 0039）。write には path と同じ
 // フォルダの partial（*.partial.m4a。起動時に [CleanPartials] が消す）のパスを渡すので、そこへ書かせる（書いた中身の確かめも
 // write の中で行う）。write が成功したら、partial を path と同じ許可にしてリネームで置き換え、失敗したら partial を消して path を

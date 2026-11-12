@@ -63,7 +63,7 @@ func ParseState(s string) (State, error) {
 // 最初の試行の時刻の前なら録らない予定）。確定した skipped からは、retrying へだけ遷移する。
 //
 // retrying のジョブの手動再試行は状態を変えず、次の試行の時刻と試行回数だけを書き換えるので、遷移表には無い。
-// チャプターの取り直し（保存したファイルへのチャプターの書き込み）は試行を起こさず、done のまま行うので、遷移表には無い（ADR 0033）。
+// チャプターの取り直し（保存したファイルへのチャプターの書き込み）は試行を起こさず、done のまま行うので、遷移表には無い（ADR 0038）。
 // 足したら直す: ジョブの状態の移り方
 var transitions = map[State][]State{
 	StateWaiting:  {StateRunning, StateSkipped},

@@ -35,7 +35,7 @@ func newRedoEnv(t *testing.T) (*env, *chapterFetcher, domain.Job) {
 }
 
 // 人が頼んだチャプターの入れ直しは、録るジョブが無いときに録音のループが 1 件ずつ行い、radiko から音声を取らずに、保存したファイルに
-// 保存した放送回のチャプターを書き込む（ADR 0033）。設定 chapters がオフでも行う。試行は起こさず（done のまま、試行も増えない）、
+// 保存した放送回のチャプターを書き込む（ADR 0038）。設定 chapters がオフでも行う。試行は起こさず（done のまま、試行も増えない）、
 // 書き込みの履歴に「チャプターの入れ直し」で 1 行残し、頼みを消す。置き換えたら再スキャンを頼み、通知はしない。
 func TestChapterRedoWritesSavedFile(t *testing.T) {
 	e, f, j := newRedoEnv(t)
@@ -122,7 +122,7 @@ func TestChapterRedoWritesSavedFile(t *testing.T) {
 
 // 入れ直しで、保存した放送回の全部でチャプターを取れなければ、ファイルは書かず、取れなかったので書かなかったと履歴に残す。
 // 一部だけ取れたら、取れた分を書き込む。どちらも、取れなかった放送回が 404（まだできていないかもしれない）でもチャプターの待ちは
-// 起こさず、チャプターの値は ADR 0027 の決まりで付け直す（値なしの古いジョブにも入らなかったが付く。ADR 0033）。
+// 起こさず、チャプターの値は ADR 0027 の決まりで付け直す（値なしの古いジョブにも入らなかったが付く。ADR 0038）。
 func TestChapterRedoNotFetchedOrPartial(t *testing.T) {
 	t.Run("全部取れない", func(t *testing.T) {
 		e, f, j := newRedoEnv(t)

@@ -78,10 +78,10 @@ export interface JobSummary {
   skippable: boolean;
   /** いま「録る」を受け付けるか（録らない予定、または録音期限を過ぎていない録らなかった）。 */
   recordable: boolean;
-  /** いま「録り直す」を受け付けるか（録音済みのタイムフリーのジョブで、録音期限を過ぎていない。ADR 0025）。 */
+  /** いま「録り直す」を受け付けるか（録音済みのタイムフリーのジョブで、録音期限を過ぎていない。ADR 0036）。 */
   rerecordable: boolean;
   /**
-   * いま「チャプターを入れ直す」を受け付けるか（タイムフリーから録った録音済みのジョブ。チャプターが入ったジョブも。ADR 0033）。
+   * いま「チャプターを入れ直す」を受け付けるか（タイムフリーから録った録音済みのジョブ。チャプターが入ったジョブも。ADR 0038）。
    * この版より前の serve では無い。
    */
   chaptersRedoable?: boolean;
@@ -129,13 +129,13 @@ export const chaptersLabels: Record<JobChapters, string> = {
   not_added: "入らなかった",
 };
 
-/** チャプターの書き込みを誰が起こしたか（refetch: チャプターの取り直し、redo: チャプターの入れ直し。ADR 0033）。 */
+/** チャプターの書き込みを誰が起こしたか（refetch: チャプターの取り直し、redo: チャプターの入れ直し。ADR 0038）。 */
 export type ChapterWriteBy = "refetch" | "redo";
 
 /** チャプターの書き込みの結果（written: 書き込んだ、not_fetched: 取れなかったので書かなかった、failed: 書き込めなかった）。 */
 export type ChapterWriteResult = "written" | "not_fetched" | "failed";
 
-/** チャプターの書き込みの履歴の 1 行（保存したファイルへの書き込みのたびに 1 行。試行の履歴とは別。ADR 0033）。 */
+/** チャプターの書き込みの履歴の 1 行（保存したファイルへの書き込みのたびに 1 行。試行の履歴とは別。ADR 0038）。 */
 export interface JobChapterWrite {
   at: string;
   by: ChapterWriteBy;
@@ -245,10 +245,10 @@ export const retryJob = (id: number) => call<JobSummary>("POST", `/api/jobs/${id
 export const skipJob = (id: number) => call<JobSummary>("POST", `/api/jobs/${id}/skip`);
 /** 「録る」。録らない予定のジョブは録音予定に戻し、録らなかったのジョブは手動再試行と同じく再試行待ちにする。 */
 export const recordJob = (id: number) => call<JobSummary>("POST", `/api/jobs/${id}/record`);
-/** 「録り直す」。録音済みのジョブを radiko から録り直させる（再試行待ちにする）。前に保存したファイルと同じ名前なら上書きする（ADR 0025）。 */
+/** 「録り直す」。録音済みのジョブを radiko から録り直させる（再試行待ちにする）。前に保存したファイルと同じ名前なら上書きする（ADR 0036）。 */
 export const rerecordJob = (id: number) => call<JobSummary>("POST", `/api/jobs/${id}/rerecord`);
 /**
- * 「チャプターを入れ直す」。録音済みのジョブの保存したファイルに、radiko から音声を取り直さずにチャプターを書き込ませる（ADR 0033）。
+ * 「チャプターを入れ直す」。録音済みのジョブの保存したファイルに、radiko から音声を取り直さずにチャプターを書き込ませる（ADR 0038）。
  * 受け付けたところで返り、書き込みは rajikura serve の録音のループが後で行う（結果はチャプターの値と書き込みの履歴に出る）。
  */
 export const redoJobChapters = (id: number) => call<JobSummary>("POST", `/api/jobs/${id}/chapters`);

@@ -50,7 +50,7 @@ func TestRerecordAreaUnknown(t *testing.T) {
 }
 
 // rerecord: done のタイムフリーのジョブは retrying・試行回数 0 になる。done でない・ライブ録音・録音期限を過ぎた・無い ID は
-// わけを添えて拒むが、ほかの ID は続け、1 件でも拒んだら終了コード 1。ID が無い・整数でないのは使い方の誤りで 2（ADR 0025）。
+// わけを添えて拒むが、ほかの ID は続け、1 件でも拒んだら終了コード 1。ID が無い・整数でないのは使い方の誤りで 2（ADR 0036）。
 func TestRerecord(t *testing.T) {
 	api := newTestAPI(t)
 	ctx := context.Background()
