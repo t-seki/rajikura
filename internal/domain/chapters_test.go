@@ -126,7 +126,7 @@ func TestCheckChapters(t *testing.T) {
 	}
 }
 
-// 書き込みの前に取った結果は、全部取れたら入った、それ以外（一部だけ・全部取れない）は入らなかった。待ちは起こさない（ADR 0033）。
+// 書き込みの前に取った結果は、全部取れたら入った、それ以外（一部だけ・全部取れない）は入らなかった。待ちは起こさない（ADR 0038）。
 func TestChaptersAfterWrite(t *testing.T) {
 	tests := []struct {
 		fetched []ChapterFetch
@@ -144,7 +144,7 @@ func TestChaptersAfterWrite(t *testing.T) {
 	}
 }
 
-// パートの長さは、保存のときに残した長さが全部の放送回にあればそれ、1 つでも無ければ全部を番組表の放送時間で代える（ADR 0033）。
+// パートの長さは、保存のときに残した長さが全部の放送回にあればそれ、1 つでも無ければ全部を番組表の放送時間で代える（ADR 0038）。
 func TestChapterParts(t *testing.T) {
 	as := []Airing{flat1, flat2}
 	guide := []time.Duration{flat1.End.Sub(flat1.Start), flat2.End.Sub(flat2.Start)}
@@ -176,7 +176,7 @@ func TestSavedAirings(t *testing.T) {
 
 // チャプターの入れ直しを受け付けるのは、タイムフリーから録った done のジョブ（チャプターの値と録音期限は問わない）。done でなければ
 // ErrInvalidTransition、ライブで録るジョブなら ErrChapterRedoLive。まとめての入れ直しは、そのうちチャプターの値が値なしか入らなかった
-// のジョブにだけ当たる（ADR 0033）。
+// のジョブにだけ当たる（ADR 0038）。
 func TestCheckChapterRedo(t *testing.T) {
 	live := chapterJob()
 	live.Airings = []Airing{flat1, flat2}

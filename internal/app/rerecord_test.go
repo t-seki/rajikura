@@ -53,7 +53,7 @@ func countKind(kinds []string, kind string) int {
 }
 
 // 録り直しの試行は radiko から取り直し、保存先が前の保存先と同じなら上書きして、別名のファイルを作らない。2 回録り直しても
-// 保存に失敗しない。録れたら録音済みをもう一度通知する（ADR 0025）。
+// 保存に失敗しない。録れたら録音済みをもう一度通知する（ADR 0036）。
 func TestRerecordOverwritesPrev(t *testing.T) {
 	e, j := newRerecordEnv(t)
 	prev := j.OutputPath
@@ -94,7 +94,7 @@ func TestRerecordOverwritesPrev(t *testing.T) {
 }
 
 // 録り直しの試行が録音期限までに一部の放送回しか取れなかったら、取れた分を保存せずに expired にし、前のファイル・保存先・
-// 欠落の印を前のまま残す。通知は録音できなかっただけで、録音済み・欠落ありは書かない（ADR 0025。録り直しでない試行の部分保存は
+// 欠落の印を前のまま残す。通知は録音できなかっただけで、録音済み・欠落ありは書かない（ADR 0036。録り直しでない試行の部分保存は
 // TestDeadlinePartial のまま done）。
 func TestRerecordPartialAtDeadlineKeepsPrev(t *testing.T) {
 	e := newFlowEnv(t)
@@ -149,7 +149,7 @@ func TestRerecordPartialAtDeadlineKeepsPrev(t *testing.T) {
 	}
 }
 
-// 録り直しの試行が録れずに expired になっても、前のファイルと保存先は残り、録音できなかったを通知する（ADR 0025）。
+// 録り直しの試行が録れずに expired になっても、前のファイルと保存先は残り、録音できなかったを通知する（ADR 0036）。
 func TestRerecordExpiredKeepsPrev(t *testing.T) {
 	e, j := newRerecordEnv(t)
 	prev := j.OutputPath

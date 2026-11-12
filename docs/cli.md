@@ -151,7 +151,7 @@ rajikura -url '<serve の URL>' -token '<発行したトークン>' retry <ID>
 
 ### chapters
 
-`chapters` は、録音済み（`done`）のジョブの保存したファイルに、radiko のチャプターを取って書き込ませる（[チャプターの入れ直し](../GLOSSARY.md)。[ADR 0033](adr/0033-chapters-written-into-saved-file.md)）。チャプターを埋め込むようになる前に録ったファイルや、チャプターが入らなかったファイルに使う。radiko から音声は取り直さず、チャプターのほかはファイルのまま残す。
+`chapters` は、録音済み（`done`）のジョブの保存したファイルに、radiko のチャプターを取って書き込ませる（[チャプターの入れ直し](../GLOSSARY.md)。[ADR 0038](adr/0038-chapter-write-not-made-worse-by-transient-failure.md)）。チャプターを埋め込むようになる前に録ったファイルや、チャプターが入らなかったファイルに使う。radiko から音声は取り直さず、チャプターのほかはファイルのまま残す。
 
 ```bash
 rajikura -url '<serve の URL>' -token '<発行したトークン>' chapters <ID>

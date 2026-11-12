@@ -139,7 +139,7 @@ radiko のログインは、次のように行う。
 
 ## チャプター（`chapters`）
 
-radiko がタイムフリーの番組に付けるチャプター（用語集の「チャプター」。話題・場面ごとの区切り）を、タイムフリーから録るファイルに入れる（[ADR 0027](adr/0027-chapters-refetched-by-rerecording.md)・[ADR 0033](adr/0033-chapters-written-into-saved-file.md)・[ADR 0038](adr/0038-chapter-write-not-made-worse-by-transient-failure.md)）。ライブ録音のファイルには入れない。
+radiko がタイムフリーの番組に付けるチャプター（用語集の「チャプター」。話題・場面ごとの区切り）を、タイムフリーから録るファイルに入れる（[ADR 0027](adr/0027-chapters-refetched-by-rerecording.md)・[ADR 0038](adr/0038-chapter-write-not-made-worse-by-transient-failure.md)）。ライブ録音のファイルには入れない。
 
 - 録る時刻は `chapters` に依らない。タイムフリーから録るジョブの最初の試行は、最後の放送回の終了 + max(局の `tf_max_delay`, 150 秒) + 2 分。
 - チャプターは、保存の試行の中で放送回ごとに取る。取り先は radiko の公開の文書の無い口で、予告なく変わりうる。
@@ -153,7 +153,7 @@ radiko がタイムフリーの番組に付けるチャプター（用語集の�
 
 ### チャプターの取り直し
 
-保存のときに、チャプターがまだできていない・通信に失敗したなどで取れなかった放送回があれば、ジョブは録音済み（`done`）のままチャプターを待つ（チャプターの取り直し。[ADR 0027](adr/0027-chapters-refetched-by-rerecording.md)・[ADR 0033](adr/0033-chapters-written-into-saved-file.md)・[ADR 0038](adr/0038-chapter-write-not-made-worse-by-transient-failure.md)）。チャプターが空のときは待たない。 <!-- 足したら直す: ジョブの状態の移り方 -->
+保存のときに、チャプターがまだできていない・通信に失敗したなどで取れなかった放送回があれば、ジョブは録音済み（`done`）のままチャプターを待つ（チャプターの取り直し。[ADR 0027](adr/0027-chapters-refetched-by-rerecording.md)・[ADR 0038](adr/0038-chapter-write-not-made-worse-by-transient-failure.md)）。チャプターが空のときは待たない。 <!-- 足したら直す: ジョブの状態の移り方 -->
 
 - 待っている間は、待っている放送回のチャプターだけを、保存から 30 分おきに見る（音声は取らない）。
 - 最後の放送回の終了から 6 時間か、録音期限を過ぎたら打ち切り、チャプター無しのままにする。

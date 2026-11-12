@@ -417,7 +417,7 @@ func recordJobs(ctx context.Context, connect func() (*client.Client, error), arg
 	})
 }
 
-// rerecordJobs は、録音済み（done）のタイムフリーから録るジョブを録り直す（ADR 0025）。録音期限の内側のものだけで、ライブ録音の
+// rerecordJobs は、録音済み（done）のタイムフリーから録るジョブを録り直す（ADR 0036）。録音期限の内側のものだけで、ライブ録音の
 // ジョブは録り直せない。状態は手動再試行と同じく retrying、次の試行は今、試行回数は 0 になり、serve が録音のループを起こして
 // 拾う。前の保存先と同じ名前で保存するときは上書きする。結果の出し方と終了コードは retryJobs と同じ。
 // 足したら直す: ジョブの状態の移り方
@@ -428,7 +428,7 @@ func rerecordJobs(ctx context.Context, connect func() (*client.Client, error), a
 	})
 }
 
-// chaptersJobs は、録音済み（done）のタイムフリーから録ったジョブのチャプターの入れ直しを頼む（用語集。ADR 0033）。serve の録音の
+// chaptersJobs は、録音済み（done）のタイムフリーから録ったジョブのチャプターの入れ直しを頼む（用語集。ADR 0038）。serve の録音の
 // ループが、radiko から音声を取り直さずに、保存したファイルにチャプターを書き込む（結果はジョブのチャプターの値と、チャプターの
 // 書き込みの履歴に出る。CLI は待たない）。ID を渡せばそのジョブに当て、チャプターが入ったジョブでも置き換える。ライブ録音のジョブは
 // 断る。結果の出し方と終了コードは retryJobs と同じ。-all なら、チャプターの値が値なしか入らなかったのジョブの全部に当て

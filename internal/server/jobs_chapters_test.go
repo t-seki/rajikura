@@ -14,7 +14,7 @@ import (
 	"github.com/t-seki/rajikura/internal/store"
 )
 
-// チャプターの入れ直し（ADR 0033）。ジョブ 1 件の指定（POST /api/jobs/{id}/chapters）は、タイムフリーから録った done のジョブを
+// チャプターの入れ直し（ADR 0038）。ジョブ 1 件の指定（POST /api/jobs/{id}/chapters）は、タイムフリーから録った done のジョブを
 // チャプターの値と録音期限によらず受け付け、頼みを DB に書いて録音のループを起こし、要約を返す（状態・試行回数は変えない）。
 // done でない・ライブ録音は文言を分けて 409、無いジョブは 404 で、どれも起こさない。要約の chaptersRedoable は受け付けるジョブだけ
 // true、chaptersRedoRequested は頼んでまだ書き込んでいない間だけ true。まとめて（POST /api/jobs/chapters）は、チャプターの値が

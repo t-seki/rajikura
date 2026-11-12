@@ -108,7 +108,7 @@ type ChapterCheckResult int
 const (
 	// ChapterKeepWaiting は待ち続ける（ChapterStatus の時刻に次を引く）。
 	ChapterKeepWaiting ChapterCheckResult = iota
-	// ChapterWriteNow は、チャプターの取り直しで、保存したファイルにチャプターを書き込む（試行は起こさない。ADR 0033）。
+	// ChapterWriteNow は、チャプターの取り直しで、保存したファイルにチャプターを書き込む（試行は起こさない。ADR 0038）。
 	ChapterWriteNow
 	// ChapterGiveUp は、待つのをやめて入らなかったにする。
 	ChapterGiveUp
@@ -117,7 +117,7 @@ const (
 // CheckChapters は、待っているジョブ j（Job.ChapterWaits）のうち、まだ取れていない放送回のチャプターを引いた結果 results
 // （Airing.Key → 結果。引かなかった放送回は持たない）から、次にどうするかと、待ち続けるときの値を決める（ADR 0027）。
 //
-//   - 録音期限を過ぎていれば、待つのをやめる（ADR 0027 の待つかの決め方のまま。ADR 0033）。
+//   - 録音期限を過ぎていれば、待つのをやめる（ADR 0027 の待つかの決め方のまま。ADR 0038）。
 //   - 取れた放送回は AiringChapterReady にし、待っても入らない（ChapterAbsent）ものは待つのをやめる。
 //   - まだ取れていない放送回が無くなれば、取れるようになった放送回があれば書き込み、無ければ待つのをやめる。
 //   - 打ち切り（ChapterCutoff）を過ぎていれば、取れるようになった放送回が 1 つでもあれば書き込み、無ければ待つのをやめる。
@@ -246,7 +246,7 @@ func DecideChapterWrite(j Job, by ChapterWriteBy, waits map[string]AiringChapter
 }
 
 // ChaptersAfterWrite は、保存したファイルにチャプターを書き込む前に、保存した放送回ごとにチャプターを取った結果 fetched から、
-// ジョブのチャプターの値を決める（ADR 0027 の決まり。待ちは起こさない。ADR 0033）。全部取れたら入った、それ以外は入らなかった。
+// ジョブのチャプターの値を決める（ADR 0027 の決まり。待ちは起こさない。ADR 0038）。全部取れたら入った、それ以外は入らなかった。
 func ChaptersAfterWrite(fetched []ChapterFetch) Chapters {
 	if len(fetched) == 0 {
 		return ChaptersNotAdded
@@ -260,7 +260,7 @@ func ChaptersAfterWrite(fetched []ChapterFetch) Chapters {
 }
 
 // ChapterParts は、保存したファイルの放送回 airings（Job.SavedAirings）のパートの長さを返す（連結したファイルで、2 つ目以降の
-// パートのチャプターをずらす量。ADR 0033）。保存のときに DB に残した長さ lengths（Airing.Key → 長さ）が全部の放送回にあれば
+// パートのチャプターをずらす量。ADR 0038）。保存のときに DB に残した長さ lengths（Airing.Key → 長さ）が全部の放送回にあれば
 // それを、1 つでも無ければ（この決定より前に保存したファイル）、全部を番組表の放送時間（終了 − 開始）で代える。
 func ChapterParts(airings []Airing, lengths map[string]time.Duration) []time.Duration {
 	out := make([]time.Duration, len(airings))
@@ -303,7 +303,7 @@ const (
 	ChapterWriteFailed ChapterWriteResult = "failed"
 )
 
-// ChapterWrite は、チャプターの書き込みの履歴の 1 行（書き込みのたびに 1 行残す。試行の履歴とは別。ADR 0033）。
+// ChapterWrite は、チャプターの書き込みの履歴の 1 行（書き込みのたびに 1 行残す。試行の履歴とは別。ADR 0038）。
 type ChapterWrite struct {
 	ID    int64
 	JobID int64
@@ -320,7 +320,7 @@ type ChapterWrite struct {
 // チャプターを入れない。ADR 0027）。errors.Is で見分ける。done でないジョブは ErrInvalidTransition を包んで返す。
 var ErrChapterRedoLive = errors.New("ライブ録音のジョブにはチャプターを入れ直せない")
 
-// CheckChapterRedo は、ジョブ 1 件の指定のチャプターの入れ直し（用語集。ADR 0033）を受け付けるかを確かめ、受け付けなければ理由の
+// CheckChapterRedo は、ジョブ 1 件の指定のチャプターの入れ直し（用語集。ADR 0038）を受け付けるかを確かめ、受け付けなければ理由の
 // エラーを返す。受け付けるのは、タイムフリーから録った done のジョブ（Job.Live が false）。チャプターの値は問わない（入ったの
 // ジョブも、ファイルのチャプターを置き換える）。録音期限も問わない（音声は取らず、チャプターの API だけを引くため）。
 // done でなければ ErrInvalidTransition、ライブで録るジョブなら ErrChapterRedoLive を包む。internal/store の RequestChapterRedo・
@@ -337,7 +337,7 @@ func CheckChapterRedo(j Job) error {
 
 // ChapterRedoInAll は、まとめてのチャプターの入れ直し（rajikura chapters --all）が当たるジョブか。CheckChapterRedo で受け付ける
 // ジョブのうち、チャプターの値が取りに行っていない（値なし）か入らなかったのもの。入った・待っているのジョブは飛ばす。放送日では
-// 絞らない（ADR 0033）。internal/store の RequestChapterRedoAll は、これで当たるジョブを選ぶ。
+// 絞らない（ADR 0038）。internal/store の RequestChapterRedoAll は、これで当たるジョブを選ぶ。
 func ChapterRedoInAll(j Job) bool {
 	return CheckChapterRedo(j) == nil && (j.Chapters == ChaptersNone || j.Chapters == ChaptersNotAdded)
 }

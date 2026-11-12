@@ -11,7 +11,7 @@ import (
 
 // 録り直し（POST /api/jobs/{id}/rerecord）は、done のタイムフリーから録るジョブで録音期限の内側のものを retrying・試行回数 0・
 // 次の試行を今にし、保存先は変えない。done でない・ライブ録音・録音期限を過ぎた、は文言を分けて 409 にし、状態を変えない。
-// 無いジョブは 404。要約の rerecordable は、受け付けるジョブだけ true（ADR 0025）。
+// 無いジョブは 404。要約の rerecordable は、受け付けるジョブだけ true（ADR 0036）。
 func TestRerecord(t *testing.T) {
 	h, st, ck, now := newJobsUI(t)
 	ctx := context.Background()

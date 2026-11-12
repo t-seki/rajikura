@@ -380,7 +380,7 @@ func newChapterWaitEnv(t *testing.T) (*env, *chapterFetcher, domain.Job) {
 }
 
 // 最初の試行でチャプターが 404 だった放送回は、チャプター無しで保存された後、待っている放送回のチャプターの API だけを 30 分おきに
-// 引き、できた時点のチャプターの取り直しで、保存したファイルにチャプターが書き込まれる（ADR 0033）。radiko から音声は取らず、
+// 引き、できた時点のチャプターの取り直しで、保存したファイルにチャプターが書き込まれる（ADR 0038）。radiko から音声は取らず、
 // 試行も起こさない（ジョブは done のまま、試行は増えない）。書き込みは保存した放送回の全部のチャプターを取り直し、連結した
 // ファイルの 2 つ目のパートのチャプターは、保存のときに DB に残したパートの長さでずらす。置き換えたら再スキャンを頼み、
 // 書き込みの履歴に 1 行残す。通知はしない。
@@ -476,7 +476,7 @@ func TestChapterRefetchWritesSavedFile(t *testing.T) {
 }
 
 // パートの長さが DB に残っていない（この決定より前に保存した）連結したファイルでは、2 つ目のパートのチャプターを、番組表の
-// 放送時間（終了 − 開始）でずらす（ADR 0033）。
+// 放送時間（終了 − 開始）でずらす（ADR 0038）。
 func TestChapterRefetchGuidePartsWithoutLengths(t *testing.T) {
 	e, f, j := newChapterWaitEnv(t)
 	if err := e.store.SetPartLengths(e.ctx, j.ID, nil); err != nil {
@@ -605,7 +605,7 @@ func TestChaptersNoWaitWhenEmptyOrNoEvent(t *testing.T) {
 
 // 書き込めないとき（音声のサンプルが元と一致しない・書き込みが失敗する・保存先にファイルが無い）は、元のファイルをそのまま残し、
 // partial を残さない。ジョブは done のまま入らなかったにし、書き込みの履歴に失敗と理由を残す。通知はしない。音声のサンプルが
-// 一致しなかったときは、ログに Error で出す。再スキャンは頼まない（ADR 0033）。
+// 一致しなかったときは、ログに Error で出す。再スキャンは頼まない（ADR 0038）。
 func TestChapterRefetchWriteFailureKeepsFile(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -822,7 +822,7 @@ func (f *flakyChapters) Chapters(ctx context.Context, stationID string, day, sta
 }
 
 // 待っている間に人が録り直したら待ちが消え（入らなかったにする）、その保存でまた取れなければ待ち直す。人が頼んだ録り直しは
-// 録音済みを通知する（ADR 0025 のまま）。
+// 録音済みを通知する（ADR 0036 のまま）。
 func TestChapterWaitClearedByRerecord(t *testing.T) {
 	e, f, j := newChapterWaitEnv(t)
 	recorded := countKind(e.kinds(), notify.KindRecorded)

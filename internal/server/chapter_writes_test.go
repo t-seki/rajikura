@@ -10,7 +10,7 @@ import (
 )
 
 // ジョブの詳細（GET /api/jobs/{id}）に、チャプターの書き込みの履歴（chapterWrites）が書き込んだ順に出る。履歴の無いジョブでは
-// 空の配列（ADR 0033）。
+// 空の配列（ADR 0038）。
 func TestJobDetailChapterWrites(t *testing.T) {
 	h, st, ck, now := newJobsUI(t)
 	ctx := context.Background()

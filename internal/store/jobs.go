@@ -319,7 +319,7 @@ const liveJob = `EXISTS (SELECT 1 FROM job_airings WHERE job_airings.job_id = jo
 //
 // 録音期限を過ぎたジョブも返す。呼び出し側が録音期限を確かめ、過ぎていれば
 // domain.JudgeAtDeadline で、取れた分を保存して done にするか expired にするかを決める（録り直しの試行は、一部しか取れて
-// いなければ保存せずに expired にする。internal/app の finishAtDeadline。ADR 0025）。
+// いなければ保存せずに expired にする。internal/app の finishAtDeadline。ADR 0036）。
 func (s *Store) ClaimDue(ctx context.Context, now time.Time) (domain.Job, bool, error) {
 	return s.claimDue(ctx, now, `NOT `+liveJob)
 }
@@ -404,7 +404,7 @@ func (s *Store) transition(ctx context.Context, id int64, to domain.State, fn fu
 // 次の試行が無くても、取れた放送回があるときは、next を録音期限にして呼ぶ（internal/app）。
 // 録音期限を過ぎてから ClaimDue で取られ、入手はせずに取れた分を保存して done にする
 // （domain.JudgeAtDeadline）。取れた分を捨てずに済ませるため。録り直しの試行は、一部しか取れていなければ保存せずに expired に
-// する（internal/app の finishAtDeadline。ADR 0025）。
+// する（internal/app の finishAtDeadline。ADR 0036）。
 //
 // ライブで録るジョブも、録れた分の保存が失敗したときは、保存だけをやり直す次の試行の時刻（domain.LiveSaveRetryAt。録音期限を
 // 過ぎてもよい）を next にして呼ぶ（internal/app）。
@@ -481,7 +481,7 @@ func (s *Store) UpdateChapterWait(ctx context.Context, id int64, ch domain.Chapt
 }
 
 // FinishChapterWrite は、ジョブ w.JobID の保存したファイルへのチャプターの書き込み（チャプターの取り直し・チャプターの入れ直し。
-// ADR 0033）の結果を書き、足した履歴の行の ID を返す。チャプターの書き込みの履歴に w を 1 行足し、ジョブのチャプターの値を ch に
+// ADR 0038）の結果を書き、足した履歴の行の ID を返す。チャプターの書き込みの履歴に w を 1 行足し、ジョブのチャプターの値を ch に
 // して、待ち（次に引く時刻と待っている放送回）を消す。状態・試行回数・欠落の印・保存先は変えない（書き込みは試行を起こさない）。
 // ジョブが無ければ ErrNotFound を包んだエラーにする。
 // 足したら直す: DB の表
@@ -489,7 +489,7 @@ func (s *Store) FinishChapterWrite(ctx context.Context, w domain.ChapterWrite, c
 	return s.finishChapterWrite(ctx, w, ch, nil)
 }
 
-// FinishChapterRedo は、人が頼んだチャプターの入れ直し（ADR 0033）の結果を、FinishChapterWrite と同じく書く。あわせて、
+// FinishChapterRedo は、人が頼んだチャプターの入れ直し（ADR 0038）の結果を、FinishChapterWrite と同じく書く。あわせて、
 // 拾ったときの頼みの時刻 requestedAt（domain.Job.ChapterRedoAt）のままなら、頼みの印を消す（拾った後に頼み直されていれば
 // 残し、次の見回りでもう一度書き込む）。履歴の行と頼みの印の消しは、同じトランザクションで書く。
 // 足したら直す: DB の表
@@ -554,7 +554,7 @@ func (s *Store) ChapterWrites(ctx context.Context, jobID int64) ([]domain.Chapte
 	return out, rows.Err()
 }
 
-// RequestChapterRedo は、人が頼んだジョブ id のチャプターの入れ直し（ADR 0033）を受け付け、頼みの印（chapters_redo_at）に now を
+// RequestChapterRedo は、人が頼んだジョブ id のチャプターの入れ直し（ADR 0038）を受け付け、頼みの印（chapters_redo_at）に now を
 // 書く。保存したファイルへの書き込みは録音のループが行う（DueChapterRedos で拾う。保存先のファイルを書く者を 1 つに保つ）。
 // 状態・試行回数・チャプターの値・待ちは変えない。受け付けるかは domain.CheckChapterRedo で、読み出しと同じトランザクションの中で
 // 決める。done でないジョブは domain.ErrInvalidTransition、ライブで録るジョブは domain.ErrChapterRedoLive、無いジョブは
@@ -573,7 +573,7 @@ func (s *Store) RequestChapterRedo(ctx context.Context, id int64, now time.Time)
 	})
 }
 
-// RequestChapterRedoAll は、まとめてのチャプターの入れ直し（rajikura chapters --all。ADR 0033）を受け付け、当たるジョブ
+// RequestChapterRedoAll は、まとめてのチャプターの入れ直し（rajikura chapters --all。ADR 0038）を受け付け、当たるジョブ
 // （domain.ChapterRedoInAll。タイムフリーから録った done で、チャプターの値が値なしか入らなかったのもの）の全部に頼みの印 now を
 // 書き、受け付けたジョブの数を返す。入った・待っているのジョブは飛ばす。放送日では絞らない。
 func (s *Store) RequestChapterRedoAll(ctx context.Context, now time.Time) (int, error) {
@@ -618,7 +618,7 @@ func (s *Store) DueChapterRedos(ctx context.Context) ([]domain.Job, error) {
 }
 
 // SetPartLengths は、ジョブ id の連結したファイルの放送回（パート）ごとの長さ lengths（Airing.Key → ファイルの中の長さ）を
-// 置き換える（保存のたびに。ADR 0033）。lengths が空なら消す。
+// 置き換える（保存のたびに。ADR 0038）。lengths が空なら消す。
 // 足したら直す: DB の表
 func (s *Store) SetPartLengths(ctx context.Context, id int64, lengths map[string]time.Duration) error {
 	return s.tx(ctx, func(tx *sql.Tx) error {
@@ -713,7 +713,7 @@ func manualRetry(ctx context.Context, tx *sql.Tx, j domain.Job, now time.Time) e
 // 通知した時刻（deadline_notified_at）は変えない（録れなければ前の値のまま残し、期限間近は 1 度だけ通知する）。
 // 作業用フォルダは done にしたときに消えているので、次の試行はどの放送回も radiko から取り直す。
 // チャプターを待っていれば待ちを消して入らなかったにする（保存のたびに待つかを決め直す。ADR 0027）。チャプターの入れ直しの頼みも
-// 消す（録り直しの保存でチャプターを取り直すため。ADR 0033）。
+// 消す（録り直しの保存でチャプターを取り直すため。ADR 0038）。
 // 受け付けるかは domain.CheckRerecord で、今の会員種別 m と今の自分のエリアの局一覧 own（nil なら放送回の印のまま）の録音期限で、
 // 読み出しと同じトランザクションの中で決める。
 // 受け付けたら録音期限の列（deadline）も、判定と同じ m と own の録音期限に書き換える（そのままだと、retrying に戻ったジョブが

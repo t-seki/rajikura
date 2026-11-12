@@ -242,7 +242,7 @@ export function JobDetailModal({ id, onClose, onChanged }: Props) {
                     variant="default"
                     disabled={busy}
                     onClick={() => {
-                      // 前のファイルを上書きしうる操作なので、確かめてから呼ぶ（ADR 0025）。
+                      // 前のファイルを上書きしうる操作なので、確かめてから呼ぶ（ADR 0036）。
                       if (!window.confirm(rerecordConfirm)) return;
                       void act(rerecordJob, "録り直しを依頼した");
                     }}

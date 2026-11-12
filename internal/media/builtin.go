@@ -11,7 +11,7 @@ package media
 //     位置を決める（ffmpeg の +faststart と同じく、moov を mdat の前に置く）
 //  3. ADTS のヘッダーを外したフレームを、mdat に順に書く。チャプターがあれば、チャプタートラックのサンプルをその後ろに書く
 //
-// 保存した m4a を読み、チャプターだけを書き直す部品（WriteChapters。ADR 0033）と、アルバムの名前（album のタグ）だけを書き直す部品
+// 保存した m4a を読み、チャプターだけを書き直す部品（WriteChapters。ADR 0038）と、アルバムの名前（album のタグ）だけを書き直す部品
 // （RewriteAlbum。保存先の移し。ADR 0039）も、このファイルの後ろの節にある。
 //
 // HE-AAC（SBR）の扱い: ADTS のヘッダーには、コア（AAC-LC）のサンプリング周波数しか書かれていない
@@ -703,7 +703,7 @@ func writeIlst(bw *boxWriter, t Tags, cover []byte) {
 	pair("disk", t.Disc)
 }
 
-// ---- 保存した m4a を読む部品と、チャプターだけを書き直す WriteChapters（ADR 0033） ----
+// ---- 保存した m4a を読む部品と、チャプターだけを書き直す WriteChapters（ADR 0038） ----
 //
 // 読めるのは、rajikura が保存した m4a（builtin が書いたものと、muxer が ffmpeg のときに ffmpeg が書いたもの）の箱の並び。
 // 最上位は ftyp・moov・mdat（と free・skip・wide）、moov の trak は音声のトラック（hdlr が soun）1 つと、それが tref/chap で
@@ -1189,7 +1189,7 @@ func (m *m4aFile) chapterTrackID() uint32 {
 	return id
 }
 
-// WriteChapters は、保存した m4a in のチャプターを chs に置き換えた m4a を out に書き、置いたチャプターの数を返す（ADR 0033）。
+// WriteChapters は、保存した m4a in のチャプターを chs に置き換えた m4a を out に書き、置いたチャプターの数を返す（ADR 0038）。
 // parts はパート（連結したファイルの、もとの放送回）ごとの長さで、Chapter.Input はその番号。2 つ目以降のパートのチャプターは、
 // 前のパートの長さだけずらす（最後のパートの長さはファイルから決める）。音声・タグ・画像は in のまま残す。
 //
@@ -1452,7 +1452,7 @@ func rebuildUdta(udta m4aBox, chpl []byte) ([]byte, error) {
 }
 
 // InputLengths は、開始時刻の順に並んだ ADTS ファイル inputs ごとの長さを、フレームの数から出す（Remux がファイルの中で
-// 入力ごとに占める長さ。連結したファイルのパートの長さとして DB に残す。ADR 0033）。
+// 入力ごとに占める長さ。連結したファイルのパートの長さとして DB に残す。ADR 0038）。
 func (Builtin) InputLengths(ctx context.Context, inputs []string) ([]time.Duration, error) {
 	return inputLengths(ctx, inputs)
 }

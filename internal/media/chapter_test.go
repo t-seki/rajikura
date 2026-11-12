@@ -195,7 +195,7 @@ func readFile(t *testing.T, p string) []byte {
 }
 
 // builtin が保存したチャプターの無い m4a に WriteChapters でチャプターを書くと、同じチャプターで RemuxWithChapters したのと
-// 同じバイト列になる（音声・タグ・画像はそのまま、チャプターは同じ形。ADR 0033）。パートの長さ（InputLengths）で 2 つ目の
+// 同じバイト列になる（音声・タグ・画像はそのまま、チャプターは同じ形。ADR 0038）。パートの長さ（InputLengths）で 2 つ目の
 // パートのチャプターがずれる。チャプターのあるファイルに書き直すと、前のチャプターは残らない。どれも音声のサンプルは元と同じ。
 func TestBuiltinWriteChaptersSameAsRemux(t *testing.T) {
 	ctx := context.Background()

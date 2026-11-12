@@ -304,14 +304,14 @@ type Job struct {
 	Settled bool
 	// Chapters は、保存したファイルにチャプターが入ったか（入った・待っている・入らなかった。ADR 0027）。取りに行っていない
 	// ジョブ（ライブ録音、設定 chapters がオフ、まだ保存していない、チャプターの取り直しの前の版で保存した）は ChaptersNone。
-	// チャプターの取り直しでファイルにチャプターを書き込んだら、その結果で付け直す（ADR 0033）。
+	// チャプターの取り直しでファイルにチャプターを書き込んだら、その結果で付け直す（ADR 0038）。
 	// ChapterCheckAt と ChapterWaits は、待っている（ChaptersWaiting）間だけ使う。
 	Chapters Chapters
 	// ChapterCheckAt は、待っているジョブが次にチャプターの API を引く時刻。
 	ChapterCheckAt time.Time
 	// ChapterWaits は、待っている放送回（Airing.Key → AiringChapterPending か AiringChapterReady）。待っていない放送回は持たない。
 	ChapterWaits map[string]AiringChapterWait
-	// ChapterRedoAt は、人がチャプターの入れ直し（用語集。ADR 0033）を頼んだ時刻。頼みが無ければゼロ。録音のループが拾って
+	// ChapterRedoAt は、人がチャプターの入れ直し（用語集。ADR 0038）を頼んだ時刻。頼みが無ければゼロ。録音のループが拾って
 	// 書き込んだら（取れずに書かなかった・書けなかったときも）消す。受け付けるかは CheckChapterRedo。
 	ChapterRedoAt time.Time
 	// MoveRequestedAt は、保存先の移し（用語集。ADR 0039）を頼んだ時刻（番組の名前の変更か、人の頼み）。頼みが無ければゼロ。
