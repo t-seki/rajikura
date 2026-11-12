@@ -618,7 +618,7 @@ func (a *App) fetchChapters(ctx context.Context, log *slog.Logger, airings []dom
 // checkChapters は、チャプターを待っている done のジョブ（domain.ChaptersWaiting）のうち、次にチャプターの API を引く時刻を
 // 過ぎたものについて、待っている放送回のチャプターの API だけを引く（音声は取らない。ADR 0027）。タイムフリーの録音のループ
 // （RunDue）が、ジョブを拾う前に呼ぶ。引いた結果で、待ち続けるか、チャプターの取り直しで保存したファイルにチャプターを書き込むか
-// （domain.CheckChapters。書き込みは writeChapters。試行は起こさず、ジョブは done のまま。ADR 0038。書き込みの前の取得で、取れて
+// （domain.CheckChapters。書き込みは writeChapters。試行は起こさず、ジョブは done のまま。書き込みの前の取得で、取れて
 // いたはずの放送回が一時的に取れなければ、書かずに待ちを残してやり直す。ADR 0038）、待つのをやめて入らなかったにするかを決める。設定 chapters がオフなら、引かずに待ちを消す（入らなかったにする）。
 // どれも通知しない（打ち切りはログに 1 行）。1 件のジョブで DB に書けなければ、エラーを返す（残りは次の見回りで引く）。
 // 足したら直す: ジョブの状態の移り方
