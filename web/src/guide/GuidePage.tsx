@@ -66,6 +66,35 @@ const DRAG_THRESHOLD = 5;
 const ROW_HEIGHT = 40;
 const STATION_KEY = "rajikura.guide.station";
 
+function LegendButton() {
+  return (
+    <Popover position="bottom-end" withArrow shadow="md" trapFocus>
+      <Popover.Target>
+        <Button variant="default" size="xs">
+          凡例
+        </Button>
+      </Popover.Target>
+      <Popover.Dropdown tabIndex={-1} data-autofocus>
+        <Group gap="xs" aria-label="凡例の項目" maw={320}>
+          {(Object.keys(stateLabel) as (keyof typeof stateLabel)[]).map((s) => (
+            <Badge
+              key={s}
+              color={stateColor[s]}
+              variant={s === "none" ? "outline" : "filled"}
+              leftSection={stateMark[s] || undefined}
+            >
+              {stateLabel[s]}
+            </Badge>
+          ))}
+          <Badge color="orange" variant="light" leftSection={notAvailableMark}>
+            {notAvailableLabel}
+          </Badge>
+        </Group>
+      </Popover.Dropdown>
+    </Popover>
+  );
+}
+
 function rememberedStation(): string | null {
   try {
     return window.localStorage.getItem(STATION_KEY);
@@ -1388,21 +1417,11 @@ export function GuidePage({
                 w={170}
               />
             )}
-          </Group>
-          <Group gap="xs" aria-label="凡例">
-            {(Object.keys(stateLabel) as (keyof typeof stateLabel)[]).map((s) => (
-              <Badge
-                key={s}
-                color={stateColor[s]}
-                variant={s === "none" ? "outline" : "filled"}
-                leftSection={stateMark[s] || undefined}
-              >
-                {stateLabel[s]}
-              </Badge>
-            ))}
-            <Badge color="orange" variant="light" leftSection={notAvailableMark}>
-              {notAvailableLabel}
-            </Badge>
+            {!wide && (
+              <Box ml="auto">
+                <LegendButton />
+              </Box>
+            )}
           </Group>
           {stations === null ? (
             !error && <Loader />
@@ -1478,6 +1497,9 @@ export function GuidePage({
                     />
                   </>
                 )}
+                <Box ml="auto">
+                  <LegendButton />
+                </Box>
               </Group>
               {view === "station" ? (
                 selected && <StationTable day={day} now={now} station={selected} selected={selectedKeys} onOpen={openWithMods} />
