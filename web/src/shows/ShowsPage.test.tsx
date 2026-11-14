@@ -922,7 +922,11 @@ describe("ShowsPage", () => {
     });
     const user = userEvent.setup();
     renderPage();
-    await user.click(await screen.findByRole("button", { name: `${flat.name} を消す` }));
+    const del = await screen.findByRole("button", { name: `${flat.name} を消す` });
+    expect(del).toHaveAttribute("data-variant", "outline");
+    await user.click(del);
+    expect(await screen.findByText("番組を消す")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "やめる" })).toBeInTheDocument();
     expect(calls.some((c) => c.key.startsWith("DELETE"))).toBe(false);
     await user.click(await screen.findByRole("button", { name: "消す" }));
     expect(await screen.findByText("番組がまだ無い。")).toBeInTheDocument();
