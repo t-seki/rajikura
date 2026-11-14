@@ -32,23 +32,28 @@ describe("SortableTh", () => {
   it("押すたびに 昇順 → 降順 → 既定 と切り替わり、向きを見出しに出す", async () => {
     renderHarness();
     expect(th("列A")).toHaveAttribute("aria-sort", "none");
-    expect(screen.getByRole("button", { name: "列A" })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /列A/ }));
+    expect(th("列A")).toHaveTextContent("↕");
+    expect(th("列B")).toHaveTextContent("↕");
+    await userEvent.click(screen.getByRole("button", { name: "列A" }));
     expect(th("列A")).toHaveAttribute("aria-sort", "ascending");
-    expect(th("列A")).toHaveTextContent("▲");
-    await userEvent.click(screen.getByRole("button", { name: /列A/ }));
+    expect(th("列A")).toHaveTextContent("↑");
+    expect(th("列A")).not.toHaveTextContent(/[↕↓]/);
+    await userEvent.click(screen.getByRole("button", { name: "列A" }));
     expect(th("列A")).toHaveAttribute("aria-sort", "descending");
-    expect(th("列A")).toHaveTextContent("▼");
-    await userEvent.click(screen.getByRole("button", { name: /列A/ }));
+    expect(th("列A")).toHaveTextContent("↓");
+    expect(th("列A")).not.toHaveTextContent(/[↕↑]/);
+    await userEvent.click(screen.getByRole("button", { name: "列A" }));
     expect(th("列A")).toHaveAttribute("aria-sort", "none");
-    expect(th("列A")).not.toHaveTextContent(/[▲▼]/);
+    expect(th("列A")).toHaveTextContent("↕");
+    expect(th("列A")).not.toHaveTextContent(/[↑↓]/);
+    expect(th("列B")).toHaveTextContent("↕");
   });
 
   it("別の列を押すと、その列の昇順から始める", async () => {
     renderHarness();
-    await userEvent.click(screen.getByRole("button", { name: /列A/ }));
-    await userEvent.click(screen.getByRole("button", { name: /列A/ }));
-    await userEvent.click(screen.getByRole("button", { name: /列B/ }));
+    await userEvent.click(screen.getByRole("button", { name: "列A" }));
+    await userEvent.click(screen.getByRole("button", { name: "列A" }));
+    await userEvent.click(screen.getByRole("button", { name: "列B" }));
     expect(th("列A")).toHaveAttribute("aria-sort", "none");
     expect(th("列B")).toHaveAttribute("aria-sort", "ascending");
   });
