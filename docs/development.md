@@ -105,7 +105,7 @@ pnpm screenshots
 - ブラウザは手元の Microsoft Edge（`playwright-core` の `channel: "msedge"`）。ブラウザは別に入れない。Chrome を使うなら環境変数 `SCREENSHOT_CHANNEL=chrome` を付ける。
 - ダミーの画面を自分で見るだけなら `pnpm dev:mock`（http://localhost:5173）。読み出しだけ答え、書き込みの API は 405 で断る（通知の画面が開くたびに呼ぶ `POST /api/notifications/read` だけは、何もせず成功で答える）。
 - ダミーのデータの口は `pnpm dev:mock` のときだけ効き、`pnpm build` の成果物（`serve` に埋め込む Web UI）には入らない（`web/vite.config.ts` が `--mode mock` のときだけプラグインを足し、プラグインは開発サーバーだけに効く）。
-- 画面の型（`GuideAiring`・`JobSummary`・`Show`）を変えたら、`pnpm typecheck` が `web/mock/` の型の食い違いで落ちるので、ダミーのデータを直す。
+- 画面の型（`GuideAiring`・`JobSummary`・`Show`・`Keyword`・`KeywordAiring`・`ApiToken` など）を変えたら、`pnpm typecheck` が `web/mock/` の型の食い違いで落ちるので、ダミーのデータを直す。
 
 ## 開発の決まり
 
