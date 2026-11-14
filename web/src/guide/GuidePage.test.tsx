@@ -289,6 +289,31 @@ describe("GuidePage の番組表", () => {
     expect(p).toHaveStyle({ overflow: "hidden", textOverflow: "ellipsis" });
   });
 
+  it("枠の題名の行数の上限は、枠の高さ ÷ 14px の切り捨てで、2 行入らない低い枠は 1 行で切る", async () => {
+    setWide(true);
+    const short = airing({ title: "短い枠", start: at(today, "06:00"), end: at(today, "06:15") });
+    const half = airing({ title: "半時間枠", start: at(today, "07:00"), end: at(today, "07:30") });
+    const hour = airing({ title: "一時間枠", start: at(today, "08:00"), end: at(today, "09:00") });
+    const two = airing({ title: "二時間枠", start: at(today, "10:00"), end: at(today, "12:00") });
+    mockApi({
+      [guideKey(today)]: () => ({
+        status: 200,
+        body: { day: today, stations: [{ id: "TBS", name: "TBSラジオ", airings: [short, half, hour, two] }] },
+      }),
+    });
+    renderPage();
+    const grid = await screen.findByTestId("guide-grid");
+    const p = (re: RegExp) => within(grid).getByRole("button", { name: re }).querySelector("p") as HTMLElement;
+    // 15 分: 24−2=22px → 1 行（nowrap で切る）
+    expect(p(/短い枠/)).toHaveStyle({ whiteSpace: "nowrap", textOverflow: "ellipsis" });
+    // 30 分: 48−2=46px → 3 行
+    expect(p(/半時間枠/).style.getPropertyValue("-webkit-line-clamp")).toBe("3");
+    // 1 時間: 96−2=94px → 6 行
+    expect(p(/一時間枠/).style.getPropertyValue("-webkit-line-clamp")).toBe("6");
+    // 2 時間: 192−2=190px → 13 行
+    expect(p(/二時間枠/).style.getPropertyValue("-webkit-line-clamp")).toBe("13");
+  });
+
   it("スマホのリストと凡例にも、状態の印と対象外の印が出る", async () => {
     mockApi(dayRoute);
     renderPage();
