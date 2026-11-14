@@ -1,13 +1,11 @@
-import { Alert, Anchor, Badge, Button, Card, Code, Group, Loader, Stack, Text, Title } from "@mantine/core";
+import { Alert, Anchor, Badge, Card, Group, Loader, Stack, Text, Title } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { formatDateTime } from "../jobs/format";
 import {
-  fetchNotificationStatus,
   kindLabel,
   linkLabel,
   listNotifications,
   markNotificationsRead,
-  sendTestNotification,
   type AppNotification,
 } from "./notificationsApi";
 
@@ -34,72 +32,6 @@ const kindColor: Record<string, string> = {
   test: "gray",
 };
 
-// テスト通知を送った結果。noChannel は通知先なし（none）なので送らずに履歴にだけ入れたこと。
-type TestResult = { sent: true; at: string } | { sent: false; error: string } | { noChannel: true };
-
-// テスト通知のカード。通知先の種類（channel）が none でもボタンを出す（押すと履歴にだけ入れ、トレイが拾う）。
-// 送っている間はボタンを押せなくし（連打の防ぎはこれだけ）、結果をカードの中に出す。onSent は送った後
-// （送れても送れなくても、行を書いた後）に呼ぶ。
-function TestNotificationCard({ channel, onSent }: { channel: string; onSent: () => void }) {
-  const [sending, setSending] = useState(false);
-  const [result, setResult] = useState<TestResult | null>(null);
-
-  async function send() {
-    setSending(true);
-    setResult(null);
-    try {
-      const r = await sendTestNotification();
-      setResult(
-        r.noChannel
-          ? { noChannel: true }
-          : r.sent
-            ? { sent: true, at: r.sentAt ?? r.notification.createdAt }
-            : { sent: false, error: r.error ?? "" },
-      );
-      onSent();
-    } catch (e) {
-      setResult({ sent: false, error: (e instanceof Error && e.message) || "原因は分からない" });
-    } finally {
-      setSending(false);
-    }
-  }
-
-  return (
-    <Card withBorder padding="sm" data-testid="test-notification">
-      <Stack gap="xs">
-        <Title order={4}>テスト通知</Title>
-        {channel === "none" ? (
-          <Text size="sm">
-            通知先が選ばれていない（<Code>notify.channel = "none"</Code>）。通知は Web UI の履歴にだけ残る。
-          </Text>
-        ) : (
-          <Text size="sm">通知先（{channel}）に、テストの通知を 1 通送る。</Text>
-        )}
-        <Group>
-          <Button size="xs" onClick={send} disabled={sending}>
-            {sending ? "送っている…" : "テスト通知を送る"}
-          </Button>
-        </Group>
-        {result && "noChannel" in result && (
-          <Alert color="blue" role="status">
-            履歴に入れた。トレイには 1 分以内に届く。
-          </Alert>
-        )}
-        {result && "sent" in result && result.sent && (
-          <Alert color="green" role="status">
-            送れた（{formatDateTime(result.at)}）。通知先に届いたかを確かめて。
-          </Alert>
-        )}
-        {result && "sent" in result && !result.sent && (
-          <Alert color="red" role="alert">
-            送れなかった: {result.error}
-          </Alert>
-        )}
-      </Stack>
-    </Card>
-  );
-}
-
 // 通知が指す画面（ジョブの詳細・番組の編集・キーワード）を開くリンク。ふつうに押したら onOpen で画面の中で移り
 // （履歴に積む）、中クリック・Ctrl+クリックなどはブラウザに任せる（別タブで開く）。行全体は押せるようにしない（本文を選べるように）。
 function TargetLink({ link, onOpen }: { link: string; onOpen?: (link: string) => void }) {
@@ -122,34 +54,14 @@ function TargetLink({ link, onOpen }: { link: string; onOpen?: (link: string) =>
 
 // 通知の履歴の画面。通知を新しい順に出し、開いたら未読の通知を全部既読にする（この画面では 1 件ずつは既読にしない。トーストから通知が指す画面を開いたときの 1 件の既読は Shell が受ける）。
 // 「未読」の印は、開いたときに未読だったものに付ける（既読にした後も、この画面を開いている間は残す）。
-// 上部にテスト通知のカード（帯の下、説明文の上）を置く。通知先の種類は /api/notifications/status で読む。
-// onRead は既読にできた後と、テスト通知を送った後に呼ぶ（ナビの未読の数と帯を読み直すため）。
+// onRead は既読にできた後に呼ぶ（ナビの未読の数と帯を読み直すため）。
 // 指す画面（link）のある通知には、それを開くリンクを置く。onOpenLink はそのリンクをふつうに押したときに呼ぶ（画面を移る）。
 // リンクから画面を移っても、通知の既読は変えない。
 export function NotificationsPage({ onRead, onOpenLink }: { onRead?: () => void; onOpenLink?: (link: string) => void }) {
   const [items, setItems] = useState<AppNotification[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // 通知先の種類。読めるまで（読めなければずっと）テスト通知のカードを出さない。
-  const [channel, setChannel] = useState<string | null>(null);
-
-  // テスト通知を送った後に、履歴（テスト通知の行が先頭に出る）と帯を読み直す。
-  async function afterTestSent() {
-    onRead?.();
-    try {
-      setItems(await listNotifications());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "通知を読めなかった");
-    }
-  }
-
   useEffect(() => {
     let cancelled = false;
-    fetchNotificationStatus().then(
-      (s) => {
-        if (!cancelled) setChannel(s.channel);
-      },
-      () => {},
-    );
     (async () => {
       try {
         const ns = await listNotifications();
@@ -175,7 +87,6 @@ export function NotificationsPage({ onRead, onOpenLink }: { onRead?: () => void;
   return (
     <Stack>
       <Title order={2}>通知</Title>
-      {channel !== null && <TestNotificationCard channel={channel} onSent={afterTestSent} />}
       <Text size="sm" c="dimmed">
         録音の結果・サービスの異常・テスト通知を新しい順に出す。通知先に送れなかった通知には「送れなかった」の印を付ける。通知は 90 日で消える。
       </Text>

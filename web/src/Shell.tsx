@@ -247,7 +247,7 @@ export function Shell({ onLogout, version }: { onLogout: () => Promise<void>; ve
         ) : page === "通知" ? (
           <NotificationsPage onRead={reloadBanners} onOpenLink={(link) => go(link)} />
         ) : page === "設定" ? (
-          <SettingsPage onChanged={setSettings} />
+          <SettingsPage onChanged={setSettings} onTestSent={reloadBanners} />
         ) : (
           <TokensPage />
         )}

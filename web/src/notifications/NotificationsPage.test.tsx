@@ -50,7 +50,6 @@ afterEach(() => vi.unstubAllGlobals());
 describe("NotificationsPage", () => {
   it("画面の見出しは、ナビの文字と同じ「通知」", async () => {
     mockApi({
-      "GET /api/notifications/status": statusRoute("discord"),
       "GET /api/notifications": () => ({ status: 200, body: { notifications: [] } }),
       "POST /api/notifications/read": () => ({ status: 200, body: { marked: 0 } }),
     });
@@ -60,7 +59,6 @@ describe("NotificationsPage", () => {
 
   it("通知を新しい順に、種類・本文・作った時刻・送れなかった印・未読の印付きで出し、開いたら既読にする", async () => {
     const calls = mockApi({
-      "GET /api/notifications/status": statusRoute("discord"),
       "GET /api/notifications": () => ({ status: 200, body: { notifications: [failed, sent] } }),
       "POST /api/notifications/read": () => ({ status: 200, body: { marked: 1 } }),
     });
@@ -82,7 +80,6 @@ describe("NotificationsPage", () => {
 
   it("キーワードの出来事の 2 種類を、それぞれの言葉で出す", async () => {
     mockApi({
-      "GET /api/notifications/status": statusRoute("discord"),
       "GET /api/notifications": () => ({
         status: 200,
         body: {
@@ -102,7 +99,6 @@ describe("NotificationsPage", () => {
 
   it("番組の出来事（当たらない日）を、その言葉で出す", async () => {
     mockApi({
-      "GET /api/notifications/status": statusRoute("discord"),
       "GET /api/notifications": () => ({
         status: 200,
         body: { notifications: [{ ...sent, id: 5, kind: "unmatched_day", message: "【当たらない日】番組「チャリで30分」", read: true }] },
@@ -116,7 +112,6 @@ describe("NotificationsPage", () => {
 
   it("スリープから起こせない・再スキャンの失敗の異常を、それぞれの言葉で出す", async () => {
     mockApi({
-      "GET /api/notifications/status": statusRoute("discord"),
       "GET /api/notifications": () => ({
         status: 200,
         body: {
@@ -145,7 +140,6 @@ describe("NotificationsPage", () => {
 
   it("一覧を読めなければエラーを出し、既読にしない", async () => {
     const calls = mockApi({
-      "GET /api/notifications/status": statusRoute("discord"),
       "GET /api/notifications": () => ({ status: 500, body: { error: "内部エラー" } }),
     });
     const onRead = vi.fn();
@@ -169,7 +163,6 @@ describe("NotificationsPage", () => {
 
   it("link のある通知に、指す画面を開くリンクを置く。ふつうに押すと onOpenLink を呼び、Ctrl+クリックはブラウザに任せる", async () => {
     mockApi({
-      "GET /api/notifications/status": statusRoute("discord"),
       "GET /api/notifications": () => ({
         status: 200,
         body: {
@@ -216,141 +209,16 @@ describe("NotificationsPage", () => {
   });
 });
 
-const statusRoute = (channel: string) => () => ({ status: 200, body: { unread: 0, failed: 0, anomalies: [], channel } });
-
-const testRow: AppNotification = {
-  id: 3,
-  kind: "test",
-  message: "【テスト】rajikura からのテスト通知。",
-  createdAt: "2026-10-15T04:00:00Z",
-  failed: false,
-  read: true,
-};
-
 describe("テスト通知のカード", () => {
-  it("通知先を出し、送れたら時刻と確かめる促しを出して、履歴と帯を読み直す（テスト通知が先頭に出る）", async () => {
-    let list = [sent];
-    let release: () => void = () => {};
-    const calls = mockApi({
-      "GET /api/notifications/status": statusRoute("discord"),
-      "GET /api/notifications": () => ({ status: 200, body: { notifications: list } }),
-      "POST /api/notifications/read": () => ({ status: 200, body: { marked: 0 } }),
-      "POST /api/notifications/test": () => {
-        list = [testRow, sent];
-        return { status: 200, body: { sent: true, sentAt: "2026-10-15T04:00:00Z", notification: testRow } };
-      },
-    });
-    // 送っている間の表示を見るため、POST /api/notifications/test の応答を止めておく。
-    const f = globalThis.fetch as unknown as (url: string, init?: RequestInit) => Promise<Response>;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string, init?: RequestInit) => {
-        if (url === "/api/notifications/test") await new Promise<void>((r) => (release = r));
-        return f(url, init);
-      }),
-    );
-    const onRead = vi.fn();
-    const user = userEvent.setup();
-    renderPage(onRead);
-    const card = await screen.findByTestId("test-notification");
-    expect(card).toHaveTextContent("通知先（discord）に、テストの通知を 1 通送る。");
-    await waitFor(() => expect(onRead).toHaveBeenCalledTimes(1));
-    await user.click(within(card).getByRole("button", { name: "テスト通知を送る" }));
-    const busy = await within(card).findByRole("button", { name: "送っている…" });
-    expect(busy).toBeDisabled();
-    release();
-    expect(await within(card).findByText("送れた（10/15(木) 13:00）。通知先に届いたかを確かめて。")).toBeInTheDocument();
-    expect(within(card).getByRole("button", { name: "テスト通知を送る" })).toBeEnabled();
-    await waitFor(() => expect(screen.getAllByTestId("notification")).toHaveLength(2));
-    const items = screen.getAllByTestId("notification");
-    expect(within(items[0]).getByText("テスト")).toBeInTheDocument();
-    expect(within(items[0]).queryByText("未読")).not.toBeInTheDocument();
-    expect(onRead).toHaveBeenCalledTimes(2);
-    expect(calls.filter((c) => c === "POST /api/notifications/test")).toHaveLength(1);
-  });
-
-  it("送れなければ通知先のエラーを出す", async () => {
-    const failedRow = { ...testRow, failed: true };
+  it("通知の画面には、テスト通知のカードもボタンも出さない（説明と履歴だけ）", async () => {
     mockApi({
-      "GET /api/notifications/status": statusRoute("slack"),
-      "GET /api/notifications": () => ({ status: 200, body: { notifications: [] } }),
+      "GET /api/notifications": () => ({ status: 200, body: { notifications: [sent] } }),
       "POST /api/notifications/read": () => ({ status: 200, body: { marked: 0 } }),
-      "POST /api/notifications/test": () => ({
-        status: 200,
-        body: { sent: false, error: "slack: 状態 404 が返った", notification: failedRow },
-      }),
     });
-    const user = userEvent.setup();
     renderPage();
-    const card = await screen.findByTestId("test-notification");
-    await user.click(within(card).getByRole("button", { name: "テスト通知を送る" }));
-    expect(await within(card).findByRole("alert")).toHaveTextContent("送れなかった: slack: 状態 404 が返った");
-  });
-
-  it.each([
-    [409, "テスト通知を送る口がつながっていない"],
-    [500, "内部エラー"],
-  ])("API が %i を返したら、そのエラーを出し、履歴は読み直さない", async (status, error) => {
-    const calls = mockApi({
-      "GET /api/notifications/status": statusRoute("discord"),
-      "GET /api/notifications": () => ({ status: 200, body: { notifications: [] } }),
-      "POST /api/notifications/read": () => ({ status: 200, body: { marked: 0 } }),
-      "POST /api/notifications/test": () => ({ status, body: { error } }),
-    });
-    const user = userEvent.setup();
-    renderPage();
-    const card = await screen.findByTestId("test-notification");
-    await user.click(within(card).getByRole("button", { name: "テスト通知を送る" }));
-    expect(await within(card).findByRole("alert")).toHaveTextContent(`送れなかった: ${error}`);
-    expect(within(card).getByRole("button", { name: "テスト通知を送る" })).toBeEnabled();
-    expect(calls.filter((c) => c === "GET /api/notifications")).toHaveLength(1);
-  });
-
-  it("例外のメッセージが空でも、「送れなかった: 」だけにしない", async () => {
-    mockApi({
-      "GET /api/notifications/status": statusRoute("discord"),
-      "GET /api/notifications": () => ({ status: 200, body: { notifications: [] } }),
-      "POST /api/notifications/read": () => ({ status: 200, body: { marked: 0 } }),
-    });
-    const f = globalThis.fetch as unknown as (url: string, init?: RequestInit) => Promise<Response>;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string, init?: RequestInit) => {
-        if (url === "/api/notifications/test") throw new Error("");
-        return f(url, init);
-      }),
-    );
-    const user = userEvent.setup();
-    renderPage();
-    const card = await screen.findByTestId("test-notification");
-    await user.click(within(card).getByRole("button", { name: "テスト通知を送る" }));
-    expect(await within(card).findByRole("alert")).toHaveTextContent("送れなかった: 原因は分からない");
-  });
-
-  it("通知先が none でもボタンを出し、押すと履歴に入れたと出して、履歴と帯を読み直す", async () => {
-    let list: AppNotification[] = [];
-    const calls = mockApi({
-      "GET /api/notifications/status": statusRoute("none"),
-      "GET /api/notifications": () => ({ status: 200, body: { notifications: list } }),
-      "POST /api/notifications/read": () => ({ status: 200, body: { marked: 0 } }),
-      "POST /api/notifications/test": () => {
-        list = [testRow];
-        return { status: 200, body: { sent: false, noChannel: true, notification: testRow } };
-      },
-    });
-    const onRead = vi.fn();
-    const user = userEvent.setup();
-    renderPage(onRead);
-    const card = await screen.findByTestId("test-notification");
-    expect(card).toHaveTextContent('通知先が選ばれていない（notify.channel = "none"）。通知は Web UI の履歴にだけ残る。');
-    await waitFor(() => expect(onRead).toHaveBeenCalledTimes(1));
-    await user.click(within(card).getByRole("button", { name: "テスト通知を送る" }));
-    expect(await within(card).findByRole("status")).toHaveTextContent("履歴に入れた。トレイには 1 分以内に届く。");
-    expect(within(card).queryByRole("alert")).not.toBeInTheDocument();
-    expect(within(card).getByRole("button", { name: "テスト通知を送る" })).toBeEnabled();
-    await waitFor(() => expect(screen.getAllByTestId("notification")).toHaveLength(1));
-    expect(within(screen.getAllByTestId("notification")[0]).getByText("テスト")).toBeInTheDocument();
-    expect(onRead).toHaveBeenCalledTimes(2);
-    expect(calls.filter((c) => c === "POST /api/notifications/test")).toHaveLength(1);
+    expect(await screen.findAllByTestId("notification")).toHaveLength(1);
+    expect(screen.queryByTestId("test-notification")).toBeNull();
+    expect(screen.queryByRole("button", { name: "テスト通知を送る" })).toBeNull();
+    expect(screen.getByText(/録音の結果・サービスの異常・テスト通知を新しい順に出す/)).toBeInTheDocument();
   });
 });
