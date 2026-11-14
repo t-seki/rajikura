@@ -1,4 +1,4 @@
-import { Alert, Button, Card, Collapse, Group, NumberInput, PasswordInput, Select, Stack, Switch, Text, TextInput, Textarea, Title } from "@mantine/core";
+import { Alert, Anchor, Button, Card, Collapse, Group, NumberInput, PasswordInput, Select, Stack, Switch, Text, TextInput, Textarea, Title } from "@mantine/core";
 import { useCallback, useEffect, useState } from "react";
 import { notifySuccess } from "../ui/toast";
 import { BackupApiError, downloadBackup } from "./backupApi";
@@ -8,6 +8,18 @@ import { IdpSection } from "./IdpSection";
 import { FolderPicker } from "./FolderPicker";
 import { sendTestNotification } from "../notifications/notificationsApi";
 import { fetchSettings, patchSettings, secretLabels, SettingsApiError, type SettingsValues, type SettingsView } from "./settingsApi";
+
+// 目次。URL の名前（id）は区切りの題から作らず、英字で決めてある。並びは画面の区切りの並び。
+const tocItems = [
+  { id: "library", title: "保存先" },
+  { id: "membership", title: "radiko の会員種別" },
+  { id: "notify", title: "通知" },
+  { id: "jellyfin", title: "Jellyfin との連携" },
+  { id: "backup", title: "バックアップ" },
+  { id: "advanced", title: "詳しい設定" },
+  { id: "idp", title: "IdP のログイン" },
+  { id: "password", title: "Web UI のパスワード" },
+];
 
 // 設定の画面。区切りは「保存先」「radiko の会員種別」「通知」「Jellyfin との連携」「バックアップ」「詳しい設定」「IdP のログイン」「Web UI のパスワード」。「IdP のログイン」は IdpSection（設定の API ではなく IdP の専用の口を使い、区切りの中で保存する）。「Web UI のパスワード」は ChangePasswordForm をそのまま出し、「保存」は付けない（フォームのボタンで送る）。ほかの区切りは区切りごとに保存し、
 // 保存したらすぐに効く（番組表のキャッシュの大きさだけは、serve の再起動まで効かない）。「radiko の会員種別」は会員種別と、
@@ -20,6 +32,34 @@ export function SettingsPage({ onChanged, onTestSent }: { onChanged: (view: Sett
 
   useEffect(() => {
     fetchSettings().then(setView, (e) => setError(e instanceof Error ? e.message : "設定を読めなかった"));
+  }, []);
+
+  // 目次・URL のハッシュで指された区切り。読み込みが終わって区切りが出てから進む。知らない名前は何もしない。
+  const [jump, setJump] = useState<string | null>(() => {
+    const id = window.location.hash.replace(/^#/, "");
+    return tocItems.some((t) => t.id === id) ? id : null;
+  });
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  useEffect(() => {
+    if (jump === null) return;
+    // 画面の上の目次と最後の 2 つの区切りは、設定を読めなくても出る
+    if (!view && jump !== "idp" && jump !== "password") return;
+    if (jump === "advanced" && !advancedOpen) {
+      setAdvancedOpen(true);
+      return;
+    }
+    const go = () => document.getElementById(jump)?.scrollIntoView();
+    go();
+    // 畳みが開く動きの後にも、もう一度進む
+    if (jump === "advanced") window.setTimeout(go, 300);
+    setJump(null);
+  }, [jump, view, advancedOpen]);
+
+  const follow = useCallback((e: React.MouseEvent<HTMLAnchorElement>, id: string) => {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    window.history.pushState(window.history.state, "", `/settings#${id}`);
+    setJump(id);
   }, []);
 
   const changed = useCallback(
@@ -35,6 +75,15 @@ export function SettingsPage({ onChanged, onTestSent }: { onChanged: (view: Sett
   return (
     <Stack>
       <Title order={2}>設定</Title>
+      <nav aria-label="設定の区切り">
+        <Group gap="md">
+          {tocItems.map((t) => (
+            <Anchor key={t.id} href={`/settings#${t.id}`} size="sm" c="dimmed" onClick={(e) => follow(e, t.id)}>
+              {t.title}
+            </Anchor>
+          ))}
+        </Group>
+      </nav>
       {view ? (
         <>
           <LibrarySection view={view} onChanged={changed} />
@@ -42,7 +91,7 @@ export function SettingsPage({ onChanged, onTestSent }: { onChanged: (view: Sett
           <NotifySection view={view} onChanged={changed} onTestSent={onTestSent} />
           <JellyfinSection view={view} onChanged={changed} />
           <BackupSection view={view} onChanged={changed} />
-          <AdvancedSection view={view} onChanged={changed} />
+          <AdvancedSection view={view} onChanged={changed} open={advancedOpen} setOpen={setAdvancedOpen} />
         </>
       ) : (
         error && (
@@ -59,7 +108,7 @@ export function SettingsPage({ onChanged, onTestSent }: { onChanged: (view: Sett
 
 function PasswordSection() {
   return (
-    <Section title="Web UI のパスワード" error={null}>
+    <Section id="password" title="Web UI のパスワード" error={null}>
       <ChangePasswordForm />
     </Section>
   );
@@ -93,12 +142,15 @@ function useSaver(onChanged: (view: SettingsView) => void, what: string) {
 }
 
 function Section({
+  id,
   title,
   hint,
   error,
   warning,
   children,
 }: {
+  /** 目次・URL のハッシュが指す名前。 */
+  id?: string;
   title: string;
   hint?: string;
   error: string | null;
@@ -107,7 +159,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <Card withBorder padding="md" component="section" aria-label={title}>
+    <Card withBorder padding="md" component="section" aria-label={title} id={id}>
       <Stack>
         <Title order={4}>{title}</Title>
         {hint && (
@@ -210,6 +262,7 @@ function LibrarySection({ view, onChanged }: SectionProps) {
   const { busy, error, save } = useSaver(onChanged, "保存先");
   return (
     <Section
+      id="library"
       title="保存先"
       hint="録音したファイルを置くフォルダ（絶対パス）。保存するときに、フォルダを作り、書けることを確かめる。決めるまで、録音は待たされる。"
       error={error}
@@ -279,6 +332,7 @@ function MembershipSection({ view, onChanged }: SectionProps) {
 
   return (
     <Section
+      id="membership"
       title="radiko の会員種別"
       hint="radiko と契約している会員種別。非会員でなければ、radiko のアカウントのメールアドレスとパスワードで radiko にログインして録る。保存するときに radiko にログインを試し、拒まれたら保存しない。録っている間に radiko にログインを拒まれたら、非会員として録り、通知で知らせる。"
       error={error}
@@ -418,7 +472,7 @@ function NotifySection({ view, onChanged, onTestSent }: SectionProps & { onTestS
   }
 
   return (
-    <Section title="通知" hint="録音の結果などの通知を送る先。通知は、どの通知先でも履歴には残る。" error={error}>
+    <Section id="notify" title="通知" hint="録音の結果などの通知を送る先。通知は、どの通知先でも履歴には残る。" error={error}>
       <Select label="通知先" data={channelOptions} value={channel} onChange={(v) => v && setChannel(v)} allowDeselect={false} />
       <TestNotification onSent={onTestSent} />
       <Switch label="録音済みの通知を送る" checked={success} onChange={(e) => setSuccess(e.currentTarget.checked)} />
@@ -492,6 +546,7 @@ function JellyfinSection({ view, onChanged }: SectionProps) {
 
   return (
     <Section
+      id="jellyfin"
       title="Jellyfin との連携"
       hint="任意。使うと、録音を保存するたびに、指定したライブラリだけを Jellyfin に再スキャンさせる。"
       error={error}
@@ -557,6 +612,7 @@ function BackupSection({ view, onChanged }: SectionProps) {
 
   return (
     <Section
+      id="backup"
       title="バックアップ"
       hint="動いたまま取る DB の写し。番組・設定・ジョブの記録などを含み、ログインのセッションは含まない。戻すときは、serve を止めてデータのフォルダの DB をこれで置き換える。"
       error={error}
@@ -591,9 +647,8 @@ function BackupSection({ view, onChanged }: SectionProps) {
   );
 }
 
-function AdvancedSection({ view, onChanged }: SectionProps) {
+function AdvancedSection({ view, onChanged, open, setOpen }: SectionProps & { open: boolean; setOpen: (f: (o: boolean) => boolean) => void }) {
   const s = view.settings;
-  const [open, setOpen] = useState(false);
   const [muxer, setMuxer] = useState(s.muxer ?? "builtin");
   const [ffmpeg, setFfmpeg] = useState(s.ffmpeg ?? "");
   const [ffprobe, setFfprobe] = useState(s.ffprobe ?? "");
@@ -612,7 +667,7 @@ function AdvancedSection({ view, onChanged }: SectionProps) {
         </Button>
       </Group>
       <Collapse expanded={open}>
-        <Section title="詳しい設定" error={error}>
+        <Section id="advanced" title="詳しい設定" error={error}>
           <Select
             label="m4a への格納"
             description="builtin が既定で、ffmpeg・ffprobe を使わない。ffmpeg を選ぶと、ffmpeg・ffprobe が要る"

@@ -4,7 +4,7 @@ import { notifySuccess } from "../ui/toast";
 import { fetchIdp, IdpApiError, idpErrorMessage, saveIdp, startIdpLink, takeQuery, unlinkIdp, type IdpView } from "./idpApi";
 
 /** 区切りの枠（SettingsPage の Section）。循環 import を避けるため、渡してもらう。 */
-type SectionComponent = React.ComponentType<{ title: string; hint?: string; error: string | null; children: React.ReactNode }>;
+type SectionComponent = React.ComponentType<{ id?: string; title: string; hint?: string; error: string | null; children: React.ReactNode }>;
 
 /**
  * 設定の画面の区切り「IdP のログイン」（ADR 0042）。IdP の設定（issuer・client id・client secret・Web UI の URL）を保存し、
@@ -23,6 +23,7 @@ export function IdpSection({ Section }: { Section: SectionComponent }) {
 
   return (
     <Section
+      id="idp"
       title="IdP のログイン"
       hint="自宅の IdP（OpenID Connect）でも Web UI にログインできるようにする。パスワードのログインはそのまま使える。"
       error={error ?? (returnedError ? idpErrorMessage(returnedError) : null)}

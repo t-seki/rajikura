@@ -111,6 +111,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   notifications.clean();
+  window.history.replaceState(null, "", "/");
 });
 
 describe("SettingsPage", () => {
@@ -137,6 +138,83 @@ describe("SettingsPage", () => {
     expect(within(pw).queryByRole("button", { name: "保存" })).toBeNull();
     // プリセットは画面に出さない
     expect(screen.queryByText(/プリセット/)).toBeNull();
+  });
+
+  it("画面の上に、8 つの区切りへの目次のリンクを今の並びで出す", async () => {
+    mockApi(base);
+    renderPage();
+    const heading = await screen.findByRole("heading", { level: 2, name: "設定" });
+    const nav = screen.getByRole("navigation", { name: "設定の区切り" });
+    expect(heading.compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const links = within(nav).getAllByRole("link");
+    expect(links.map((l) => l.textContent)).toEqual([
+      "保存先",
+      "radiko の会員種別",
+      "通知",
+      "Jellyfin との連携",
+      "バックアップ",
+      "詳しい設定",
+      "IdP のログイン",
+      "Web UI のパスワード",
+    ]);
+    expect(links.map((l) => l.getAttribute("href"))).toEqual(
+      ["library", "membership", "notify", "jellyfin", "backup", "advanced", "idp", "password"].map((n) => `/settings#${n}`),
+    );
+    const first = await screen.findByRole("region", { name: "保存先" });
+    expect(nav.compareDocumentPosition(first) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("目次のリンクを押すと、URL が /settings#<区切り> になり、その区切りへ進む", async () => {
+    mockApi(base);
+    const spy = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+    renderPage();
+    const nav = await screen.findByRole("navigation", { name: "設定の区切り" });
+    await screen.findByRole("region", { name: "バックアップ" });
+    await userEvent.click(within(nav).getByRole("link", { name: "バックアップ" }));
+    expect(window.location.pathname + window.location.hash).toBe("/settings#backup");
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(spy.mock.contexts.at(-1)).toBe(screen.getByRole("region", { name: "バックアップ" }));
+  });
+
+  it("目次の「詳しい設定」を押すと、畳みを開いて中身へ進む", async () => {
+    mockApi(base);
+    const spy = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+    renderPage();
+    const nav = await screen.findByRole("navigation", { name: "設定の区切り" });
+    await screen.findByRole("region", { name: "バックアップ" });
+    await userEvent.click(within(nav).getByRole("link", { name: "詳しい設定" }));
+    expect(window.location.pathname + window.location.hash).toBe("/settings#advanced");
+    await waitFor(() => expect(screen.getByRole("button", { name: "詳しい設定" })).toHaveAttribute("aria-expanded", "true"));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect((spy.mock.contexts.at(-1) as HTMLElement).id).toBe("advanced");
+  });
+
+  it("/settings#jellyfin で開くと、設定を読み込んだ後にその区切りへ進む", async () => {
+    mockApi(base);
+    window.history.replaceState(null, "", "/settings#jellyfin");
+    const spy = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+    renderPage();
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(spy.mock.contexts.at(-1)).toBe(screen.getByRole("region", { name: "Jellyfin との連携" }));
+  });
+
+  it("/settings#advanced で開くと、畳みが開いて中身へ進む", async () => {
+    mockApi(base);
+    window.history.replaceState(null, "", "/settings#advanced");
+    const spy = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "詳しい設定" })).toHaveAttribute("aria-expanded", "true"));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect((spy.mock.contexts.at(-1) as HTMLElement).id).toBe("advanced");
+  });
+
+  it("知らない名前のハッシュでは、何もしない", async () => {
+    mockApi(base);
+    window.history.replaceState(null, "", "/settings#unknown");
+    const spy = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+    renderPage();
+    await screen.findByRole("region", { name: "保存先" });
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it("会員種別を非会員でないものにすると、ログイン情報の欄を出し、会員種別とログイン情報を送る", async () => {
