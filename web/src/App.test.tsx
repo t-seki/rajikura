@@ -517,6 +517,28 @@ describe("App", () => {
     expect(calls).toContain("POST /api/notifications/read");
   });
 
+  it("設定の「通知」でテスト通知を送ると、ナビの未読の数と帯を読み直す", async () => {
+    let unread = 0;
+    const view = { settings: { library: "/library", notify: { channel: "discord", success: true } }, secrets: {}, library_set: true, unreadable_secrets: [], last_backup_at: null };
+    const calls = mockApi({
+      "GET /api/me": () => ({ status: 200 }),
+      ...showsRoutes,
+      "GET /api/notifications/status": () => ({ status: 200, body: { unread, failed: 0, anomalies: [] } }),
+      "GET /api/settings": () => ({ status: 200, body: view }),
+      "POST /api/notifications/test": () => {
+        unread = 1;
+        return { status: 200, body: { sent: true, sentAt: "2026-10-15T04:00:00Z", notification: { id: 3, kind: "test", message: "", createdAt: "2026-10-15T04:00:00Z", failed: false, read: false } } };
+      },
+    });
+    window.history.replaceState(null, "", "/settings");
+    renderApp();
+    const region = await screen.findByRole("region", { name: "通知" });
+    const before = calls.filter((c) => c === "GET /api/notifications/status").length;
+    await userEvent.setup().click(within(region).getByRole("button", { name: "テスト通知を送る" }));
+    expect(await screen.findByLabelText("未読の通知 1 件")).toHaveTextContent("1");
+    expect(calls.filter((c) => c === "GET /api/notifications/status").length).toBeGreaterThan(before);
+  });
+
   it("まだ復旧していない異常と送れなかった通知を、どのページにも帯で出し、帯から履歴を開ける", async () => {
     mockApi({
       "GET /api/me": () => ({ status: 200 }),
