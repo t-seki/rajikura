@@ -275,14 +275,75 @@ describe("GuidePage の番組表", () => {
     expect(none.getAttribute("aria-label")).toContain("予約なし");
   });
 
-  it("グリッドの枠は番組名を 1 行で省略し、title に番組名・時刻・状態を全部出す", async () => {
+  it("グリッドの枠は番組名を枠の高さに入る行数まで折り返して省略し、title に番組名・時刻・状態を全部出す", async () => {
     setWide(true);
     mockApi(dayRoute);
     renderPage();
     const grid = await screen.findByTestId("guide-grid");
     const cell = within(grid).getByRole("button", { name: /番組R/ });
     expect(cell.getAttribute("title")).toBe("番組R 10:00〜11:00 録音予定");
-    expect(cell.querySelector("p")).toHaveStyle({ whiteSpace: "nowrap", textOverflow: "ellipsis" });
+    // 1 時間の枠: 高さ 60×1.6−2=94px、border 1px の上下を除いて 92px、行の高さ 14px → 6 行
+    const p = cell.querySelector("p") as HTMLElement;
+    expect(p.style.whiteSpace).not.toBe("nowrap");
+    expect(p.style.getPropertyValue("-webkit-line-clamp")).toBe("6");
+    // line-clamp が効くのに要る指定
+    expect(p.style.display).toBe("-webkit-box");
+    expect(p.style.getPropertyValue("-webkit-box-orient")).toBe("vertical");
+    expect(p).toHaveStyle({ overflow: "hidden", textOverflow: "ellipsis" });
+  });
+
+  it("枠の題名の行数の上限は、border を除いた枠の中身の高さ ÷ 14px の切り捨てで、2 行入らない低い枠は 1 行で切る", async () => {
+    setWide(true);
+    const short = airing({ title: "短い枠", start: at(today, "06:00"), end: at(today, "06:15") });
+    const half = airing({ title: "半時間枠", start: at(today, "07:00"), end: at(today, "07:30") });
+    const hour = airing({ title: "一時間枠", start: at(today, "08:00"), end: at(today, "09:00") });
+    const two = airing({ title: "二時間枠", start: at(today, "10:00"), end: at(today, "12:00") });
+    const threeQ = airing({ title: "四十五分枠", start: at(today, "12:00"), end: at(today, "12:45") });
+    const threeQDashed = airing({ title: "四十五分破線", start: at(today, "13:00"), end: at(today, "13:45"), state: "missed" });
+    const ninety = airing({ title: "九十分枠", start: at(today, "14:00"), end: at(today, "15:30") });
+    const ninetyDashed = airing({ title: "九十分破線", start: at(today, "16:00"), end: at(today, "17:30"), state: "skipped" });
+    mockApi({
+      [guideKey(today)]: () => ({
+        status: 200,
+        body: {
+          day: today,
+          stations: [
+            {
+              id: "TBS",
+              name: "TBSラジオ",
+              airings: [short, half, hour, two, threeQ, threeQDashed, ninety, ninetyDashed],
+            },
+          ],
+        },
+      }),
+    });
+    renderPage();
+    const grid = await screen.findByTestId("guide-grid");
+    const p = (re: RegExp) => within(grid).getByRole("button", { name: re }).querySelector("p") as HTMLElement;
+    const clamp = (re: RegExp) => p(re).style.getPropertyValue("-webkit-line-clamp");
+    // 15 分: 24−2=22px、中身 20px → 1 行（nowrap で切る）
+    expect(p(/短い枠/)).toHaveStyle({ whiteSpace: "nowrap", textOverflow: "ellipsis" });
+    // 30 分: 48−2=46px、中身 44px → 3 行
+    expect(clamp(/半時間枠/)).toBe("3");
+    // 1 時間: 96−2=94px、中身 92px → 6 行
+    expect(clamp(/一時間枠/)).toBe("6");
+    // 2 時間: 192−2=190px、中身 188px → 13 行
+    expect(clamp(/二時間枠/)).toBe("13");
+    // 45 分: 72−2=70px、中身 68px（border 1px）→ 4 行。破線（2px）は中身 66px → 4 行
+    expect(clamp(/四十五分枠/)).toBe("4");
+    expect(clamp(/四十五分破線/)).toBe("4");
+    // 90 分: 144−2=142px、中身 140px（border 1px）→ 10 行。破線（2px）は中身 138px → 9 行
+    expect(clamp(/九十分枠/)).toBe("10");
+    expect(clamp(/九十分破線/)).toBe("9");
+    // 行数×14px が中身の高さを超えない
+    for (const re of [/半時間枠/, /一時間枠/, /二時間枠/, /四十五分枠/, /四十五分破線/, /九十分枠/, /九十分破線/]) {
+      const cell = within(grid).getByRole("button", { name: re });
+      const border = cell.style.border.startsWith("2px") ? 2 : 1;
+      const content = parseFloat(cell.style.height) - 2 * border;
+      expect(Number(clamp(re)) * 14).toBeLessThanOrEqual(content);
+      expect(p(re).style.display).toBe("-webkit-box");
+      expect(p(re).style.getPropertyValue("-webkit-box-orient")).toBe("vertical");
+    }
   });
 
   it("スマホのリストと凡例にも、状態の印と対象外の印が出る", async () => {
