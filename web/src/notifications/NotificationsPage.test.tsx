@@ -211,7 +211,8 @@ describe("NotificationsPage", () => {
 
 describe("テスト通知のカード", () => {
   it("通知の画面には、テスト通知のカードもボタンも出さない（説明と履歴だけ）", async () => {
-    mockApi({
+    const calls = mockApi({
+      "GET /api/notifications/status": () => ({ status: 200, body: { unread: 0, failed: 0, anomalies: [], channel: "discord" } }),
       "GET /api/notifications": () => ({ status: 200, body: { notifications: [sent] } }),
       "POST /api/notifications/read": () => ({ status: 200, body: { marked: 0 } }),
     });
@@ -219,6 +220,7 @@ describe("テスト通知のカード", () => {
     expect(await screen.findAllByTestId("notification")).toHaveLength(1);
     expect(screen.queryByTestId("test-notification")).toBeNull();
     expect(screen.queryByRole("button", { name: "テスト通知を送る" })).toBeNull();
+    expect(calls).not.toContain("GET /api/notifications/status");
     expect(screen.getByText(/録音の結果・サービスの異常・テスト通知を新しい順に出す/)).toBeInTheDocument();
   });
 });

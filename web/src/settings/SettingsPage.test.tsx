@@ -1002,10 +1002,12 @@ describe("SettingsPage のテスト通知", () => {
 
   it("送れなかったら通知先のエラーを出す", async () => {
     mockApi(base, undefined, undefined, undefined, () => ({ status: 200, body: { sent: false, error: "slack: 状態 404 が返った", notification: {} } }));
-    renderPage();
+    const onTestSent = vi.fn();
+    renderPage(vi.fn(), onTestSent);
     const region = await screen.findByRole("region", { name: "通知" });
     await userEvent.click(within(region).getByRole("button", { name: "テスト通知を送る" }));
     expect(await within(region).findByRole("alert")).toHaveTextContent("送れなかった: slack: 状態 404 が返った");
+    expect(onTestSent).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -1040,11 +1042,13 @@ describe("SettingsPage のテスト通知", () => {
 
   it("通知先なしの結果（noChannel）は「履歴に入れた」と出す", async () => {
     mockApi(base, undefined, undefined, undefined, () => ({ status: 200, body: { sent: false, noChannel: true, notification: {} } }));
-    renderPage();
+    const onTestSent = vi.fn();
+    renderPage(vi.fn(), onTestSent);
     const region = await screen.findByRole("region", { name: "通知" });
     await userEvent.click(within(region).getByRole("button", { name: "テスト通知を送る" }));
     expect(await within(region).findByRole("status")).toHaveTextContent("履歴に入れた。トレイには 1 分以内に届く。");
     expect(within(region).queryByRole("alert")).toBeNull();
+    expect(onTestSent).toHaveBeenCalledTimes(1);
   });
 
   it("通知先の欄を変えて保存しないまま押しても、POST /api/notifications/test だけで、設定は保存せず、欄の値も送らない", async () => {
