@@ -1,5 +1,5 @@
 import type { UnmatchedDay, Weekly, Station } from "./api";
-import { broadcastClock, broadcastDayOf, dayLabel, weekdayOf } from "../guide/format";
+import { broadcastClock, broadcastDayOf, dayLabel } from "../guide/format";
 import { outOfAreaLabels, stationLabel as areaStationLabel } from "../keywords/keywordsApi";
 
 /** 曜日の名前。添字は 0 = 日曜。 */
@@ -113,21 +113,21 @@ export const notAreaFreeShowMessage = (labels: string[]) =>
   `エリアフリー・ダブルプランでないので、自分のエリアの外の局（${labels.join("・")}）の放送回には当てない。`;
 
 /**
- * まとまり（start は API の値）の要約（一覧と番組表の詳細に出す）。時刻は放送日の時刻。例: `TBSラジオ 月・火・水・木 08:30（2026-10-20 から）`、`ニッポン放送 土 25:00`。
+ * まとまり（start は API の値）の要約（一覧と番組表の詳細に出す）。時刻は放送日の時刻。例: `TBSラジオ 月・火・水・木 08:30（10/20(火) から）`、`ニッポン放送 土 25:00`。
  * 後ろの括弧は、今日の放送日（today。`YYYY-MM-DD`。既定は今）と比べて決める。
  *
- * - 終了日が今日より前: `（2026-12-26 で終了）`（開始日によらない）
- * - 開始日と終了日が今日以降: `（2026-10-20 から 2026-12-26 まで）`
- * - 終了日だけが今日以降（開始日が無いか今日より前）: `（2026-12-26 まで）`
- * - 開始日だけが今日以降（終了日が無い）: `（2026-10-20 から）`
+ * - 終了日が今日より前: `（12/26(土) で終了）`（開始日によらない）
+ * - 開始日と終了日が今日以降: `（10/20(火) から 12/26(土) まで）`
+ * - 終了日だけが今日以降（開始日が無いか今日より前）: `（12/26(土) まで）`
+ * - 開始日だけが今日以降（終了日が無い）: `（10/20(火) から）`
  * - どちらも無いか、開始日が今日より前で終了日が無い: 付けない（今日から先の放送回には効かないので）
  */
 export function groupSummary(g: WeeklyGroup, stations: Station[] = [], today: string = broadcastDayOf(new Date())): string {
   const from = g.from && g.from >= today ? g.from : "";
   let tail = "";
-  if (g.until && g.until < today) tail = `（${g.until} で終了）`;
-  else if (g.until) tail = from ? `（${from} から ${g.until} まで）` : `（${g.until} まで）`;
-  else if (from) tail = `（${from} から）`;
+  if (g.until && g.until < today) tail = `（${dayLabel(g.until)} で終了）`;
+  else if (g.until) tail = from ? `（${dayLabel(from)} から ${dayLabel(g.until)} まで）` : `（${dayLabel(g.until)} まで）`;
+  else if (from) tail = `（${dayLabel(from)} から）`;
   return `${stationLabel(g.station, stations)} ${g.weekdays.map((w) => weekdayNames[w] ?? "?").join("・")} ${toBroadcastClock(g.start)}${tail}`;
 }
 
@@ -154,12 +154,11 @@ export function nextAiringLabel(next: string | undefined, enabled = true): strin
 
 /**
  * 当たらない日の 1 件を、人が読む文にする（番組の画面の次の放送予定の下に出す）。時刻は放送日の時刻（25:00 など）。
- * 例: `10/19（月）17:40 は放送回が無い。その時刻は「辛坊治郎 ズーム そこまで言うか！」（15:30〜18:00）` と `番組名の合う放送回: 19:00〜19:30`。
+ * 例: `10/19(月) 17:40 は放送回が無い。その時刻は「辛坊治郎 ズーム そこまで言うか！」（15:30〜18:00）` と `番組名の合う放送回: 19:00〜19:30`。
  */
 export function unmatchedDayLines(u: UnmatchedDay): string[] {
-  const [, m, d] = u.day.split("-").map(Number);
   const range = (a: { start: string; end: string }) => `${broadcastClock(a.start, u.day)}〜${broadcastClock(a.end, u.day)}`;
-  let head = `${m}/${d}（${weekdayNames[weekdayOf(u.day)]}）${broadcastClock(u.start, u.day)} は放送回が無い。`;
+  let head = `${dayLabel(u.day)} ${broadcastClock(u.start, u.day)} は放送回が無い。`;
   head += u.covering ? `その時刻は「${u.covering.title}」（${range(u.covering)}）` : "その時刻を含む放送回も番組表に無い";
   const titled = u.titled.length === 0 ? "番組名の合う放送回は無い" : `番組名の合う放送回: ${u.titled.map(range).join("、")}`;
   return [head, titled];

@@ -60,7 +60,7 @@ const flat: Show = {
   ],
   next_airing: "2026-10-12T08:30:00+09:00",
 };
-// 当たらない日の例（10/19（月）17:40 の枠に放送回が無い）と、その時刻を含む放送回も番組名の合う放送回も無い深夜の枠。
+// 当たらない日の例（10/19(月) 17:40 の枠に放送回が無い）と、その時刻を含む放送回も番組名の合う放送回も無い深夜の枠。
 const unmatched: UnmatchedDay = {
   day: "2026-10-19",
   station: "LFR",
@@ -76,7 +76,7 @@ describe("format", () => {
   it("毎週の予約の要約は、まとまりごとに曜日を「・」でつなぐ", () => {
     expect(groupSummary({ station: "TBS", weekdays: [1, 2, 3, 4], start: "08:30" }, stations)).toBe("TBSラジオ 月・火・水・木 08:30");
     expect(groupSummary({ station: "TBS", weekdays: [1], start: "10:00" })).toBe("TBS 月 10:00");
-    expect(groupSummary({ station: "LFR", weekdays: [6], start: "03:00", from: "2026-10-20" }, [], "2026-10-18")).toBe("LFR 土 27:00（2026-10-20 から）");
+    expect(groupSummary({ station: "LFR", weekdays: [6], start: "03:00", from: "2026-10-20" }, [], "2026-10-18")).toBe("LFR 土 27:00（10/20(火) から）");
     expect(groupSummary({ station: "LFR", weekdays: [6], start: "03:00", from: "" })).toBe("LFR 土 27:00");
   });
 
@@ -84,8 +84,8 @@ describe("format", () => {
     const g = { station: "LFR", weekdays: [6], start: "03:00" };
     const today = "2026-10-18";
     expect(groupSummary({ ...g, from: "2026-10-17" }, [], today)).toBe("LFR 土 27:00");
-    expect(groupSummary({ ...g, from: "2026-10-18" }, [], today)).toBe("LFR 土 27:00（2026-10-18 から）");
-    expect(groupSummary({ ...g, from: "2026-10-19" }, [], today)).toBe("LFR 土 27:00（2026-10-19 から）");
+    expect(groupSummary({ ...g, from: "2026-10-18" }, [], today)).toBe("LFR 土 27:00（10/18(日) から）");
+    expect(groupSummary({ ...g, from: "2026-10-19" }, [], today)).toBe("LFR 土 27:00（10/19(月) から）");
     expect(groupSummary({ ...g, from: "" }, [], today)).toBe("LFR 土 27:00");
     expect(groupSummary(g, [], today)).toBe("LFR 土 27:00");
     expect(weeklySummaries([{ station: "LFR", weekday: 6, start: "03:00", from: "2026-10-17" }], [], today)).toEqual(["LFR 土 27:00"]);
@@ -97,18 +97,18 @@ describe("format", () => {
     // 開始日が無いか今日より前、終了日が無い: 付けない。開始日が今日以降、終了日が無い: （… から）
     expect(groupSummary(g, [], today)).toBe("LFR 土 27:00");
     expect(groupSummary({ ...g, from: "2026-10-17" }, [], today)).toBe("LFR 土 27:00");
-    expect(groupSummary({ ...g, from: "2026-10-20" }, [], today)).toBe("LFR 土 27:00（2026-10-20 から）");
+    expect(groupSummary({ ...g, from: "2026-10-20" }, [], today)).toBe("LFR 土 27:00（10/20(火) から）");
     // 開始日が無いか今日より前、終了日が今日以降: （… まで）。終了日の当日も「まで」
-    expect(groupSummary({ ...g, until: "2026-12-26" }, [], today)).toBe("LFR 土 27:00（2026-12-26 まで）");
-    expect(groupSummary({ ...g, from: "2026-10-17", until: "2026-12-26" }, [], today)).toBe("LFR 土 27:00（2026-12-26 まで）");
-    expect(groupSummary({ ...g, until: "2026-10-18" }, [], today)).toBe("LFR 土 27:00（2026-10-18 まで）");
+    expect(groupSummary({ ...g, until: "2026-12-26" }, [], today)).toBe("LFR 土 27:00（12/26(土) まで）");
+    expect(groupSummary({ ...g, from: "2026-10-17", until: "2026-12-26" }, [], today)).toBe("LFR 土 27:00（12/26(土) まで）");
+    expect(groupSummary({ ...g, until: "2026-10-18" }, [], today)).toBe("LFR 土 27:00（10/18(日) まで）");
     // 開始日と終了日が今日以降: （… から … まで）
-    expect(groupSummary({ ...g, from: "2026-10-20", until: "2026-12-26" }, [], today)).toBe("LFR 土 27:00（2026-10-20 から 2026-12-26 まで）");
-    expect(groupSummary({ ...g, from: "2026-10-18", until: "2026-10-18" }, [], today)).toBe("LFR 土 27:00（2026-10-18 から 2026-10-18 まで）");
+    expect(groupSummary({ ...g, from: "2026-10-20", until: "2026-12-26" }, [], today)).toBe("LFR 土 27:00（10/20(火) から 12/26(土) まで）");
+    expect(groupSummary({ ...g, from: "2026-10-18", until: "2026-10-18" }, [], today)).toBe("LFR 土 27:00（10/18(日) から 10/18(日) まで）");
     // 終了日が今日より前: 開始日によらず（… で終了）
-    expect(groupSummary({ ...g, until: "2026-10-17" }, [], today)).toBe("LFR 土 27:00（2026-10-17 で終了）");
-    expect(groupSummary({ ...g, from: "2026-10-01", until: "2026-10-17" }, [], today)).toBe("LFR 土 27:00（2026-10-17 で終了）");
-    expect(weeklySummaries([{ station: "LFR", weekday: 6, start: "03:00", until: "2026-10-17" }], [], today)).toEqual(["LFR 土 27:00（2026-10-17 で終了）"]);
+    expect(groupSummary({ ...g, until: "2026-10-17" }, [], today)).toBe("LFR 土 27:00（10/17(土) で終了）");
+    expect(groupSummary({ ...g, from: "2026-10-01", until: "2026-10-17" }, [], today)).toBe("LFR 土 27:00（10/17(土) で終了）");
+    expect(weeklySummaries([{ station: "LFR", weekday: 6, start: "03:00", until: "2026-10-17" }], [], today)).toEqual(["LFR 土 27:00（10/17(土) で終了）"]);
   });
 
   it("毎週の予約の要約の時刻は放送日の時刻で出す（API の 00:00〜04:59 は 24:00〜28:59）", () => {
@@ -156,12 +156,12 @@ describe("format", () => {
       {
         name: "開始日が違えば別",
         weekly: [row("TBS", 1, "08:30"), row("TBS", 2, "08:30", "2026-10-20")],
-        want: ["TBSラジオ 月 08:30", "TBSラジオ 火 08:30（2026-10-20 から）"],
+        want: ["TBSラジオ 月 08:30", "TBSラジオ 火 08:30（10/20(火) から）"],
       },
       {
         name: "終了日が違えば別",
         weekly: [row("TBS", 1, "08:30"), { ...row("TBS", 2, "08:30"), until: "2026-12-26" }, { ...row("TBS", 3, "08:30"), until: "2026-12-26" }],
-        want: ["TBSラジオ 月 08:30", "TBSラジオ 火・水 08:30（2026-12-26 まで）"],
+        want: ["TBSラジオ 月 08:30", "TBSラジオ 火・水 08:30（12/26(土) まで）"],
       },
       { name: "局が違えば別。並びは放送局の順", weekly: [row("TBS", 1, "08:30"), row("QRR", 1, "08:30")], want: ["QRR 月 08:30", "TBSラジオ 月 08:30"] },
       {
@@ -189,10 +189,10 @@ describe("format", () => {
 
   it("当たらない日は、枠とその時刻を含む放送回の 1 行と、番組名の合う放送回の 1 行にする（時刻は放送日の時刻）", () => {
     expect(unmatchedDayLines(unmatched)).toEqual([
-      "10/19（月）17:40 は放送回が無い。その時刻は「辛坊治郎 ズーム そこまで言うか！」（15:30〜18:00）",
+      "10/19(月) 17:40 は放送回が無い。その時刻は「辛坊治郎 ズーム そこまで言うか！」（15:30〜18:00）",
       "番組名の合う放送回: 19:00〜19:30",
     ]);
-    expect(unmatchedDayLines(unmatchedLate)).toEqual(["10/19（月）25:00 は放送回が無い。その時刻を含む放送回も番組表に無い", "番組名の合う放送回は無い"]);
+    expect(unmatchedDayLines(unmatchedLate)).toEqual(["10/19(月) 25:00 は放送回が無い。その時刻を含む放送回も番組表に無い", "番組名の合う放送回は無い"]);
   });
 
   it("次の放送予定（日本時間）。無ければ、7 日先まで番組表に無いと出す", () => {
@@ -234,10 +234,10 @@ describe("ShowsPage", () => {
     renderPage();
     const row = (await screen.findByText(withNext.name)).closest("tr")!;
     const cell = within(row).getByText(/10\/12.*08:30/).closest("td")!;
-    expect(cell.textContent).toMatch(/10\/12.*08:30.*10\/19（月）17:40 は放送回が無い.*19:00〜19:30.*10\/19（月）25:00 は放送回が無い/);
+    expect(cell.textContent).toMatch(/10\/12.*08:30.*10\/19\(月\) 17:40 は放送回が無い.*19:00〜19:30.*10\/19\(月\) 25:00 は放送回が無い/);
     const row2 = screen.getByText(noNext.name).closest("tr")!;
     expect(within(row2).getByText("7 日先まで番組表に無い")).toBeInTheDocument();
-    expect(within(row2).getByText(/^10\/19（月）17:40 は放送回が無い。その時刻は「辛坊治郎/)).toBeInTheDocument();
+    expect(within(row2).getByText(/^10\/19\(月\) 17:40 は放送回が無い。その時刻は「辛坊治郎/)).toBeInTheDocument();
     const row3 = screen.getByText(off.name).closest("tr")!;
     expect(within(row3).queryByText(/放送回が無い/)).not.toBeInTheDocument();
   });
@@ -675,7 +675,7 @@ describe("ShowsPage", () => {
     });
     const user = userEvent.setup();
     renderPage();
-    expect(await screen.findAllByText(/（2099-10-12 から）/)).toHaveLength(2);
+    expect(await screen.findAllByText(/（2099\/10\/12\(月\) から）/)).toHaveLength(2);
     await user.click(await screen.findByRole("button", { name: `${flat.name} を編集` }));
     const first = await screen.findByLabelText("予約 1");
     const second = screen.getByLabelText("予約 2");
@@ -705,7 +705,7 @@ describe("ShowsPage", () => {
     });
     const user = userEvent.setup();
     renderPage();
-    expect(await screen.findByText(/（2099-12-28 まで）/)).toBeInTheDocument();
+    expect(await screen.findByText(/（2099\/12\/28\(月\) まで）/)).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: `${flat.name} を編集` }));
     const first = await screen.findByLabelText("予約 1");
     const second = screen.getByLabelText("予約 2");

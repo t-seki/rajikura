@@ -45,8 +45,8 @@ describe("TokensPage", () => {
     const items = await screen.findAllByTestId("token");
     expect(items).toHaveLength(2);
     expect(within(items[0]).getByText("手元の CLI")).toBeInTheDocument();
-    expect(within(items[0]).getByText(/発行 10\/12 10:00/)).toBeInTheDocument();
-    expect(within(items[0]).getByText(/最後に使った日時 10\/13 12:30/)).toBeInTheDocument();
+    expect(within(items[0]).getByText(/発行 10\/12\(月\) 10:00/)).toBeInTheDocument();
+    expect(within(items[0]).getByText(/最後に使った日時 10\/13\(火\) 12:30/)).toBeInTheDocument();
     expect(within(items[1]).getByText(/まだ使っていない/)).toBeInTheDocument();
   });
 

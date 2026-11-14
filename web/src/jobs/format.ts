@@ -1,12 +1,16 @@
-import { broadcastMinutes } from "../guide/format";
+import { broadcastMinutes, dayLabel } from "../guide/format";
 import type { JobProgress } from "./jobsApi";
 
-/** 日時を日本時間の「10/12 14:30」の形にする。 */
-export function formatDateTime(iso: string): string {
+/**
+ * 日時を日本時間の暦の日時で「10/12(月) 14:30」の形にする。今年（日本時間）でなければ「2025/12/30(火) 23:10」と年を付ける。
+ * now は「今年」を決める今（既定は今）。
+ */
+export function formatDateTime(iso: string, now: Date | number = Date.now()): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "-";
   const p = new Intl.DateTimeFormat("ja-JP", {
     timeZone: "Asia/Tokyo",
+    year: "numeric",
     month: "numeric",
     day: "numeric",
     hour: "2-digit",
@@ -14,7 +18,9 @@ export function formatDateTime(iso: string): string {
     hour12: false,
   }).formatToParts(d);
   const g = (t: string) => p.find((x) => x.type === t)?.value ?? "";
-  return `${g("month")}/${g("day")} ${g("hour")}:${g("minute")}`;
+  const day = `${g("year")}-${g("month").padStart(2, "0")}-${g("day").padStart(2, "0")}`;
+  const hour = g("hour") === "24" ? "00" : g("hour");
+  return `${dayLabel(day, now)} ${hour}:${g("minute")}`;
 }
 
 const timeFormat = new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", hour: "numeric", minute: "2-digit", hourCycle: "h23" });

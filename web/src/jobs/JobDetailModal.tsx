@@ -1,6 +1,6 @@
 import { Alert, Button, Divider, Group, Loader, Modal, Progress, Select, Stack, Text } from "@mantine/core";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { broadcastRange } from "../guide/format";
+import { broadcastRange, dayLabel } from "../guide/format";
 import { listShows } from "../shows/api";
 import { notifySuccess } from "../ui/toast";
 import { formatDateTime, formatDuration, progressPercent, progressText, stageLabel } from "./format";
@@ -182,7 +182,7 @@ export function JobDetailModal({ id, onClose, onChanged }: Props) {
   }
 
   return (
-    <Modal opened={id !== null} onClose={onClose} title={job ? `${job.showName} ${job.day}` : "ジョブ"} size="lg">
+    <Modal opened={id !== null} onClose={onClose} title={job ? `${job.showName} ${dayLabel(job.day)}` : "ジョブ"} size="lg">
       <Stack>
         {error && (
           <Alert color="red" role="alert">

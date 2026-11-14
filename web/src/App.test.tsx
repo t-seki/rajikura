@@ -536,7 +536,7 @@ describe("App", () => {
     renderApp();
     const banners = await screen.findByTestId("notification-banners");
     expect(banners).toHaveTextContent("【番組表の同期の失敗】y");
-    expect(banners).toHaveTextContent("10/15 12:00 から");
+    expect(banners).toHaveTextContent("10/15(木) 12:00 から");
     expect(banners).toHaveTextContent("2 件の通知を通知先に送れなかった");
     // ほかのページに移っても出る
     await user.click(screen.getByText("番組"));
@@ -732,10 +732,10 @@ describe("画面ごとの URL", () => {
     window.history.replaceState(null, "", "/jobs/5");
     mockApi(routes);
     const first = renderApp();
-    expect(await screen.findByRole("dialog", { name: "番組A 2026-10-11" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "番組A 10/11(日)" })).toBeInTheDocument();
     first.unmount();
     renderApp();
-    expect(await screen.findByRole("dialog", { name: "番組A 2026-10-11" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "番組A 10/11(日)" })).toBeInTheDocument();
     expect(here()).toBe("/jobs/5");
   });
 
@@ -745,7 +745,7 @@ describe("画面ごとの URL", () => {
     const user = userEvent.setup();
     renderApp();
     await user.click(await screen.findByRole("button", { name: "番組Aの詳細" }));
-    expect(await screen.findByRole("dialog", { name: "番組A 2026-10-11" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "番組A 10/11(日)" })).toBeInTheDocument();
     expect(here()).toBe("/jobs/5");
 
     window.history.back();
@@ -760,7 +760,7 @@ describe("画面ごとの URL", () => {
     const user = userEvent.setup();
     renderApp();
     await user.click(await screen.findByRole("button", { name: "番組Aの詳細" }));
-    await screen.findByRole("dialog", { name: "番組A 2026-10-11" });
+    await screen.findByRole("dialog", { name: "番組A 10/11(日)" });
     const pushed = window.history.length;
     await user.keyboard("{Escape}");
     await waitFor(() => expect(here()).toBe("/jobs"));
@@ -768,7 +768,7 @@ describe("画面ごとの URL", () => {
     expect(window.history.length).toBe(pushed);
     // 「進む」で詳細を開き直せる（戻ったので、閉じた詳細が次の履歴に残っている）
     window.history.forward();
-    expect(await screen.findByRole("dialog", { name: "番組A 2026-10-11" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "番組A 10/11(日)" })).toBeInTheDocument();
   });
 
   it("無いジョブ・数でない id の URL は、ジョブの一覧を開いて URL を /jobs に置き換える", async () => {
@@ -892,7 +892,7 @@ describe("画面ごとの URL", () => {
     expect(within(items[2]).getByRole("link", { name: "キーワードを開く" })).toHaveAttribute("href", "/keywords");
 
     await user.click(within(items[0]).getByRole("link", { name: "ジョブを開く" }));
-    expect(await screen.findByRole("dialog", { name: "番組A 2026-10-11" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "番組A 10/11(日)" })).toBeInTheDocument();
     expect(here()).toBe("/jobs/5");
 
     window.history.back();
@@ -923,7 +923,7 @@ describe("画面ごとの URL", () => {
     renderApp();
     await user.type(await screen.findByLabelText(/パスワード/), "pw");
     await user.click(screen.getByRole("button", { name: "ログイン" }));
-    expect(await screen.findByRole("dialog", { name: "番組A 2026-10-11" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "番組A 10/11(日)" })).toBeInTheDocument();
     expect(here()).toBe("/jobs/5");
   });
 });
