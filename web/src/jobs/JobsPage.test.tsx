@@ -447,6 +447,30 @@ describe("JobsPage", () => {
     expect(names(screen.getAllByTestId("job"))).toEqual(["番組近", "番組先", "番組済"]);
   });
 
+  it("PC の表の放送日の列は、放送日を曜日付きの 10/11(日) の形で出し、今年でない放送日にだけ年を付ける", async () => {
+    setWide(true);
+    mockApi({
+      "GET /api/stations": stations,
+      "GET /api/jobs": () => ({
+        status: 200,
+        body: {
+          jobs: [
+            { ...base, id: 1, showName: "番組今年", day: "2026-10-11", state: "waiting" },
+            { ...base, id: 2, showName: "番組去年", day: "2025-12-31", state: "done" },
+          ],
+        },
+      }),
+    });
+    renderPage();
+    const items = await screen.findAllByTestId("job");
+    const row = (name: string) => items.find((i) => within(i).queryByText(name) !== null)!;
+    const thisYear = within(row("番組今年")).getByText("10/11(日)");
+    expect(thisYear.tagName).toBe("TD");
+    const lastYear = within(row("番組去年")).getByText("2025/12/31(水)");
+    expect(lastYear.tagName).toBe("TD");
+    expect(within(row("番組今年")).queryByText(/2026-10-11/)).toBeNull();
+  });
+
   it("同じ放送日の中を、最初の放送回の開始時刻の順に並べる（既定は これから が古い順・済んだものが新しい順、開始が同じなら API の並び）", async () => {
     setWide(true);
     const at = (start: string) => [{ stationId: "TBS", start, end: start }];
