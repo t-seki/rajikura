@@ -541,6 +541,22 @@ describe("JobsPage", () => {
     expect(await screen.findByText(/保存先/)).toBeInTheDocument();
   });
 
+  it("PC の表の右の端に › のボタンを出し、押すと詳細を開く。放送日と試行は折り返さない", async () => {
+    setWide(true);
+    mockApi({
+      "GET /api/stations": stations,
+      "GET /api/jobs": () => ({ status: 200, body: { jobs: [base] } }),
+      "GET /api/jobs/1": () => ({ status: 200, body: detail() }),
+    });
+    renderPage();
+    const row = await screen.findByTestId("job");
+    const button = within(row).getByRole("button", { name: "番組Aの詳細" });
+    expect(button).toHaveTextContent("›");
+    expect(within(row).getByText(/ 回$/)).toHaveStyle({ whiteSpace: "nowrap" });
+    await userEvent.click(button);
+    expect(await screen.findByText(/保存先/)).toBeInTheDocument();
+  });
+
   it("局名が引けない（API が失敗）ときは局 ID を出す", async () => {
     mockApi({
       "GET /api/stations": () => ({ status: 503, body: { error: "番組表が無い" } }),
