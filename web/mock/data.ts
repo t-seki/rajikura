@@ -3,7 +3,9 @@
 // 型だけを src から読む（import type は消えるので、このファイルは src の実行コードに依存しない）。
 import type { GuideAiring, GuideStation } from "../src/guide/api.ts";
 import type { JobDetail, JobSummary } from "../src/jobs/jobsApi.ts";
+import type { Keyword, KeywordAiring } from "../src/keywords/keywordsApi.ts";
 import type { Show, Station } from "../src/shows/api.ts";
+import type { ApiToken } from "../src/tokens/tokensApi.ts";
 
 /** スクリーンショットの「今」。撮るスクリプトがブラウザの時計をこの時刻に固定する（2026-04-15 水曜 10:30 JST）。 */
 export const MOCK_NOW = "2026-04-15T10:30:00+09:00";
@@ -323,6 +325,30 @@ export const jobDetail = (j: JobSummary): JobDetail => ({
   attemptLog: [],
   durationSeconds: j.stations.reduce((n, s) => n + (new Date(s.end).getTime() - new Date(s.start).getTime()) / 1000, 0),
 });
+
+export const keywords: Keyword[] = [
+  { id: 1, words: "どんぐり", exclude: "", stations: ["HOSHIZORA"], enabled: true, pending: 1 },
+  { id: 2, words: "昭和歌謡 音楽堂", exclude: "再放送", stations: ["MINATO", "TSUMUGI"], enabled: true, pending: 0 },
+  { id: 3, words: "朗読", exclude: "", stations: [], enabled: false, pending: 0 },
+];
+
+/** キーワード id ごとの、足した放送回（GET /api/keywords/{id}/airings）。番組表の並び（lineups）と同じ局・時刻・題名にする。 */
+export const keywordAirings: Record<number, KeywordAiring[]> = {
+  1: [
+    { ...slotOf("HOSHIZORA", "2026-04-15", "05:00", 120), stationName: "ほしぞらFM", title: "朝のどんぐりカフェ", showName: "朝のどんぐりカフェ", state: "done" },
+    { ...slotOf("HOSHIZORA", "2026-04-20", "05:00", 120), stationName: "ほしぞらFM", title: "朝のどんぐりカフェ", showName: "朝のどんぐりカフェ", state: "planned" },
+  ],
+  2: [
+    { ...slotOf("MINATO", "2026-04-09", "14:00", 180), stationName: "みなとラジオ", title: "波打ちぎわの昭和歌謡", showName: "波打ちぎわの昭和歌謡", state: "done" },
+    { ...slotOf("MINATO", "2026-04-16", "14:00", 180), stationName: "みなとラジオ", title: "波打ちぎわの昭和歌謡", showName: "波打ちぎわの昭和歌謡", state: "skipped" },
+  ],
+  3: [],
+};
+
+export const tokens: ApiToken[] = [
+  { id: 1, name: "ダミーのスクリプト", createdAt: jst("2026-04-01", "10:00"), lastUsedAt: jst("2026-04-14", "08:30") },
+  { id: 2, name: "ダミーのスマホ", createdAt: jst("2026-04-10", "21:15"), lastUsedAt: null },
+];
 
 /** 画像の代わりに返す、単色の SVG（番組の画像のダミー）。 */
 export const mockImage = (n: string) => {

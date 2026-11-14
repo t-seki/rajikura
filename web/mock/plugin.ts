@@ -8,10 +8,12 @@ import type { Plugin } from "vite";
 import type { MeBody } from "../src/api.ts";
 import type { GuideAreas, GuideResult, SearchResult } from "../src/guide/api.ts";
 import type { JobDetail, JobList } from "../src/jobs/jobsApi.ts";
+import type { Keyword, KeywordAiring } from "../src/keywords/keywordsApi.ts";
 import type { NotificationList, NotificationStatus } from "../src/notifications/notificationsApi.ts";
 import type { SettingsView } from "../src/settings/settingsApi.ts";
 import type { Show, ShowDetail, Station } from "../src/shows/api.ts";
-import { guideOf, jobDetail, jobs, mockImage, shows, stations } from "./data.ts";
+import type { ApiToken } from "../src/tokens/tokensApi.ts";
+import { guideOf, jobDetail, jobs, keywordAirings, keywords, mockImage, shows, stations, tokens } from "./data.ts";
 
 function json(res: ServerResponse, body: unknown, status = 200) {
   res.statusCode = status;
@@ -64,6 +66,10 @@ function answer(req: IncomingMessage, res: ServerResponse): boolean {
     const j = jobs.find((x) => x.id === Number(job[1]));
     return j ? (json(res, jobDetail(j) satisfies JobDetail), true) : (json(res, { error: "ジョブが無い" }, 404), true);
   }
+  if (path === "/api/keywords") return json(res, { keywords } satisfies { keywords: Keyword[] }), true;
+  const kwAirings = /^\/api\/keywords\/(\d+)\/airings$/.exec(path);
+  if (kwAirings) return json(res, { airings: keywordAirings[Number(kwAirings[1])] ?? [] } satisfies { airings: KeywordAiring[] }), true;
+  if (path === "/api/tokens") return json(res, { tokens } satisfies { tokens: ApiToken[] }), true;
   if (path === "/api/settings") {
     return json(res, { settings: { library: "D:\\Radio", preset: "jellyfin" }, secrets: {}, library_set: true, unreadable_secrets: [], last_backup_at: null } satisfies SettingsView), true;
   }
