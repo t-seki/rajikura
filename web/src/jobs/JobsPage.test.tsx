@@ -91,6 +91,12 @@ afterEach(() => {
 });
 
 describe("JobsPage", () => {
+  it("画面の見出しは、ナビの文字と同じ「ジョブ」", async () => {
+    mockApi({ "GET /api/jobs": () => ({ status: 200, body: { jobs: [base] } }) });
+    renderPage();
+    expect(await screen.findByRole("heading", { level: 2, name: "ジョブ" })).toBeInTheDocument();
+  });
+
   it("一覧に番組・放送日・状態・試行回数を出し、パートも出す", async () => {
     mockApi({
       "GET /api/jobs": () => ({ status: 200, body: { jobs: [base, { ...base, id: 2, showName: "番組B", part: 2, state: "done", retryable: false }] } }),

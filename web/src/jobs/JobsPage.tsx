@@ -1,4 +1,4 @@
-import { Alert, Button, Card, Group, Loader, MultiSelect, Stack, Table, Text } from "@mantine/core";
+import { Alert, Button, Card, Group, Loader, MultiSelect, Stack, Table, Text, Title } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listStations } from "../shows/api";
@@ -129,6 +129,7 @@ export function JobsPage({
 
   return (
     <Stack>
+      <Title order={2}>ジョブ</Title>
       <MultiSelect
         label="状態で絞り込み"
         placeholder={filter.length === 0 ? "すべて" : undefined}

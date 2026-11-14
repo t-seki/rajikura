@@ -39,6 +39,12 @@ afterEach(() => {
 });
 
 describe("TokensPage", () => {
+  it("画面の見出しは、ナビの文字と同じ「API トークン」", async () => {
+    mockApi({ "GET /api/tokens": () => ({ status: 200, body: { tokens: [] } }) });
+    renderPage();
+    expect(await screen.findByRole("heading", { level: 2, name: "API トークン" })).toBeInTheDocument();
+  });
+
   it("一覧に名前・発行日時・最後に使った日時を出す（使っていなければそう出す）", async () => {
     mockApi({ "GET /api/tokens": () => ({ status: 200, body: { tokens: [used, fresh] } }) });
     renderPage();

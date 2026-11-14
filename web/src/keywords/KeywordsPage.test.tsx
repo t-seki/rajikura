@@ -70,6 +70,12 @@ function airing(over: Partial<GuideAiring> = {}): GuideAiring {
 const previewPath = (words: string, exclude = "", st = "") => `GET /api/keywords/preview?${new URLSearchParams({ words, exclude, stations: st })}`;
 
 describe("KeywordsPage", () => {
+  it("画面の見出しは、ナビの文字と同じ「キーワード」", async () => {
+    mockApi({ ...baseRoutes, ...listRoute([mukai]) });
+    renderPage();
+    expect(await screen.findByRole("heading", { level: 2, name: "キーワード" })).toBeInTheDocument();
+  });
+
   it("一覧に、語・除外する語・局・有効／無効・録音を終えていない数を出す", async () => {
     mockApi({ ...baseRoutes, ...listRoute([mukai, other]) });
     renderPage();

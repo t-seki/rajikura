@@ -538,7 +538,7 @@ describe("ShowsPage", () => {
     });
     const user = userEvent.setup();
     renderPage();
-    expect(await screen.findByRole("heading", { name: "番組の一覧" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "番組" })).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: "番組を作る" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByLabelText(/番組の名前（保存先のフォルダ名になる）/)).toBeInTheDocument();

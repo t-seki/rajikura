@@ -33,6 +33,7 @@ export function SettingsPage({ onChanged }: { onChanged: (view: SettingsView) =>
   // 読み込みが終わってもフォームが作り直されないよう、最後の区切りは同じ位置に置く。
   return (
     <Stack>
+      <Title order={2}>設定</Title>
       {view ? (
         <>
           <LibrarySection view={view} onChanged={changed} />

@@ -80,7 +80,7 @@ async function openAiring(user: ReturnType<typeof userEvent.setup>, name: RegExp
 }
 
 async function expectEditing(name: string) {
-  expect(await screen.findByRole("heading", { name: "番組の一覧" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "番組" })).toBeInTheDocument();
   const dialog = await screen.findByRole("dialog", { name: "番組を編集する" });
   expect(within(dialog).getByRole("textbox", { name: /番組の名前/ })).toHaveValue(name);
 }
@@ -108,7 +108,7 @@ describe("番組表から番組の画面を開く", () => {
     await user.click(screen.getByText("番組表"));
     await screen.findByTestId("guide-list");
     await user.click(screen.getByText("番組"));
-    expect(await screen.findByRole("heading", { name: "番組の一覧" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "番組" })).toBeInTheDocument();
     await screen.findByText("朝の番組");
     // 編集が開くなら一覧を読んだ直後に開くので、少し待ってから見る
     await new Promise((r) => setTimeout(r, 100));
