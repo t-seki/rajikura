@@ -184,6 +184,23 @@ function cellStyle(state: GuideAiring["state"], color: string): CSSProperties {
   }
 }
 
+/** 枠の border の太さ（px）。cellStyle と合わせる。破線の枠は 2px、ほかは 1px。 */
+function cellBorderWidth(state: GuideAiring["state"]): number {
+  return state === "missed" || state === "skip_planned" || state === "skipped" ? 2 : 1;
+}
+
+/** 題名の行の高さ（px）。 */
+const LINE_HEIGHT = 14;
+
+/**
+ * 枠に入る題名の行数。枠は border-box なので、上下の border を除いた中身の高さに入る行数（1 以上）。
+ * 行数×行の高さが中身の高さを超えないようにして、どの行も欠けないようにする。
+ */
+function linesFor(cellHeight: number, state: GuideAiring["state"]): number {
+  const content = cellHeight - 2 * cellBorderWidth(state);
+  return Math.max(1, Math.floor(content / LINE_HEIGHT));
+}
+
 /** 押したときの修飾キー。toggle は Ctrl（Mac は ⌘）、range は Shift。 */
 type Mods = { toggle: boolean; range: boolean };
 
@@ -383,7 +400,7 @@ function Grid({
                 const color = stateColor[a.state];
                 const isSelected = selected.has(keyOf(a));
                 const cellHeight = ((to - from) / 60000) * PX_PER_MIN - 2;
-                const lines = Math.max(1, Math.floor(cellHeight / 14));
+                const lines = linesFor(cellHeight, a.state);
                 return (
                   <UnstyledButton
                     key={a.start}
@@ -405,7 +422,7 @@ function Grid({
                       ...(isSelected ? SELECTED_OUTLINE : {}),
                     }}
                   >
-                    <Text size="xs" style={lines === 1 ? ONE_LINE : clampLines(lines)} fw={a.state === "none" || a.state === "missed" || a.state === "skip_planned" || a.state === "skipped" ? 400 : 600} lh="14px">
+                    <Text size="xs" style={lines === 1 ? ONE_LINE : clampLines(lines)} fw={a.state === "none" || a.state === "missed" || a.state === "skip_planned" || a.state === "skipped" ? 400 : 600} lh={`${LINE_HEIGHT}px`}>
                       {(stateMark[a.state] || a.notAvailable) && (
                         <span aria-hidden>
                           {stateMark[a.state]}
