@@ -9,8 +9,8 @@ export function nextSort<K extends string>(current: SortState<K>, key: K): SortS
   return null;
 }
 
-// 並べ替えの矢印。いま並べている列だけに付く。
+// 並べ替えの印。並べていない列は ↕、いま並べている列は向きに合わせて ↑ か ↓。
 export function sortMark<K extends string>(current: SortState<K>, key: K): string {
-  if (current?.key !== key) return "";
-  return current.dir === "asc" ? "▲" : "▼";
+  if (current?.key !== key) return "↕";
+  return current.dir === "asc" ? "↑" : "↓";
 }

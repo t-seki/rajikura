@@ -1,4 +1,4 @@
-import { Table, UnstyledButton } from "@mantine/core";
+import { Table, Text, UnstyledButton } from "@mantine/core";
 import { nextSort, sortMark, type SortState } from "./sort";
 
 type Props<K extends string> = {
@@ -14,7 +14,10 @@ export function SortableTh<K extends string>({ label, sortKey, sort, onSort }: P
   return (
     <Table.Th aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
       <UnstyledButton fw="inherit" onClick={() => onSort(nextSort(sort, sortKey))}>
-        {active ? `${label} ${sortMark(sort, sortKey)}` : label}
+        {label}
+        <Text span aria-hidden="true" ml={4} c={active ? undefined : "dimmed"} opacity={active ? 1 : 0.5}>
+          {sortMark(sort, sortKey)}
+        </Text>
       </UnstyledButton>
     </Table.Th>
   );
