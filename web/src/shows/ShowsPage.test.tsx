@@ -587,13 +587,19 @@ describe("ShowsPage", () => {
     // 見つからなければそう出し、名前は空のまま。
     await user.type(within(weekly).getByLabelText(/開始（HH:MM）/), "09:00");
     await user.click(within(weekly).getByRole("button", { name: "番組表から名前を入れる" }));
-    expect(await within(weekly).findByRole("status")).toHaveTextContent("09:00 の放送回が無い");
+    // 案内の番組表の日付は、曜日付きの 10/12(月) の形（今年なので年は付かない）。
+    expect(await within(weekly).findByRole("status")).toHaveTextContent(
+      /^10\/12\(月\) の番組表に、開始時刻が 09:00 の放送回が無い。名前は手で打ってほしい$/,
+    );
     expect(screen.getByLabelText(/番組の名前/)).toHaveValue("");
 
     await user.clear(within(weekly).getByLabelText(/開始（HH:MM）/));
     await user.type(within(weekly).getByLabelText(/開始（HH:MM）/), "08:30");
     await user.click(within(weekly).getByRole("button", { name: "番組表から名前を入れる" }));
     await waitFor(() => expect(screen.getByLabelText(/番組の名前/)).toHaveValue("パンサー向井のふらっと"));
+    expect(within(weekly).getByRole("status")).toHaveTextContent(
+      /^10\/12\(月\) の番組表の「パンサー向井のふらっと（１）」から名前を入れた。直してよい$/,
+    );
 
     await user.click(screen.getByRole("button", { name: "保存" }));
     await waitFor(() => expect(calls.some((c) => c.key === "POST /api/shows")).toBe(true));
@@ -631,6 +637,31 @@ describe("ShowsPage", () => {
     await user.type(within(weekly).getByLabelText(/開始（HH:MM）/), "25:00");
     await user.click(within(weekly).getByRole("button", { name: "番組表から名前を入れる" }));
     await waitFor(() => expect(screen.getByLabelText(/番組の名前/)).toHaveValue("オードリーのオールナイトニッポン"));
+  });
+
+  it("番組表から名前を入れる案内の日付は、今年（日本時間）でなければ年を付ける", async () => {
+    vi.setSystemTime(new Date("2026-12-30T12:00:00+09:00"));
+    mockApi({
+      "GET /api/shows": () => ({ status: 200, body: [] }),
+      "GET /api/stations": () => ({ status: 200, body: stations }),
+      "GET /api/show-name?station=TBS&weekday=5&start=08%3A30": () => ({
+        status: 200,
+        body: { found: false, day: "2027-01-01" },
+      }),
+    });
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "番組を作る" }));
+    await user.click(await screen.findByRole("button", { name: "毎週の予約を足す" }));
+    const weekly = screen.getByLabelText("予約 1");
+    await user.click(within(weekly).getByRole("combobox", { name: "局" }));
+    await user.click(await screen.findByRole("option", { name: "TBSラジオ（TBS）", hidden: true }));
+    await user.click(within(weekly).getByRole("button", { name: "金" }));
+    await user.type(within(weekly).getByLabelText(/開始（HH:MM）/), "08:30");
+    await user.click(within(weekly).getByRole("button", { name: "番組表から名前を入れる" }));
+    expect(await within(weekly).findByRole("status")).toHaveTextContent(
+      /^2027\/1\/1\(金\) の番組表に、開始時刻が 08:30 の放送回が無い。名前は手で打ってほしい$/,
+    );
   });
 
   it("名前を変えると、録音済みを含む全部のジョブが付け替わることと、保存済みのファイルも新しい名前のフォルダへ移すことを知らせ、古い名前に PUT する", async () => {
