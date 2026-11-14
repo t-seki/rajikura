@@ -275,14 +275,18 @@ describe("GuidePage の番組表", () => {
     expect(none.getAttribute("aria-label")).toContain("予約なし");
   });
 
-  it("グリッドの枠は番組名を 1 行で省略し、title に番組名・時刻・状態を全部出す", async () => {
+  it("グリッドの枠は番組名を枠の高さに入る行数まで折り返して省略し、title に番組名・時刻・状態を全部出す", async () => {
     setWide(true);
     mockApi(dayRoute);
     renderPage();
     const grid = await screen.findByTestId("guide-grid");
     const cell = within(grid).getByRole("button", { name: /番組R/ });
     expect(cell.getAttribute("title")).toBe("番組R 10:00〜11:00 録音予定");
-    expect(cell.querySelector("p")).toHaveStyle({ whiteSpace: "nowrap", textOverflow: "ellipsis" });
+    // 1 時間の枠: 高さ 60×1.6−2=94px、行の高さ 14px → 6 行
+    const p = cell.querySelector("p") as HTMLElement;
+    expect(p.style.whiteSpace).not.toBe("nowrap");
+    expect(p.style.getPropertyValue("-webkit-line-clamp")).toBe("6");
+    expect(p).toHaveStyle({ overflow: "hidden", textOverflow: "ellipsis" });
   });
 
   it("スマホのリストと凡例にも、状態の印と対象外の印が出る", async () => {

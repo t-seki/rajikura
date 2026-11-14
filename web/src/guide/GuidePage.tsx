@@ -157,6 +157,15 @@ function useNow(): number {
 
 /** 番組名を 1 行で省略するスタイル。 */
 const ONE_LINE: CSSProperties = { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
+// 枠の高さに入る行数まで折り返し、入りきらなければ最後の行を「…」で切る
+const clampLines = (n: number): CSSProperties => ({
+  display: "-webkit-box",
+  WebkitBoxOrient: "vertical",
+  WebkitLineClamp: n,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  overflowWrap: "anywhere",
+});
 
 /** 枠の塗り分け。予約なしは淡く、録音予定・録音済みは色で塗り、録音できなかった・録らない予定・録らなかったは破線の枠。 */
 function cellStyle(state: GuideAiring["state"], color: string): CSSProperties {
@@ -373,6 +382,8 @@ function Grid({
                 if (to <= from) return null;
                 const color = stateColor[a.state];
                 const isSelected = selected.has(keyOf(a));
+                const cellHeight = ((to - from) / 60000) * PX_PER_MIN - 2;
+                const lines = Math.max(1, Math.floor(cellHeight / 14));
                 return (
                   <UnstyledButton
                     key={a.start}
@@ -386,7 +397,7 @@ function Grid({
                       left: 2,
                       right: 2,
                       top: ((from - start) / 60000) * PX_PER_MIN,
-                      height: ((to - from) / 60000) * PX_PER_MIN - 2,
+                      height: cellHeight,
                       overflow: "hidden",
                       padding: "0 4px",
                       borderRadius: 4,
@@ -394,7 +405,7 @@ function Grid({
                       ...(isSelected ? SELECTED_OUTLINE : {}),
                     }}
                   >
-                    <Text size="xs" style={ONE_LINE} fw={a.state === "none" || a.state === "missed" || a.state === "skip_planned" || a.state === "skipped" ? 400 : 600} lh="14px">
+                    <Text size="xs" style={lines === 1 ? ONE_LINE : clampLines(lines)} fw={a.state === "none" || a.state === "missed" || a.state === "skip_planned" || a.state === "skipped" ? 400 : 600} lh="14px">
                       {(stateMark[a.state] || a.notAvailable) && (
                         <span aria-hidden>
                           {stateMark[a.state]}
