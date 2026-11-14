@@ -331,13 +331,13 @@ export function ShowsPage({
                       ))}
                   </Table.Td>
                   <Table.Td>
-                    <Group gap="xs" wrap="nowrap">
+                    <Group gap="xl" wrap="nowrap">
                       <Button size="xs" variant="default" disabled={checking} onClick={() => startEdit(s)} aria-label={`${s.name} を編集`}>
                         編集
                       </Button>
                       <Button
                         size="xs"
-                        variant="subtle"
+                        variant="outline"
                         color="red"
                         disabled={checking}
                         onClick={() => setDeleting(s)}
