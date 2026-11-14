@@ -159,7 +159,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <Card withBorder padding="md" component="section" aria-label={title} id={id}>
+    <Card withBorder padding="md" component="section" aria-label={title} id={id} style={{ scrollMarginTop: 72 }}>
       <Stack>
         <Title order={4}>{title}</Title>
         {hint && (
