@@ -548,7 +548,7 @@ describe("SettingsPage の自動のバックアップ", () => {
     const region = await screen.findByRole("region", { name: "バックアップ" });
     expect(within(region).getByLabelText("自動のバックアップを取る先のフォルダ")).toHaveValue("/backups");
     expect(within(region).getByLabelText("残す数")).toHaveValue("7");
-    expect(region).toHaveTextContent("最後に自動で取れた日時: 10/18 12:05");
+    expect(region).toHaveTextContent("最後に自動で取れた日時: 10/18(日) 12:05");
   });
 
   it("まだ取れていなければ「まだ取れていない」と出す", async () => {

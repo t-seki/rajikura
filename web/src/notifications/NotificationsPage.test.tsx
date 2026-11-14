@@ -61,7 +61,7 @@ describe("NotificationsPage", () => {
     expect(within(items[0]).getByText("録音できなかった")).toBeInTheDocument();
     expect(within(items[0]).getByText("送れなかった")).toBeInTheDocument();
     expect(within(items[0]).getByText("未読")).toBeInTheDocument();
-    expect(within(items[0]).getByText("10/15 12:00")).toBeInTheDocument();
+    expect(within(items[0]).getByText("10/15(木) 12:00")).toBeInTheDocument();
     expect(within(items[0]).getByText(/番組名の食い違い/)).toBeInTheDocument();
     expect(within(items[1]).getByText("録音済み")).toBeInTheDocument();
     expect(within(items[1]).queryByText("送れなかった")).not.toBeInTheDocument();
@@ -249,7 +249,7 @@ describe("テスト通知のカード", () => {
     const busy = await within(card).findByRole("button", { name: "送っている…" });
     expect(busy).toBeDisabled();
     release();
-    expect(await within(card).findByText("送れた（10/15 13:00）。通知先に届いたかを確かめて。")).toBeInTheDocument();
+    expect(await within(card).findByText("送れた（10/15(木) 13:00）。通知先に届いたかを確かめて。")).toBeInTheDocument();
     expect(within(card).getByRole("button", { name: "テスト通知を送る" })).toBeEnabled();
     await waitFor(() => expect(screen.getAllByTestId("notification")).toHaveLength(2));
     const items = screen.getAllByTestId("notification");

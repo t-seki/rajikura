@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listStations } from "../shows/api";
 import { SortableTh } from "../ui/SortableTh";
 import type { SortState } from "../ui/sort";
+import { dayLabel } from "../guide/format";
 import { formatDateTime, formatTime, progressText, stageLabel, truncate } from "./format";
 import { JobDetailModal, useVisiblePolling } from "./JobDetailModal";
 import { getJob, jobStates, JobsApiError, listJobs, type JobState, type JobSummary } from "./jobsApi";
@@ -172,7 +173,7 @@ export function JobsPage({
                       <ProgressText job={j} />
                     </Group>
                   </Table.Td>
-                  <Table.Td>{j.day}</Table.Td>
+                  <Table.Td>{dayLabel(j.day)}</Table.Td>
                   <Table.Td style={{ overflowWrap: "anywhere" }}>{jobTitle(j)}</Table.Td>
                   <Table.Td>
                     <StationTimes job={j} names={stationNames} />
@@ -211,7 +212,7 @@ export function JobsPage({
                 <Text fw={600} style={{ overflowWrap: "anywhere" }}>
                   {jobTitle(j)}
                 </Text>
-                <Text size="sm">放送日 {j.day}</Text>
+                <Text size="sm">放送日 {dayLabel(j.day)}</Text>
                 <StationTimes job={j} names={stationNames} />
                 <Text size="sm" c="dimmed">
                   試行 {j.attempts} 回

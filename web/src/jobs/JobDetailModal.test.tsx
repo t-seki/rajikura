@@ -68,10 +68,10 @@ describe("JobDetailModal のチャプターの書き込みの履歴", () => {
     const rows = await screen.findAllByTestId("chapter-write");
     expect(screen.getByText("チャプターの書き込みの履歴")).toBeInTheDocument();
     expect(rows).toHaveLength(3);
-    expect(within(rows[0]).getByText("10/11 11:40 ・ チャプターの取り直し ・ 書き込めなかった（ファイルは前のまま）")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("10/11(日) 11:40 ・ チャプターの取り直し ・ 書き込めなかった（ファイルは前のまま）")).toBeInTheDocument();
     expect(within(rows[0]).getByText("保存先にファイルが無い")).toBeInTheDocument();
-    expect(within(rows[1]).getByText("10/11 12:10 ・ チャプターの取り直し ・ チャプターを取れなかったので書かなかった")).toBeInTheDocument();
-    expect(within(rows[2]).getByText("10/11 12:40 ・ チャプターの入れ直し ・ 12 件を書き込んだ")).toBeInTheDocument();
+    expect(within(rows[1]).getByText("10/11(日) 12:10 ・ チャプターの取り直し ・ チャプターを取れなかったので書かなかった")).toBeInTheDocument();
+    expect(within(rows[2]).getByText("10/11(日) 12:40 ・ チャプターの入れ直し ・ 12 件を書き込んだ")).toBeInTheDocument();
     // 試行の履歴の行には混ざらない。
     expect(screen.getAllByTestId("attempt")).toHaveLength(1);
   });
@@ -170,13 +170,13 @@ describe("JobDetailModal の「保存先を移す」", () => {
     const rows = await screen.findAllByTestId("output-move");
     expect(screen.getByText("保存先の移しの履歴")).toBeInTheDocument();
     expect(rows).toHaveLength(5);
-    expect(within(rows[0]).getByText("10/11 11:40 ・ 移し先に同じ名前のファイルがあるので移さなかった")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("10/11(日) 11:40 ・ 移し先に同じ名前のファイルがあるので移さなかった")).toBeInTheDocument();
     expect(within(rows[0]).getByText("/lib/a/a 2026-10-11.m4a → /lib/b/b 2026-10-11.m4a")).toBeInTheDocument();
-    expect(within(rows[1]).getByText("10/11 12:10 ・ 保存先が番組の名前の形でないので移さなかった")).toBeInTheDocument();
+    expect(within(rows[1]).getByText("10/11(日) 12:10 ・ 保存先が番組の名前の形でないので移さなかった")).toBeInTheDocument();
     expect(within(rows[1]).getByText("/lib/a.m4a")).toBeInTheDocument();
     expect(within(rows[2]).getByText("書けない")).toBeInTheDocument();
-    expect(within(rows[3]).getByText("10/11 13:10 ・ 移した")).toBeInTheDocument();
-    expect(within(rows[4]).getByText("10/11 13:40 ・ 保存先は同じなので、アルバムの名前だけ書き換えた")).toBeInTheDocument();
+    expect(within(rows[3]).getByText("10/11(日) 13:10 ・ 移した")).toBeInTheDocument();
+    expect(within(rows[4]).getByText("10/11(日) 13:40 ・ 保存先は同じなので、アルバムの名前だけ書き換えた")).toBeInTheDocument();
     // 移す前と移し先が同じ行は、パスを 1 回だけ出す。
     expect(within(rows[4]).getByText("/lib/b/b 2026-10-11.m4a")).toBeInTheDocument();
     expect(rows[4].textContent).not.toContain("→");

@@ -99,7 +99,7 @@ describe("JobsPage", () => {
     const items = await screen.findAllByTestId("job");
     expect(items).toHaveLength(2);
     expect(within(items[0]).getByText("番組A")).toBeInTheDocument();
-    expect(within(items[0]).getByText(/放送日 2026-10-11/)).toBeInTheDocument();
+    expect(within(items[0]).getByText(/放送日 10\/11\(日\)/)).toBeInTheDocument();
     expect(within(items[0]).getByText("録音予定（失敗・再試行待ち）")).toBeInTheDocument();
     expect(within(items[0]).getByText(/試行 2 回/)).toBeInTheDocument();
     expect(within(items[1]).getByText(/パート 2/)).toBeInTheDocument();
@@ -177,7 +177,7 @@ describe("JobsPage", () => {
     const airing = await screen.findByTestId("airing");
     expect(within(airing).getByText("TBS ・ 27:40〜28:00")).toBeInTheDocument();
     expect(within(airing).queryByText(/03:40/)).toBeNull();
-    expect(within(screen.getByRole("dialog")).getByText("録音期限 10/21 04:05")).toBeInTheDocument();
+    expect(within(screen.getByRole("dialog")).getByText("録音期限 10/21(水) 04:05")).toBeInTheDocument();
   });
 
   it("詳細にチャプターの値（入った・待っている・入らなかった）を出し、値が無ければ出さない", async () => {
@@ -223,7 +223,7 @@ describe("JobsPage", () => {
     });
     renderPage();
     await userEvent.click(await screen.findByRole("button", { name: "番組Aの詳細" }));
-    expect(await screen.findByText("録れた分を保存できなかったので、保存を自動でやり直している（10/12 13:00 まで）。")).toBeInTheDocument();
+    expect(await screen.findByText("録れた分を保存できなかったので、保存を自動でやり直している（10/12(月) 13:00 まで）。")).toBeInTheDocument();
     expect(screen.queryByText(/まで残している/)).toBeNull();
   });
 
@@ -235,7 +235,7 @@ describe("JobsPage", () => {
     renderPage();
     await userEvent.click(await screen.findByRole("button", { name: "番組Aの詳細" }));
     expect(
-      await screen.findByText("録れた分を 11/11 13:00 まで残している。保存先などの原因を直してから「手動で再試行」を押すと、保存からやり直す。"),
+      await screen.findByText("録れた分を 11/11(水) 13:00 まで残している。保存先などの原因を直してから「手動で再試行」を押すと、保存からやり直す。"),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "手動で再試行" })).toBeInTheDocument();
     expect(screen.queryByText(/自動でやり直している/)).toBeNull();
@@ -447,6 +447,30 @@ describe("JobsPage", () => {
     expect(names(screen.getAllByTestId("job"))).toEqual(["番組近", "番組先", "番組済"]);
   });
 
+  it("PC の表の放送日の列は、放送日を曜日付きの 10/11(日) の形で出し、今年でない放送日にだけ年を付ける", async () => {
+    setWide(true);
+    mockApi({
+      "GET /api/stations": stations,
+      "GET /api/jobs": () => ({
+        status: 200,
+        body: {
+          jobs: [
+            { ...base, id: 1, showName: "番組今年", day: "2026-10-11", state: "waiting" },
+            { ...base, id: 2, showName: "番組去年", day: "2025-12-31", state: "done" },
+          ],
+        },
+      }),
+    });
+    renderPage();
+    const items = await screen.findAllByTestId("job");
+    const row = (name: string) => items.find((i) => within(i).queryByText(name) !== null)!;
+    const thisYear = within(row("番組今年")).getByText("10/11(日)");
+    expect(thisYear.tagName).toBe("TD");
+    const lastYear = within(row("番組去年")).getByText("2025/12/31(水)");
+    expect(lastYear.tagName).toBe("TD");
+    expect(within(row("番組今年")).queryByText(/2026-10-11/)).toBeNull();
+  });
+
   it("同じ放送日の中を、最初の放送回の開始時刻の順に並べる（既定は これから が古い順・済んだものが新しい順、開始が同じなら API の並び）", async () => {
     setWide(true);
     const at = (start: string) => [{ stationId: "TBS", start, end: start }];
@@ -547,7 +571,7 @@ describe("JobsPage", () => {
     const items = await screen.findAllByTestId("job");
     expect(await within(items[0]).findByText("文化放送 21:30〜22:00")).toBeInTheDocument();
     expect(within(items[1]).getByText("ニッポン放送 25:00〜27:00")).toBeInTheDocument();
-    expect(within(items[1]).getByText(/次の試行 10\/16 01:04/)).toBeInTheDocument();
+    expect(within(items[1]).getByText(/次の試行 10\/16\(金\) 01:04/)).toBeInTheDocument();
   });
 
   it("手動再試行が成功したらトーストで知らせる", async () => {

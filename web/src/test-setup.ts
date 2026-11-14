@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
-import { afterEach } from "vitest";
+import { afterEach, beforeEach, vi } from "vitest";
 
 afterEach(cleanup);
 
@@ -25,3 +25,14 @@ globalThis.ResizeObserver ??= ResizeObserverStub;
 
 // Mantine の Select が選択肢を見えるところまで送る。jsdom には無い。
 Element.prototype.scrollIntoView ??= () => {};
+
+// 日付の年は「今年（日本時間）」で付け外しするので、テストの「今」を 2026 年に固定する（Date だけ。タイマーは本物）。
+// 年の付け外しを確かめるテストは、今を引数で渡すか vi.setSystemTime で変える。
+// テストのファイルは、一番上で `broadcastDayOf(new Date())` のように「今日」を作るので、ファイルを読み込む前
+// （この setup の一番上）でも固定する。beforeEach だけだと、読み込みの時の今日は本物の時計になり、
+// 画面が描く今日（固定した日）とずれて、実際の日付が 2026-11-14 でない日に落ちる。
+const FIXED_NOW = new Date("2026-11-14T12:00:00+09:00");
+const fixNow = () => vi.useFakeTimers({ toFake: ["Date"], now: FIXED_NOW });
+fixNow();
+// テストが自分で時計を変えたり本物に戻したりしても、次のテストは固定した今から始める。
+beforeEach(fixNow);

@@ -26,10 +26,17 @@ export const weekdayOf = (day: string) => new Date(`${day}T00:00:00Z`).getUTCDay
 
 const weekdayNames = ["日", "月", "火", "水", "木", "金", "土"];
 
-/** 「10/12(月)」の形。 */
-export function dayLabel(day: string): string {
-  const [, m, d] = day.split("-").map(Number);
-  return `${m}/${d}(${weekdayNames[weekdayOf(day)]})`;
+/** 今（日本時間）の年。 */
+export const currentYearJst = (now: Date | number = Date.now()) => new Date(new Date(now).getTime() + JST_OFFSET_MS).getUTCFullYear();
+
+/**
+ * 放送日（YYYY-MM-DD）を「10/12(月)」の形にする。今年（日本時間）でなければ「2025/12/30(火)」と年を付ける。
+ * 放送日の文字列の年で判断する（暦の日付に直さない）。
+ */
+export function dayLabel(day: string, now: Date | number = Date.now()): string {
+  const [y, m, d] = day.split("-").map(Number);
+  const year = y === currentYearJst(now) ? "" : `${y}/`;
+  return `${year}${m}/${d}(${weekdayNames[weekdayOf(day)]})`;
 }
 
 /** 放送日の 5:00（日本時間）。 */

@@ -13,6 +13,7 @@ import {
   TextInput,
 } from "@mantine/core";
 import { useEffect, useRef, useState } from "react";
+import { dayLabel } from "../guide/format";
 import { stationLabel } from "../keywords/keywordsApi";
 import { deleteOnce, getShow, suggestShowName, type Once, type Show, type Station } from "./api";
 import {
@@ -292,11 +293,11 @@ export function ShowForm({
       const got = await suggestShowName(r.station, r.weekdays[0], start.start);
       if (got.found && got.name) {
         setShow((s) => ({ ...s, name: got.name! }));
-        setSuggest({ index: i, text: `${got.day} の番組表の「${got.title}」から名前を入れた。直してよい`, color: "blue" });
+        setSuggest({ index: i, text: `${dayLabel(got.day)} の番組表の「${got.title}」から名前を入れた。直してよい`, color: "blue" });
       } else {
         setSuggest({
           index: i,
-          text: `${got.day} の番組表に、開始時刻が ${r.start} の放送回が無い。名前は手で打ってほしい`,
+          text: `${dayLabel(got.day)} の番組表に、開始時刻が ${r.start} の放送回が無い。名前は手で打ってほしい`,
           color: "yellow",
         });
       }
