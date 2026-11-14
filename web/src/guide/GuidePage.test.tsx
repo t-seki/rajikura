@@ -355,11 +355,31 @@ describe("GuidePage の番組表", () => {
     expect(row(/番組D/)).toHaveTextContent("✓録音済み");
     expect(row(/番組M/)).toHaveTextContent("!録音できなかった");
     expect(row(/番組N/)).toHaveTextContent("◎ライブで録る");
-    const legend = screen.getByLabelText("凡例");
+    await userEvent.click(screen.getByRole("button", { name: "凡例" }));
+    const legend = await screen.findByLabelText("凡例の項目");
+    expect(legend).toHaveTextContent("予約なし");
     expect(legend).toHaveTextContent("●録音予定");
     expect(legend).toHaveTextContent("✓録音済み");
     expect(legend).toHaveTextContent("!録音できなかった");
+    expect(legend).toHaveTextContent("○録らない予定");
+    expect(legend).toHaveTextContent("–録らなかった");
     expect(legend).toHaveTextContent("◎ライブで録る");
+  });
+
+  it.each([
+    ["スマホ幅", false],
+    ["PC 幅", true],
+  ])("凡例は、いつも出さず、「凡例」のボタンで小窓を開き、Esc で閉じる（%s）", async (_n, wide) => {
+    setWide(wide);
+    mockApi(dayRoute);
+    renderPage();
+    await screen.findByTestId(wide ? "guide-grid" : "guide-list");
+    expect(screen.queryByLabelText("凡例")).toBeNull();
+    expect(screen.queryByLabelText("凡例の項目")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "凡例" }));
+    expect(await screen.findByLabelText("凡例の項目")).toHaveTextContent("●録音予定");
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByLabelText("凡例の項目")).toBeNull());
   });
 
   it("リスト・グリッド・局の表の時刻は、その放送回の放送日の時刻で出す（深夜は 24 時より後）", async () => {
