@@ -149,7 +149,7 @@ export function JobsPage({
       {jobs === null && !error && <Loader size="sm" />}
       {jobs?.length === 0 && <Text c="dimmed">該当するジョブは無い。</Text>}
       {rows && rows.length > 0 && wide && (
-        <Table.ScrollContainer minWidth={900}>
+        <Table.ScrollContainer minWidth={860}>
           <Table highlightOnHover verticalSpacing="xs">
             <Table.Thead>
               <Table.Tr>
@@ -160,7 +160,7 @@ export function JobsPage({
                 <SortableTh label="試行" sortKey="attempts" sort={sort} onSort={setSort} />
                 <SortableTh label="次の試行・録音期限" sortKey="next" sort={sort} onSort={setSort} />
                 <Table.Th>直近の失敗の理由</Table.Th>
-                <Table.Th />
+                <Table.Th w={32} />
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -174,29 +174,31 @@ export function JobsPage({
                       <ProgressText job={j} />
                     </Group>
                   </Table.Td>
-                  <Table.Td>{dayLabel(j.day)}</Table.Td>
+                  <Table.Td style={{ whiteSpace: "nowrap" }}>{dayLabel(j.day)}</Table.Td>
                   <Table.Td style={{ overflowWrap: "anywhere" }}>{jobTitle(j)}</Table.Td>
                   <Table.Td>
                     <StationTimes job={j} names={stationNames} />
                   </Table.Td>
-                  <Table.Td>{j.attempts} 回</Table.Td>
+                  <Table.Td style={{ whiteSpace: "nowrap" }}>{j.attempts} 回</Table.Td>
                   <Table.Td>{formatDateTime(nextOrDeadline(j))}</Table.Td>
                   <Table.Td>
                     <Text size="sm" c="red" style={{ overflowWrap: "anywhere" }}>
                       {failureReason(j)}
                     </Text>
                   </Table.Td>
-                  <Table.Td>
+                  <Table.Td w={32} p={0}>
                     <Button
                       size="compact-sm"
-                      variant="default"
+                      variant="subtle"
+                      px={0}
+                      w={32}
                       onClick={(e) => {
                         e.stopPropagation();
                         setSelected(j.id);
                       }}
                       aria-label={`${j.showName}の詳細`}
                     >
-                      詳細
+                      ›
                     </Button>
                   </Table.Td>
                 </Table.Tr>
