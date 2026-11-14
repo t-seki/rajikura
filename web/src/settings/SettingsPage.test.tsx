@@ -62,6 +62,7 @@ function mockApi(
   patch?: (body: unknown) => { status: number; body: unknown },
   folders?: (path: string) => { status: number; body: unknown },
   idp?: (method: string, url: string, body: unknown) => { status: number; body: unknown },
+  testNotify?: () => { status: number; body: unknown },
 ) {
   const calls: Call[] = [];
   vi.stubGlobal(
@@ -80,6 +81,11 @@ function mockApi(
         const r = idp ? idp(method, url, b) : { status: 200, body: idpBase };
         return new Response(JSON.stringify(r.body), { status: r.status });
       }
+      if (url === "/api/notifications/test") {
+        calls.push({ method: `${method} ${url}`, body: init?.body });
+        const r = testNotify ? testNotify() : { status: 200, body: { sent: true, sentAt: "2026-10-15T04:00:00Z", notification: {} } };
+        return new Response(JSON.stringify(r.body), { status: r.status });
+      }
       if (url !== "/api/settings") throw new Error(`想定外の呼び出し: ${method} ${url}`);
       const body = init?.body ? JSON.parse(init.body as string) : undefined;
       calls.push({ method, body });
@@ -91,11 +97,11 @@ function mockApi(
   return calls;
 }
 
-const renderPage = (onChanged = vi.fn()) => {
+const renderPage = (onChanged = vi.fn(), onTestSent?: () => void) => {
   render(
     <MantineProvider>
       <Notifications />
-      <SettingsPage onChanged={onChanged} />
+      <SettingsPage onChanged={onChanged} onTestSent={onTestSent} />
     </MantineProvider>,
   );
   return onChanged;
@@ -955,5 +961,100 @@ describe("SettingsPage のフォルダを選ぶダイアログ", () => {
       expect(within(region).getByRole("alert")).toHaveTextContent("IdP がログインを拒んだ");
       expect(window.location.search).toBe("");
     });
+  });
+});
+
+describe("SettingsPage のテスト通知", () => {
+  const sentBody = { sent: true, sentAt: "2026-10-15T04:00:00Z", notification: { id: 3, kind: "test", message: "", createdAt: "2026-10-15T04:00:00Z", failed: false, read: true } };
+
+  it("「通知」の区切りの、通知先の欄の下に、ボタンと「保存した通知先に送る」を出す", async () => {
+    mockApi(base);
+    renderPage();
+    const region = await screen.findByRole("region", { name: "通知" });
+    const select = within(region).getByRole("combobox", { name: "通知先" });
+    const button = within(region).getByRole("button", { name: "テスト通知を送る" });
+    expect(within(region).getByText("保存した通知先に送る")).toBeInTheDocument();
+    expect(select.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("押すと POST /api/notifications/test を 1 回だけ呼び、送っている間は押せず、送れたら結果と onTestSent", async () => {
+    let release: () => void = () => {};
+    const calls = mockApi(base, undefined, undefined, undefined, () => ({ status: 200, body: sentBody }));
+    const f = globalThis.fetch as unknown as (url: string, init?: RequestInit) => Promise<Response>;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url === "/api/notifications/test") await new Promise<void>((r) => (release = r));
+        return f(url, init);
+      }),
+    );
+    const onTestSent = vi.fn();
+    renderPage(vi.fn(), onTestSent);
+    const region = await screen.findByRole("region", { name: "通知" });
+    await userEvent.click(within(region).getByRole("button", { name: "テスト通知を送る" }));
+    expect(await within(region).findByRole("button", { name: "送っている…" })).toBeDisabled();
+    release();
+    expect(await within(region).findByText("送れた（10/15(木) 13:00）。通知先に届いたかを確かめて。")).toBeInTheDocument();
+    expect(within(region).getByRole("button", { name: "テスト通知を送る" })).toBeEnabled();
+    expect(calls.filter((c) => c.method === "POST /api/notifications/test")).toHaveLength(1);
+    expect(onTestSent).toHaveBeenCalledTimes(1);
+  });
+
+  it("送れなかったら通知先のエラーを出す", async () => {
+    mockApi(base, undefined, undefined, undefined, () => ({ status: 200, body: { sent: false, error: "slack: 状態 404 が返った", notification: {} } }));
+    renderPage();
+    const region = await screen.findByRole("region", { name: "通知" });
+    await userEvent.click(within(region).getByRole("button", { name: "テスト通知を送る" }));
+    expect(await within(region).findByRole("alert")).toHaveTextContent("送れなかった: slack: 状態 404 が返った");
+  });
+
+  it.each([
+    [409, "テスト通知を送る口がつながっていない"],
+    [500, "内部エラー"],
+  ])("API が %i を返したら、そのエラーを出し、onTestSent は呼ばない", async (status, error) => {
+    mockApi(base, undefined, undefined, undefined, () => ({ status, body: { error } }));
+    const onTestSent = vi.fn();
+    renderPage(vi.fn(), onTestSent);
+    const region = await screen.findByRole("region", { name: "通知" });
+    await userEvent.click(within(region).getByRole("button", { name: "テスト通知を送る" }));
+    expect(await within(region).findByRole("alert")).toHaveTextContent(`送れなかった: ${error}`);
+    expect(within(region).getByRole("button", { name: "テスト通知を送る" })).toBeEnabled();
+    expect(onTestSent).not.toHaveBeenCalled();
+  });
+
+  it("例外のメッセージが空でも、「送れなかった: 」だけにしない", async () => {
+    mockApi(base);
+    const f = globalThis.fetch as unknown as (url: string, init?: RequestInit) => Promise<Response>;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url === "/api/notifications/test") throw new Error("");
+        return f(url, init);
+      }),
+    );
+    renderPage();
+    const region = await screen.findByRole("region", { name: "通知" });
+    await userEvent.click(within(region).getByRole("button", { name: "テスト通知を送る" }));
+    expect(await within(region).findByRole("alert")).toHaveTextContent("送れなかった: 原因は分からない");
+  });
+
+  it("通知先なしの結果（noChannel）は「履歴に入れた」と出す", async () => {
+    mockApi(base, undefined, undefined, undefined, () => ({ status: 200, body: { sent: false, noChannel: true, notification: {} } }));
+    renderPage();
+    const region = await screen.findByRole("region", { name: "通知" });
+    await userEvent.click(within(region).getByRole("button", { name: "テスト通知を送る" }));
+    expect(await within(region).findByRole("status")).toHaveTextContent("履歴に入れた。トレイには 1 分以内に届く。");
+    expect(within(region).queryByRole("alert")).toBeNull();
+  });
+
+  it("通知先の欄を変えて保存しないまま押しても、POST /api/notifications/test だけで、設定は保存せず、欄の値も送らない", async () => {
+    const calls = mockApi(base);
+    renderPage();
+    const region = await screen.findByRole("region", { name: "通知" });
+    await userEvent.click(within(region).getByRole("combobox", { name: "通知先" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Slack", hidden: true }));
+    await userEvent.click(within(region).getByRole("button", { name: "テスト通知を送る" }));
+    await within(region).findByText(/送れた/);
+    expect(calls.filter((c) => !c.method.startsWith("GET"))).toEqual([{ method: "POST /api/notifications/test", body: undefined }]);
   });
 });

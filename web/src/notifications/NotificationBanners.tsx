@@ -29,7 +29,7 @@ export function NotificationBanners({ status, onOpenHistory }: { status: Notific
             </Anchor>
           </Text>
           <Text size="xs" c="dimmed">
-            この帯は、次の通知を通知先に送れたら消える（通知の履歴のテスト通知で、すぐに確かめられる）。
+            この帯は、次の通知を通知先に送れたら消える（設定の「通知」のテスト通知で、すぐに確かめられる）。
           </Text>
         </Alert>
       )}
