@@ -552,6 +552,8 @@ describe("JobsPage", () => {
     const row = await screen.findByTestId("job");
     const button = within(row).getByRole("button", { name: "番組Aの詳細" });
     expect(button).toHaveTextContent("›");
+    const cells = row.querySelectorAll("td");
+    expect(cells[1]).toHaveStyle({ whiteSpace: "nowrap" });
     expect(within(row).getByText(/ 回$/)).toHaveStyle({ whiteSpace: "nowrap" });
     await userEvent.click(button);
     expect(await screen.findByText(/保存先/)).toBeInTheDocument();
