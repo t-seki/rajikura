@@ -475,7 +475,7 @@ describe("App", () => {
     const user = userEvent.setup();
     renderApp();
     await user.click(await screen.findByText("番組"));
-    expect(await screen.findByRole("heading", { name: "番組の一覧" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "番組" })).toBeInTheDocument();
   });
 
   it("保存先が決まっていなければ「保存先を決めて」の帯を出し、押すと設定の画面を開く", async () => {
@@ -540,7 +540,7 @@ describe("App", () => {
     expect(banners).toHaveTextContent("2 件の通知を通知先に送れなかった");
     // ほかのページに移っても出る
     await user.click(screen.getByText("番組"));
-    expect(await screen.findByRole("heading", { name: "番組の一覧" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "番組" })).toBeInTheDocument();
     expect(screen.getByTestId("notification-banners")).toBeInTheDocument();
     // 帯のリンクで履歴を開く
     await user.click(screen.getByRole("button", { name: "通知の履歴を開く" }));
@@ -716,7 +716,7 @@ describe("画面ごとの URL", () => {
     // ナビの項目は、新しいタブで開けるリンク
     expect(nav().getByRole("link", { name: "ジョブ" })).toHaveAttribute("href", "/jobs");
     await user.click(nav().getByRole("link", { name: "番組" }));
-    expect(await screen.findByRole("heading", { name: "番組の一覧" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "番組" })).toBeInTheDocument();
     expect(here()).toBe("/shows");
 
     window.history.back();
@@ -724,7 +724,7 @@ describe("画面ごとの URL", () => {
     expect(here()).toBe("/");
 
     window.history.forward();
-    expect(await screen.findByRole("heading", { name: "番組の一覧" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "番組" })).toBeInTheDocument();
     expect(here()).toBe("/shows");
   });
 

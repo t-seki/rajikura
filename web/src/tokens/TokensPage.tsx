@@ -1,4 +1,4 @@
-import { Alert, Button, Card, Code, Group, Loader, Stack, Text, TextInput } from "@mantine/core";
+import { Alert, Button, Card, Code, Group, Loader, Stack, Text, TextInput, Title } from "@mantine/core";
 import { useCallback, useEffect, useState } from "react";
 import { formatDateTime } from "../jobs/format";
 import { notifySuccess } from "../ui/toast";
@@ -57,6 +57,7 @@ export function TokensPage() {
 
   return (
     <Stack>
+      <Title order={2}>API トークン</Title>
       <Text size="sm" c="dimmed">
         CLI や AI が Web UI を通さずに API を使うための鍵。どのトークンも Web UI でできることは全部できる。リクエストの <Code>Authorization: Bearer</Code> に入れて使う。
       </Text>

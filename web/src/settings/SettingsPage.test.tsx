@@ -108,6 +108,12 @@ afterEach(() => {
 });
 
 describe("SettingsPage", () => {
+  it("画面の見出しは、ナビの文字と同じ「設定」", async () => {
+    mockApi(base);
+    renderPage();
+    expect(await screen.findByRole("heading", { level: 2, name: "設定" })).toBeInTheDocument();
+  });
+
   it("保存先・radiko の会員種別・通知・Jellyfin との連携・バックアップ・詳しい設定・IdP のログイン・Web UI のパスワードの 8 つの区切りを出す", async () => {
     mockApi(base);
     renderPage();

@@ -230,7 +230,7 @@ export function ShowsPage({
   return (
     <Stack>
       <Group justify="space-between">
-        <Title order={2}>番組の一覧</Title>
+        <Title order={2}>番組</Title>
         <Button onClick={() => setEditing(undefined)}>番組を作る</Button>
       </Group>
       {error && (

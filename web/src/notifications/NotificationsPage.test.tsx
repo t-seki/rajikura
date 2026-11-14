@@ -48,6 +48,16 @@ const renderPage = (onRead?: () => void) =>
 afterEach(() => vi.unstubAllGlobals());
 
 describe("NotificationsPage", () => {
+  it("画面の見出しは、ナビの文字と同じ「通知」", async () => {
+    mockApi({
+      "GET /api/notifications/status": statusRoute("discord"),
+      "GET /api/notifications": () => ({ status: 200, body: { notifications: [] } }),
+      "POST /api/notifications/read": () => ({ status: 200, body: { marked: 0 } }),
+    });
+    renderPage();
+    expect(await screen.findByRole("heading", { level: 2, name: "通知" })).toBeInTheDocument();
+  });
+
   it("通知を新しい順に、種類・本文・作った時刻・送れなかった印・未読の印付きで出し、開いたら既読にする", async () => {
     const calls = mockApi({
       "GET /api/notifications/status": statusRoute("discord"),

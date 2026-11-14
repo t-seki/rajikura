@@ -174,6 +174,7 @@ export function NotificationsPage({ onRead, onOpenLink }: { onRead?: () => void;
 
   return (
     <Stack>
+      <Title order={2}>通知</Title>
       {channel !== null && <TestNotificationCard channel={channel} onSent={afterTestSent} />}
       <Text size="sm" c="dimmed">
         録音の結果・サービスの異常・テスト通知を新しい順に出す。通知先に送れなかった通知には「送れなかった」の印を付ける。通知は 90 日で消える。
