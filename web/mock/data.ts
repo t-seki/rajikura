@@ -11,7 +11,6 @@ import type { ApiToken } from "../src/tokens/tokensApi.ts";
 export const MOCK_NOW = "2026-04-15T10:30:00+09:00";
 
 const nowMs = new Date(MOCK_NOW).getTime();
-const at = (offsetMinutes: number) => new Date(nowMs + offsetMinutes * 60_000).toISOString();
 
 // 3 局とも自分のエリア（東京都。GET /api/guide/areas の own）の局（GET /api/stations の areaName・outOfArea）。
 export const stations: Station[] = [
@@ -199,6 +198,7 @@ export const jobs: JobSummary[] = [
     part: 1,
     // 済んだジョブだけ付く（docs/api.md の finishedAt）。「これから」のジョブには付けない。
     finishedAt: jst("2026-04-15", "07:20"),
+    deadline: jst("2026-04-22", "29:00"),
     state: "done",
     attempts: 1,
     chapters: "added",
@@ -212,6 +212,7 @@ export const jobs: JobSummary[] = [
     showName: "夕やけトラベラーズ",
     day: "2026-04-11",
     part: 1,
+    deadline: jst("2026-04-18", "29:00"),
     state: "running",
     attempts: 1,
     progress: { stage: "fetch", fetchedSeconds: 2820, totalSeconds: 10800 },
@@ -226,7 +227,7 @@ export const jobs: JobSummary[] = [
     state: "waiting",
     // タイムフリーの最初の試行は、放送の終わりのおよそ 5 分後
     nextAttemptAt: jst("2026-04-15", "19:05"),
-    deadline: at(60 * 24 * 7),
+    deadline: jst("2026-04-22", "29:00"),
     skippable: true,
     stations: [slotOf("HOSHIZORA", "2026-04-15", "16:00", 180)],
   },
@@ -237,8 +238,9 @@ export const jobs: JobSummary[] = [
     day: "2026-04-15",
     part: 1,
     state: "waiting",
-    nextAttemptAt: jst("2026-04-15", "21:00"),
-    deadline: at(60 * 24 * 7),
+    // ライブ録音の最初の試行は放送の開始の 1 分前（LiveLead）、録音期限は放送の終わりの 5 分後（LiveDeadlineAfter）。internal/domain/schedule.go の JobFirstAttemptAt・JobDeadline
+    nextAttemptAt: jst("2026-04-15", "20:59"),
+    deadline: jst("2026-04-15", "24:05"),
     live: true,
     skippable: true,
     stations: [slotOf("HOSHIZORA", "2026-04-15", "21:00", 180)],
@@ -254,7 +256,7 @@ export const jobs: JobSummary[] = [
     retryable: true,
     // 最後の試行（4/15 08:20）の 6 時間後（本物の再試行の間隔は 15 分 → 1 時間 → 3 時間 → 以降 6 時間）
     nextAttemptAt: jst("2026-04-15", "14:20"),
-    deadline: at(60 * 24 * 5),
+    deadline: jst("2026-04-21", "29:00"),
     lastFailedStage: "fetch",
     lastError: "音声の取得に失敗した（ダミーのエラー）",
     stations: [slotOf("TSUMUGI", "2026-04-14", "19:00", 180)],
@@ -266,6 +268,7 @@ export const jobs: JobSummary[] = [
     day: "2026-04-09",
     part: 1,
     finishedAt: jst("2026-04-09", "17:20"),
+    deadline: jst("2026-04-16", "29:00"),
     state: "done",
     attempts: 1,
     chapters: "not_added",
@@ -280,6 +283,7 @@ export const jobs: JobSummary[] = [
     day: "2026-04-13",
     part: 1,
     finishedAt: jst("2026-04-13", "11:20"),
+    deadline: jst("2026-04-20", "29:00"),
     state: "done",
     attempts: 1,
     chapters: "added",
@@ -293,12 +297,14 @@ export const jobs: JobSummary[] = [
     showName: "つむぎ夜の読み物",
     day: "2026-04-10",
     part: 1,
-    // 試行のある expired は、最後の試行の終わり（attemptLogs の 103 の最後）
-    finishedAt: jst("2026-04-11", "08:20"),
+    // 試行のある expired は、最後の試行の終わり（attemptLogs の 103 の最後）。
+    // 非会員の試行の上限（10 回。DefaultMaxAttemptsFree）に達して次の試行が無くなり、録音期限（放送日の終わり + 7 日）の前に期限切れになった形
+    finishedAt: jst("2026-04-12", "14:24"),
+    deadline: jst("2026-04-17", "29:00"),
     state: "expired",
-    attempts: 5,
+    attempts: 10,
     lastFailedStage: "fetch",
-    lastError: "録音の期限が過ぎた（ダミーのエラー）",
+    lastError: "音声の取得に失敗した（ダミーのエラー）",
     stations: [slotOf("TSUMUGI", "2026-04-10", "19:00", 180)],
   },
   {
@@ -307,6 +313,7 @@ export const jobs: JobSummary[] = [
     showName: "波打ちぎわの昭和歌謡",
     day: "2026-04-16",
     part: 1,
+    deadline: jst("2026-04-23", "29:00"),
     state: "skipped",
     byPerson: true,
     recordable: true,
@@ -335,6 +342,8 @@ const fetchFailed = { stage: "fetch", error: "音声の取得に失敗した（�
  * ジョブ id ごとの試行の履歴（古い順）。件数は一覧の attempts と同じにし、失敗したジョブの最後の試行は lastFailedStage・lastError と同じにする。
  * 時刻は本物の決まりに合わせる。最初の試行は放送の終わりのおよそ 5 分後、再試行は前の試行の始まりから 15 分 → 1 時間 → 3 時間 → 以降 6 時間。
  * 済んだジョブの最後の試行は、finishedAt に終わる。
+ * 決まりの元は internal/domain/schedule.go（FirstAttemptAt・JobFirstAttemptAt・LiveLead・retryIntervals）。
+ * 録音期限（deadline）の決まりの元は internal/domain/deadline.go（AiringDeadline・JobDeadline）。非会員は放送日の終わり（翌 05:00）+ 7 日、ライブ録音は放送の終わりの 5 分後。
  * 本物のサーバーは試行が終わったときにだけ履歴を書くので、録音中のジョブ（107）の履歴は空にする（終わっていない試行は入れない）。
  */
 const attemptLogs: Record<number, JobAttempt[]> = {
@@ -353,8 +362,13 @@ const attemptLogs: Record<number, JobAttempt[]> = {
     attempt(jst("2026-04-10", "22:20"), jst("2026-04-10", "22:24"), fetchFailed),
     attempt(jst("2026-04-10", "23:20"), jst("2026-04-10", "23:24"), fetchFailed),
     attempt(jst("2026-04-11", "02:20"), jst("2026-04-11", "02:24"), fetchFailed),
-    // 録音期限を過ぎた試行は、何も取りに行かずにすぐ終わる
-    attempt(jst("2026-04-11", "08:20"), jst("2026-04-11", "08:20"), failureOf(103)),
+    attempt(jst("2026-04-11", "08:20"), jst("2026-04-11", "08:24"), fetchFailed),
+    attempt(jst("2026-04-11", "14:20"), jst("2026-04-11", "14:24"), fetchFailed),
+    attempt(jst("2026-04-11", "20:20"), jst("2026-04-11", "20:24"), fetchFailed),
+    attempt(jst("2026-04-12", "02:20"), jst("2026-04-12", "02:24"), fetchFailed),
+    attempt(jst("2026-04-12", "08:20"), jst("2026-04-12", "08:24"), fetchFailed),
+    // 10 回目（非会員の上限）。次の試行が無いので、ここで期限切れになる
+    attempt(jst("2026-04-12", "14:20"), jst("2026-04-12", "14:24"), failureOf(103)),
   ],
 };
 
