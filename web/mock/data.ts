@@ -303,6 +303,8 @@ export const jobs: JobSummary[] = [
     deadline: jst("2026-04-17", "29:00"),
     state: "expired",
     attempts: 10,
+    // 録音期限の前なので、手動再試行を受け付ける（ManualRetryInTime）
+    retryable: true,
     lastFailedStage: "fetch",
     lastError: "音声の取得に失敗した（ダミーのエラー）",
     stations: [slotOf("TSUMUGI", "2026-04-10", "19:00", 180)],
