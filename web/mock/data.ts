@@ -65,12 +65,20 @@ const showByTitle: Record<string, string> = {
   朝のどんぐりカフェ: "朝のどんぐりカフェ",
   月曜の小さな図書館: "月曜の小さな図書館",
   夕やけトラベラーズ: "夕やけトラベラーズ",
+  ハーバーサウンズ: "ハーバーサウンズ",
   星降る深夜ラジオ: "星降る深夜ラジオ",
   波打ちぎわの昭和歌謡: "波打ちぎわの昭和歌謡",
   つむぎ夜の読み物: "つむぎ夜の読み物",
 };
 
-/** 放送日 day（YYYY-MM-DD）の、3 局の番組表。今（MOCK_NOW）より前の放送回で録るものは録音済み、後は録音予定。 */
+/**
+ * 放送日 day（YYYY-MM-DD）の、3 局の番組表。
+ * ダミーのジョブ（jobs）がある放送回（局と開始・終了が、ジョブの stations と同じ）は、本物（internal/server/guide.go の view）と同じ決め方で、
+ * showName・jobId・state・skipBy・skippable をそのジョブから付ける。
+ * done→done、expired→missed、skipped→skip_planned（settled なら skipped。skipBy は byPerson なら person、でなければ title）、
+ * それ以外→planned（skippable は、試行が 0 回の waiting のときだけ true）。
+ * ジョブが無い放送回は、今（MOCK_NOW）より前に終わっていれば録音済み、後なら録音予定（jobId は付けない）。
+ */
 export function guideOf(day: string): GuideStation[] {
   const base = new Date(`${day}T05:00:00+09:00`).getTime();
   return stations.map((st) => {
@@ -79,8 +87,28 @@ export function guideOf(day: string): GuideStation[] {
       const start = new Date(base + cursor * 60_000);
       const end = new Date(base + (cursor + slot.minutes) * 60_000);
       cursor += slot.minutes;
-      const showName = showByTitle[slot.title];
-      const state: GuideAiring["state"] = showName ? (end.getTime() <= nowMs ? "done" : "planned") : "none";
+      const job = jobs.find((j) => j.stations.some((s) => s.stationId === st.id && Date.parse(s.start) === start.getTime() && Date.parse(s.end) === end.getTime()));
+      const showName = job ? job.showName : showByTitle[slot.title];
+      let state: GuideAiring["state"] = showName ? (end.getTime() <= nowMs ? "done" : "planned") : "none";
+      let jobFields: Pick<GuideAiring, "jobId" | "skipBy" | "skippable"> = {};
+      if (job) {
+        switch (job.state) {
+          case "done":
+            state = "done";
+            break;
+          case "expired":
+            state = "missed";
+            break;
+          case "skipped":
+            state = job.settled ? "skipped" : "skip_planned";
+            jobFields = { skipBy: job.byPerson ? "person" : "title" };
+            break;
+          default:
+            state = "planned";
+            if (job.state === "waiting" && job.attempts === 0) jobFields = { skippable: true };
+        }
+        jobFields = { jobId: job.id, ...jobFields };
+      }
       return {
         stationId: st.id,
         stationName: st.name,
@@ -93,6 +121,7 @@ export function guideOf(day: string): GuideStation[] {
         imageUrl: `/mock-images/${(i % 3) + 1}.svg`,
         state,
         ...(showName ? { showName } : {}),
+        ...jobFields,
         notAvailable: false,
         timeFree30Excluded: false,
       };
@@ -140,6 +169,14 @@ export const shows: Show[] = [
     check_title: true,
     weekly: [{ station: "HOSHIZORA", weekday: 3, start: "21:00" }],
     next_airing: jst("2026-04-15", "21:00"),
+  },
+  {
+    name: "ハーバーサウンズ",
+    enabled: true,
+    split: "none",
+    check_title: true,
+    weekly: [{ station: "MINATO", weekday: 3, start: "08:00" }],
+    next_airing: jst("2026-04-22", "08:00"),
   },
   {
     name: "波打ちぎわの昭和歌謡",
@@ -209,14 +246,16 @@ export const jobs: JobSummary[] = [
   {
     ...baseJob,
     id: 107,
-    showName: "夕やけトラベラーズ",
-    day: "2026-04-11",
+    showName: "ハーバーサウンズ",
+    day: "2026-04-15",
     part: 1,
-    deadline: jst("2026-04-18", "29:00"),
+    deadline: jst("2026-04-22", "29:00"),
     state: "running",
     attempts: 1,
-    progress: { stage: "fetch", fetchedSeconds: 2820, totalSeconds: 10800 },
-    stations: [slotOf("HOSHIZORA", "2026-04-11", "16:00", 180)],
+    // 放送は 10:00 に終わり、最初の試行は 5 分後の 10:05 に始まった（今の 10:30 まで 25 分）。
+    // 放送の長さ 2 時間（7200 秒）のうち、25 分（1500 秒）で 1 時間分（3600 秒）を取れた（実時間の 2.4 倍の速さ。残りもおよそ 25 分で終わる）。
+    progress: { stage: "fetch", fetchedSeconds: 3600, totalSeconds: 7200 },
+    stations: [slotOf("MINATO", "2026-04-15", "08:00", 120)],
   },
   {
     ...baseJob,
