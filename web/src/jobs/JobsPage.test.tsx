@@ -642,6 +642,8 @@ describe("JobsPage の状態のバッジ", () => {
       expect(label).toHaveStyle({ whiteSpace: "normal", textOverflow: "clip" });
       expect(label).not.toHaveStyle({ whiteSpace: "nowrap" });
       expect(label).not.toHaveStyle({ textOverflow: "ellipsis" });
+      // root の高さが 1 行分に決まったままだと、overflow: hidden で 2 行目が隠れる（jsdom の computed は既定で auto なので inline を見る）。
+      expect((label.closest(".mantine-Badge-root") as HTMLElement).style.height).toBe("auto");
     }
   });
 });
