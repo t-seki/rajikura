@@ -215,6 +215,37 @@ describe("SettingsPage", () => {
     await waitFor(() => expect(current()).toEqual(["詳しい設定"]));
   });
 
+  it("目次で上の区切りへ進んだ後に、手で一番下まで進めると、最後の区切りが今いる区切りになる", async () => {
+    mockApi(base);
+    vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+    renderPage();
+    const nav = await screen.findByRole("navigation", { name: "設定の区切り" });
+    await screen.findByRole("region", { name: "バックアップ" });
+    await userEvent.click(within(nav).getByRole("link", { name: "バックアップ" }));
+    await waitFor(() => expect(within(nav).getByRole("link", { name: "バックアップ" })).toHaveAttribute("aria-current", "location"));
+    // 進んだ先（一番下ではない）
+    placeSections({ library: -1600, membership: -1300, notify: -900, jellyfin: -500, backup: 72, advanced: 600, idp: 800, password: 1000 });
+    scrollTo(1000, 1300 + 768);
+    scrollNow();
+    await waitFor(() => expect(within(nav).getByRole("link", { name: "バックアップ" })).toHaveAttribute("aria-current", "location"));
+    // 手で一番下まで進める
+    placeSections({ library: -1900, membership: -1600, notify: -1200, jellyfin: -800, backup: -228, advanced: 60, idp: 300, password: 480 });
+    scrollTo(1300, 1300 + 768);
+    scrollNow();
+    await waitFor(() => expect(within(nav).getByRole("link", { name: "Web UI のパスワード" })).toHaveAttribute("aria-current", "location"));
+  });
+
+  it("ページが画面に収まる（スクロールしていない）ときは、一番下として数えず、位置で決める", async () => {
+    mockApi(base);
+    renderPage();
+    const nav = await screen.findByRole("navigation", { name: "設定の区切り" });
+    await screen.findByRole("region", { name: "バックアップ" });
+    placeSections({ library: 80, membership: 300, notify: 500 });
+    scrollTo(0, 700);
+    scrollNow();
+    await waitFor(() => expect(within(nav).getByRole("link", { name: "保存先" })).toHaveAttribute("aria-current", "location"));
+  });
+
   it("URL のハッシュで区切りへ進んだときも、進んだ区切りが今いる区切りになり、一番下にいる間はそのまま", async () => {
     mockApi(base);
     vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
@@ -352,6 +383,32 @@ describe("SettingsPage", () => {
     await waitFor(() => expect(spy).toHaveBeenCalled());
     expect(idpShownAtCall).toEqual([true]);
     expect(spy.mock.contexts.at(-1)).toBe(screen.getByRole("region", { name: "Web UI のパスワード" }));
+  });
+
+  it("/settings#idp で開くと、IdP の設定が後から読めても、その中身が出た後に進む", async () => {
+    mockApi(base);
+    const inner = globalThis.fetch;
+    let release = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.startsWith("/api/idp")) await gate;
+        return inner(url, init);
+      }),
+    );
+    window.history.replaceState(null, "", "/settings#idp");
+    const idpShownAtCall: boolean[] = [];
+    const spy = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {
+      idpShownAtCall.push(screen.queryByRole("textbox", { name: "issuer" }) !== null);
+    });
+    renderPage();
+    await screen.findByRole("region", { name: "保存先" });
+    expect(spy).not.toHaveBeenCalled();
+    release();
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(idpShownAtCall).toEqual([true]);
+    expect(spy.mock.contexts.at(-1)).toBe(screen.getByRole("region", { name: "IdP のログイン" }));
   });
 
   it("目次のリンクで進むと、フォーカスがその区切りへ移る", async () => {

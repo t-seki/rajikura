@@ -46,11 +46,11 @@ export function SettingsPage({ onChanged, onTestSent }: { onChanged: (view: Sett
     fetchSettings().then(setView, (e) => setError(e instanceof Error ? e.message : "設定を読めなかった"));
   }, []);
 
-  // 目次・URL のハッシュで指された区切り。読み込みが終わって区切りが出てから進む。知らない名前は何もしない。
   // 今いる区切り。画面の上の方（ヘッダーの下）に見えている区切り。区切りへ進んだとき（目次のリンク・URL のハッシュ・戻る・進む）は、進んだ区切り。
   const [active, setActive] = useState<string | null>(null);
   // 最後に進んだ区切り。ページの一番下では下の方の区切りが上まで来ないので、一番下にいる間は、この区切りを今いる区切りにする。
   const pinned = useRef<string | null>(null);
+  // 目次・URL のハッシュで指された区切り。読み込みが終わって区切りが出てから進む。知らない名前は何もしない。
   const [jump, setJump] = useState<string | null>(() => hashId());
   // 最後に進んだ（または開いたときに指されていた）ハッシュの区切り。目次を押した後に同じハッシュの hashchange・popstate が来ても、2 回進まないため。
   const lastHash = useRef<string | null>(jump);
@@ -87,8 +87,9 @@ export function SettingsPage({ onChanged, onTestSent }: { onChanged: (view: Sett
     if (!view && !error) return;
     // 画面の上の目次と最後の 2 つの区切りは、設定を読めなくても出る
     if (!view && jump !== "idp" && jump !== "password") return;
-    // 「Web UI のパスワード」は IdP の区切りのすぐ下なので、IdP の中身が出るまで待つ
-    if (jump === "password" && !idpLoaded) return;
+    // 「Web UI のパスワード」は IdP の区切りのすぐ下なので、IdP の中身が出るまで待つ。
+    // 「IdP のログイン」も待つ（中身の無い背の低い区切りのまま一番下で進むと、中身が出てページが伸びたときに、今いる区切りが外れるため）
+    if ((jump === "idp" || jump === "password") && !idpLoaded) return;
     if (jump === "advanced" && !advancedOpen) {
       setAdvancedOpen(true);
       return;
