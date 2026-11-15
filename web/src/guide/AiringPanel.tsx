@@ -45,6 +45,7 @@ import {
   type Dest,
   type Outcome,
 } from "./reserve";
+import { wrapBadgeStyles } from "../ui/badgeStyles";
 
 const message = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
 
@@ -58,6 +59,7 @@ export function StateBadge({ airing }: { airing: GuideAiring }) {
   return (
     <Group gap={4} wrap="nowrap">
       <Badge
+        styles={wrapBadgeStyles}
         color={stateColor[airing.state]}
         variant={airing.state === "none" ? "outline" : "filled"}
         leftSection={stateMark[airing.state] || undefined}
@@ -65,12 +67,12 @@ export function StateBadge({ airing }: { airing: GuideAiring }) {
         {stateLabel[airing.state]}
       </Badge>
       {airing.notAvailable && (
-        <Badge color="orange" variant="light" leftSection={notAvailableMark}>
+        <Badge styles={wrapBadgeStyles} color="orange" variant="light" leftSection={notAvailableMark}>
           {notAvailableLabel}
         </Badge>
       )}
       {airing.timeFree30Excluded && (
-        <Badge color="grape" variant="light">
+        <Badge styles={wrapBadgeStyles} color="grape" variant="light">
           {timeFree30ExcludedLabel}
         </Badge>
       )}

@@ -1,5 +1,6 @@
 import { Badge } from "@mantine/core";
 import { viewState, viewStateLabel, type JobState, type JobViewState } from "./jobsApi";
+import { wrapBadgeStyles } from "../ui/badgeStyles";
 
 const stateColor: Record<JobViewState, string> = {
   waiting: "gray",
@@ -15,7 +16,7 @@ const stateColor: Record<JobViewState, string> = {
 export function StateBadge({ job }: { job: { state: JobState; settled: boolean } }) {
   const s = viewState(job);
   return (
-    <Badge color={stateColor[s]} variant={s === "skip_planned" ? "outline" : "filled"}>
+    <Badge styles={wrapBadgeStyles} color={stateColor[s]} variant={s === "skip_planned" ? "outline" : "filled"}>
       {viewStateLabel(s)}
     </Badge>
   );
