@@ -127,7 +127,7 @@ const hhmmJst = (d: Date) => new Date(d.getTime() + 9 * 3600_000).toISOString().
 
 /** 有効な番組の毎週の予約が、局・放送日の曜日（0=日）・開始時刻（JST の HH:MM）に当たる番組の名前。 */
 const showOfWeekly = (stationId: string, weekday: number, hhmm: string) =>
-  shows.find((s) => s.enabled && s.weekly.some((w) => w.station === stationId && w.weekday === weekday && w.start === hhmm))?.name;
+  showDefs.find((s) => s.enabled && s.weekly.some((w) => w.station === stationId && w.weekday === weekday && w.start === hhmm))?.name;
 
 // 放送日 day（YYYY-MM-DD）の放送日の時刻 hhmm（HH:MM。24:00 以降も書ける）の時刻。番組表の並び（lineups）の時刻と合わせて書く。
 const jst = (day: string, hhmm: string) => {
@@ -136,8 +136,8 @@ const jst = (day: string, hhmm: string) => {
 };
 
 // 番組（shows）の weekly、ジョブ（jobs）の stations は、番組表の並び（lineups）の放送回と同じ局・開始時刻・長さにする。
-// next_airing は、本物（internal/store/shows.go の NextAirings）と同じく、その番組の録音予定（waiting）のジョブの放送回のうち、開始が今（MOCK_NOW）より後のいちばん早い開始。そうしたジョブが無い番組には付けない。
-export const shows: Show[] = [
+// next_airing（jobs の後で付ける。nextAiringOf）の決め方は、その直前のコメントに書く。
+const showDefs: Show[] = [
   {
     name: "朝のどんぐりカフェ",
     enabled: true,
@@ -158,7 +158,6 @@ export const shows: Show[] = [
     split: "join",
     check_title: true,
     weekly: [{ station: "HOSHIZORA", weekday: 3, start: "16:00" }, { station: "HOSHIZORA", weekday: 6, start: "16:00" }],
-    next_airing: jst("2026-04-15", "16:00"),
   },
   {
     name: "星降る深夜ラジオ",
@@ -166,7 +165,6 @@ export const shows: Show[] = [
     split: "none",
     check_title: true,
     weekly: [{ station: "HOSHIZORA", weekday: 3, start: "21:00" }],
-    next_airing: jst("2026-04-15", "21:00"),
   },
   {
     name: "ハーバーサウンズ",
@@ -358,6 +356,32 @@ export const jobs: JobSummary[] = [
 ];
 
 // durationSeconds は本物と同じく、録れた音声の長さ（失敗した試行は 0）。
+// 番組の next_airing。本物（internal/store/shows.go の NextAirings）は、その番組の録音予定（waiting）のジョブの放送回のうち、開始が今（MOCK_NOW）より後のいちばん早い開始にする。
+// 本物のサーバーは、今日から 7 日先までの予約に当たる放送回に全部ジョブを作る。ダミーのジョブは画面を見せるための一部しか無いので、それを補う:
+// 今（MOCK_NOW）の放送日から 7 日先までの放送日の、有効な毎週の予約に当たる放送回のうち、開始が今より後で、
+// ジョブがあればそのジョブが waiting のもの、ジョブが無ければ（本物では録音予定のジョブがあるはずなので）録音予定とみなすもののいちばん早い開始。無ければ付けない。
+const nextAiringOf = (name: string): string | undefined => {
+  const today = new Date(`${MOCK_NOW.slice(0, 10)}T00:00:00Z`).getTime();
+  let best: string | undefined;
+  for (let d = 0; d <= 7; d++) {
+    const day = new Date(today + d * 86_400_000).toISOString().slice(0, 10);
+    for (const st of guideOf(day)) {
+      for (const a of st.airings) {
+        if (a.showName !== name || Date.parse(a.start) <= nowMs) continue;
+        const job = a.jobId === undefined ? undefined : jobs.find((j) => j.id === a.jobId);
+        if (job && job.state !== "waiting") continue;
+        if (best === undefined || Date.parse(a.start) < Date.parse(best)) best = a.start;
+      }
+    }
+  }
+  return best;
+};
+
+export const shows: Show[] = showDefs.map((s) => {
+  const next = s.enabled ? nextAiringOf(s.name) : undefined;
+  return next ? { ...s, next_airing: next } : s;
+});
+
 const attempt = (startedAt: string, endedAt: string, failure?: { stage: string; error: string }, recordedSeconds = 0): JobAttempt => ({
   startedAt,
   endedAt,
