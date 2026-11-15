@@ -12,7 +12,8 @@ type Props<K extends string> = {
 export function SortableTh<K extends string>({ label, sortKey, sort, onSort }: Props<K>) {
   const active = sort?.key === sortKey;
   const chars = Array.from(label);
-  const tail = chars.pop() ?? "";
+  // 短い見出しは全体を折り返さない。長い見出しは最後の文字と印だけをまとめ、途中では折り返せる
+  const tail = chars.length <= 6 ? chars.splice(0).join("") : (chars.pop() ?? "");
   const head = chars.join("");
   return (
     <Table.Th aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
