@@ -163,6 +163,19 @@ describe("JobsPage", () => {
     expect(screen.getByText("boom")).toBeInTheDocument();
   });
 
+  it("詳細の放送回に、一覧と同じ局の一覧から引いた局の名前を出し、局の一覧は 1 回だけ読む", async () => {
+    const calls = mockApi({
+      "GET /api/stations": () => ({ status: 200, body: [{ id: "TBS", name: "TBSラジオ" }] }),
+      "GET /api/jobs": () => ({ status: 200, body: { jobs: [base] } }),
+      "GET /api/jobs/1": () => ({ status: 200, body: detail() }),
+    });
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "番組Aの詳細" }));
+    const rows = await screen.findAllByTestId("airing");
+    expect(within(rows[0]).getByText(/^TBSラジオ ・ /)).toBeInTheDocument();
+    expect(calls.filter((c) => c === "GET /api/stations")).toHaveLength(1);
+  });
+
   it("詳細の放送回は放送日の時刻（時刻だけ）で出し、録音期限は暦の日時のまま出す", async () => {
     // 放送日 2026-10-20 の 10/21 03:40〜04:00（日本時間）の放送回。録音期限は終了の 5 分後。
     const late = { ...base, day: "2026-10-20", deadline: "2026-10-20T19:05:00Z" };

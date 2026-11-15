@@ -107,9 +107,11 @@ interface Props {
   onClose: () => void;
   /** 再試行・録らない・録る・録り直す・チャプターを入れ直す・保存先を移すをしたとき、一覧を読み直すために呼ぶ。 */
   onChanged: () => void;
+  /** 局 ID ごとの局の名前（ジョブの画面が読んだ局の一覧）。放送回に出す。引けない局（一覧を読めない、一覧に無い）は局 ID を出す。 */
+  stationNames?: Record<string, string>;
 }
 
-export function JobDetailModal({ id, onClose, onChanged }: Props) {
+export function JobDetailModal({ id, onClose, onChanged, stationNames = {} }: Props) {
   const [job, setJob] = useState<JobDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -305,7 +307,7 @@ export function JobDetailModal({ id, onClose, onChanged }: Props) {
                   {a.missing && "（欠落）"}
                 </Text>
                 <Text size="xs" c="dimmed">
-                  {a.stationId} ・ {broadcastRange(a)}
+                  {stationNames[a.stationId] ?? a.stationId} ・ {broadcastRange(a)}
                 </Text>
               </Stack>
             ))}
