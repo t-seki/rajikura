@@ -1,5 +1,5 @@
 import { Alert, Anchor, Button, Card, Collapse, Group, NumberInput, PasswordInput, Select, Stack, Switch, Text, TextInput, Textarea, Title } from "@mantine/core";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { notifySuccess } from "../ui/toast";
 import { BackupApiError, downloadBackup } from "./backupApi";
 import { formatDateTime } from "../jobs/format";
@@ -40,12 +40,19 @@ export function SettingsPage({ onChanged, onTestSent }: { onChanged: (view: Sett
     return tocItems.some((t) => t.id === id) ? id : null;
   });
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [idpLoaded, setIdpLoaded] = useState(false);
+  const markIdpLoaded = useCallback(() => setIdpLoaded(true), []);
+  // 「詳しい設定」の畳みが開いた後にもう一度進むタイマー。次に進むときと、画面を閉じるときに止める。
+  const again = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(again.current), []);
   useEffect(() => {
     if (jump === null) return;
     // 読み込み中は待つ（上に区切りが差し込まれて、進んだ先が押し出されないように）
     if (!view && !error) return;
     // 画面の上の目次と最後の 2 つの区切りは、設定を読めなくても出る
     if (!view && jump !== "idp" && jump !== "password") return;
+    // 「Web UI のパスワード」は IdP の区切りのすぐ下なので、IdP の中身が出るまで待つ
+    if (jump === "password" && !idpLoaded) return;
     if (jump === "advanced" && !advancedOpen) {
       setAdvancedOpen(true);
       return;
@@ -56,11 +63,12 @@ export function SettingsPage({ onChanged, onTestSent }: { onChanged: (view: Sett
       el?.scrollIntoView();
       el?.focus({ preventScroll: true });
     };
+    window.clearTimeout(again.current);
     go();
     // 畳みが開く動きの後にも、もう一度進む
-    if (jump === "advanced") window.setTimeout(go, 300);
+    if (jump === "advanced") again.current = window.setTimeout(go, 300);
     setJump(null);
-  }, [jump, view, error, advancedOpen]);
+  }, [jump, view, error, advancedOpen, idpLoaded]);
 
   const follow = useCallback((e: React.MouseEvent<HTMLAnchorElement>, id: string) => {
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -109,7 +117,7 @@ export function SettingsPage({ onChanged, onTestSent }: { onChanged: (view: Sett
           </Alert>
         )
       )}
-      <IdpSection Section={Section} />
+      <IdpSection Section={Section} onLoaded={markIdpLoaded} />
       <PasswordSection />
     </Stack>
   );

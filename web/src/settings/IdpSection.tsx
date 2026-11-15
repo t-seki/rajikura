@@ -11,14 +11,18 @@ type SectionComponent = React.ComponentType<{ id?: string; title: string; hint?:
  * 今のパスワードを入れて紐づけを始め、紐づけた相手を出して外せる。紐づけて戻ってきたときの idp_linked・idp_error は、
  * 読んだら URL から消す。
  */
-export function IdpSection({ Section }: { Section: SectionComponent }) {
+// onLoaded は IdP の設定を読み終えたとき（読めなかったときも）に呼ぶ。下の区切りへ進むのを、この区切りの中身が出るまで待たせるため。
+export function IdpSection({ Section, onLoaded }: { Section: SectionComponent; onLoaded?: () => void }) {
   const [view, setView] = useState<IdpView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [linked] = useState(() => takeQuery("idp_linked") === "1");
   const [returnedError] = useState(() => takeQuery("idp_error"));
 
   useEffect(() => {
-    fetchIdp().then(setView, (e) => setError(e instanceof Error ? e.message : "IdP の設定を読めなかった"));
+    fetchIdp()
+      .then(setView, (e) => setError(e instanceof Error ? e.message : "IdP の設定を読めなかった"))
+      .finally(() => onLoaded?.());
+    // 読むのは画面を出したときの一度だけ
   }, []);
 
   return (

@@ -221,6 +221,32 @@ describe("SettingsPage", () => {
     expect(spy.mock.contexts.at(-1)).toBe(screen.getByRole("region", { name: "Web UI のパスワード" }));
   });
 
+  it("/settings#password で開くと、IdP の設定が後から読めても、その中身が出た後に進む", async () => {
+    mockApi(base);
+    const inner = globalThis.fetch;
+    let release = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.startsWith("/api/idp")) await gate;
+        return inner(url, init);
+      }),
+    );
+    window.history.replaceState(null, "", "/settings#password");
+    const idpShownAtCall: boolean[] = [];
+    const spy = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {
+      idpShownAtCall.push(screen.queryByRole("textbox", { name: "issuer" }) !== null);
+    });
+    renderPage();
+    await screen.findByRole("region", { name: "保存先" });
+    expect(spy).not.toHaveBeenCalled();
+    release();
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(idpShownAtCall).toEqual([true]);
+    expect(spy.mock.contexts.at(-1)).toBe(screen.getByRole("region", { name: "Web UI のパスワード" }));
+  });
+
   it("目次のリンクで進むと、フォーカスがその区切りへ移る", async () => {
     mockApi(base);
     vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
