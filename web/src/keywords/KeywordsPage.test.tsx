@@ -185,6 +185,21 @@ describe("KeywordsPage", () => {
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("同じ語のキーワードがある");
   });
 
+  it("削除は赤い枠のボタンで、押すと確かめの窓を出し、その時点では DELETE を送らない", async () => {
+    const calls = mockApi({
+      ...baseRoutes,
+      "GET /api/keywords": () => ({ status: 200, body: { keywords: [mukai] } }),
+    });
+    const user = userEvent.setup();
+    renderPage();
+    const del = await screen.findByRole("button", { name: "向井 ゲスト を消す" });
+    expect(del).toHaveAttribute("data-variant", "outline");
+    await user.click(del);
+    expect(await screen.findByText("キーワードを消す")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "やめる" })).toBeInTheDocument();
+    expect(calls.some((c) => c.key.startsWith("DELETE"))).toBe(false);
+  });
+
   it("有効／無効のスイッチで PUT し、消すと DELETE する", async () => {
     let list = [mukai];
     const calls = mockApi({
