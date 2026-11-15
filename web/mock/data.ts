@@ -238,7 +238,7 @@ export const jobs: JobSummary[] = [
     day: "2026-04-15",
     part: 1,
     state: "waiting",
-    // ライブ録音の最初の試行は放送の開始の 1 分前（LiveLead）、録音期限は放送の終わりの 5 分後（LiveDeadlineAfter）。internal/domain/schedule.go の JobFirstAttemptAt・JobDeadline
+    // ライブ録音の最初の試行は放送の開始の 1 分前（LiveLead）、録音期限は放送の終わりの 5 分後（LiveDeadlineAfter）。internal/domain/schedule.go の JobFirstAttemptAt、internal/domain/deadline.go の JobDeadline
     nextAttemptAt: jst("2026-04-15", "20:59"),
     deadline: jst("2026-04-15", "24:05"),
     live: true,
