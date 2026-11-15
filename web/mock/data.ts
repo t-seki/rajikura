@@ -2,7 +2,7 @@
 // 局・番組名・出演者・説明・画像のすべてを作り話にする。radiko の実際の番組表は使わない（ADR 0028）。
 // 型だけを src から読む（import type は消えるので、このファイルは src の実行コードに依存しない）。
 import type { GuideAiring, GuideStation } from "../src/guide/api.ts";
-import type { JobDetail, JobSummary } from "../src/jobs/jobsApi.ts";
+import type { JobAttempt, JobDetail, JobSummary } from "../src/jobs/jobsApi.ts";
 import type { Keyword, KeywordAiring } from "../src/keywords/keywordsApi.ts";
 import type { Show, Station } from "../src/shows/api.ts";
 import type { ApiToken } from "../src/tokens/tokensApi.ts";
@@ -224,7 +224,8 @@ export const jobs: JobSummary[] = [
     day: "2026-04-15",
     part: 1,
     state: "waiting",
-    nextAttemptAt: jst("2026-04-15", "19:00"),
+    // タイムフリーの最初の試行は、放送の終わりのおよそ 5 分後
+    nextAttemptAt: jst("2026-04-15", "19:05"),
     deadline: at(60 * 24 * 7),
     skippable: true,
     stations: [slotOf("HOSHIZORA", "2026-04-15", "16:00", 180)],
@@ -249,9 +250,10 @@ export const jobs: JobSummary[] = [
     day: "2026-04-14",
     part: 1,
     state: "retrying",
-    attempts: 2,
+    attempts: 5,
     retryable: true,
-    nextAttemptAt: at(25),
+    // 最後の試行（4/15 08:20）の 6 時間後（本物の再試行の間隔は 15 分 → 1 時間 → 3 時間 → 以降 6 時間）
+    nextAttemptAt: jst("2026-04-15", "14:20"),
     deadline: at(60 * 24 * 5),
     lastFailedStage: "fetch",
     lastError: "音声の取得に失敗した（ダミーのエラー）",
@@ -291,7 +293,8 @@ export const jobs: JobSummary[] = [
     showName: "つむぎ夜の読み物",
     day: "2026-04-10",
     part: 1,
-    finishedAt: jst("2026-04-12", "03:10"),
+    // 試行のある expired は、最後の試行の終わり（attemptLogs の 103 の最後）
+    finishedAt: jst("2026-04-11", "08:20"),
     state: "expired",
     attempts: 5,
     lastFailedStage: "fetch",
@@ -311,6 +314,50 @@ export const jobs: JobSummary[] = [
   },
 ];
 
+// durationSeconds は本物と同じく、録れた音声の長さ（失敗した試行は 0）。
+const attempt = (startedAt: string, endedAt: string, failure?: { stage: string; error: string }, recordedSeconds = 0): JobAttempt => ({
+  startedAt,
+  endedAt,
+  failedStage: failure?.stage ?? "",
+  error: failure?.error ?? "",
+  durationSeconds: failure ? 0 : recordedSeconds,
+});
+
+const failureOf = (id: number) => {
+  const j = jobs.find((x) => x.id === id);
+  if (!j) throw new Error(`ダミーのジョブ ${id} が無い`);
+  return { stage: j.lastFailedStage, error: j.lastError };
+};
+
+const fetchFailed = { stage: "fetch", error: "音声の取得に失敗した（ダミーのエラー）" };
+
+/**
+ * ジョブ id ごとの試行の履歴（古い順）。件数は一覧の attempts と同じにし、失敗したジョブの最後の試行は lastFailedStage・lastError と同じにする。
+ * 時刻は本物の決まりに合わせる。最初の試行は放送の終わりのおよそ 5 分後、再試行は前の試行の始まりから 15 分 → 1 時間 → 3 時間 → 以降 6 時間。
+ * 済んだジョブの最後の試行は、finishedAt に終わる。
+ * 本物のサーバーは試行が終わったときにだけ履歴を書くので、録音中のジョブ（107）の履歴は空にする（終わっていない試行は入れない）。
+ */
+const attemptLogs: Record<number, JobAttempt[]> = {
+  108: [attempt(jst("2026-04-15", "07:05"), jst("2026-04-15", "07:20"), undefined, 2 * 3600)],
+  106: [
+    attempt(jst("2026-04-14", "22:05"), jst("2026-04-14", "22:09"), fetchFailed),
+    attempt(jst("2026-04-14", "22:20"), jst("2026-04-14", "22:24"), fetchFailed),
+    attempt(jst("2026-04-14", "23:20"), jst("2026-04-14", "23:24"), fetchFailed),
+    attempt(jst("2026-04-15", "02:20"), jst("2026-04-15", "02:24"), fetchFailed),
+    attempt(jst("2026-04-15", "08:20"), jst("2026-04-15", "08:25"), failureOf(106)),
+  ],
+  105: [attempt(jst("2026-04-09", "17:05"), jst("2026-04-09", "17:20"), undefined, 3 * 3600)],
+  104: [attempt(jst("2026-04-13", "11:05"), jst("2026-04-13", "11:20"), undefined, 2 * 3600)],
+  103: [
+    attempt(jst("2026-04-10", "22:05"), jst("2026-04-10", "22:09"), fetchFailed),
+    attempt(jst("2026-04-10", "22:20"), jst("2026-04-10", "22:24"), fetchFailed),
+    attempt(jst("2026-04-10", "23:20"), jst("2026-04-10", "23:24"), fetchFailed),
+    attempt(jst("2026-04-11", "02:20"), jst("2026-04-11", "02:24"), fetchFailed),
+    // 録音期限を過ぎた試行は、何も取りに行かずにすぐ終わる
+    attempt(jst("2026-04-11", "08:20"), jst("2026-04-11", "08:20"), failureOf(103)),
+  ],
+};
+
 export const jobDetail = (j: JobSummary): JobDetail => ({
   ...j,
   airings: j.stations.map((s) => ({
@@ -322,7 +369,7 @@ export const jobDetail = (j: JobSummary): JobDetail => ({
     description: "",
     missing: false,
   })),
-  attemptLog: [],
+  attemptLog: attemptLogs[j.id] ?? [],
   durationSeconds: j.stations.reduce((n, s) => n + (new Date(s.end).getTime() - new Date(s.start).getTime()) / 1000, 0),
 });
 
