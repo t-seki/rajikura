@@ -1,6 +1,43 @@
-:root { color-scheme: light dark; }
-body { font-family: system-ui, "Hiragino Sans", "Yu Gothic", sans-serif; line-height: 1.8; max-width: 42rem; margin: 0 auto; padding: 1.5rem 1rem; }
-header h1 { margin-bottom: 0.25rem; }
-.lead { font-size: 1.15rem; margin-top: 0; }
-h2 { margin-top: 2rem; border-bottom: 1px solid #8884; padding-bottom: 0.25rem; }
-footer { margin-top: 3rem; font-size: 0.9rem; opacity: 0.8; }
+:root {
+  color-scheme: light dark;
+  --accent: #228be6;
+  --bg: #fff;
+  --fg: #212529;
+  --muted: #495057;
+  --surface: #f8f9fa;
+  --border: #dee2e6;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent: #74c0fc;
+    --bg: #1a1b1e;
+    --fg: #c1c2c5;
+    --muted: #909296;
+    --surface: #25262b;
+    --border: #373a40;
+  }
+}
+* { box-sizing: border-box; }
+body { font-family: system-ui, "Hiragino Sans", "Yu Gothic", sans-serif; line-height: 1.8; max-width: 60rem; margin: 0 auto; padding: 2rem 1rem; background: var(--bg); color: var(--fg); overflow-wrap: anywhere; }
+a { color: var(--accent); }
+header h1 { margin-bottom: 0.25rem; font-size: 2.2rem; }
+.lead { font-size: 1.15rem; margin-top: 0; color: var(--muted); }
+h2 { margin-top: 3rem; border-bottom: 1px solid var(--border); padding-bottom: 0.25rem; }
+h3 { margin: 0 0 0.5rem; }
+p { margin: 0; }
+code { background: var(--surface); padding: 0.1em 0.35em; border-radius: 4px; }
+.hero-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.25rem; margin-top: 1.5rem; }
+.hero-card { background: var(--surface); border: 1px solid var(--border); border-top: 4px solid var(--accent); border-radius: 8px; padding: 1.5rem; }
+.hero-card h3 { font-size: 1.25rem; }
+.card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 1rem; margin-top: 1.25rem; }
+.card { border: 1px solid var(--border); border-radius: 8px; padding: 1rem; font-size: 0.95rem; }
+.card h3 { font-size: 1rem; }
+figure { margin: 1.5rem 0; }
+figure img { display: block; max-width: 100%; height: auto; border: 1px solid var(--border); border-radius: 8px; }
+figcaption { font-size: 0.9rem; color: var(--muted); margin-top: 0.5rem; }
+footer { margin-top: 3rem; font-size: 0.9rem; color: var(--muted); }
+@media (max-width: 40rem) {
+  .hero-grid { grid-template-columns: 1fr; }
+  header h1 { font-size: 1.8rem; }
+}
+.logo { vertical-align: middle; }
