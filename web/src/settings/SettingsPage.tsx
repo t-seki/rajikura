@@ -42,23 +42,32 @@ export function SettingsPage({ onChanged, onTestSent }: { onChanged: (view: Sett
   const [advancedOpen, setAdvancedOpen] = useState(false);
   useEffect(() => {
     if (jump === null) return;
+    // 読み込み中は待つ（上に区切りが差し込まれて、進んだ先が押し出されないように）
+    if (!view && !error) return;
     // 画面の上の目次と最後の 2 つの区切りは、設定を読めなくても出る
     if (!view && jump !== "idp" && jump !== "password") return;
     if (jump === "advanced" && !advancedOpen) {
       setAdvancedOpen(true);
       return;
     }
-    const go = () => document.getElementById(jump)?.scrollIntoView();
+    // 進んだ区切りにフォーカスも移す（キーボードで押した後の Tab や、スクリーンリーダーの読む位置が区切りから続くように）
+    const go = () => {
+      const el = document.getElementById(jump);
+      el?.scrollIntoView();
+      el?.focus({ preventScroll: true });
+    };
     go();
     // 畳みが開く動きの後にも、もう一度進む
     if (jump === "advanced") window.setTimeout(go, 300);
     setJump(null);
-  }, [jump, view, advancedOpen]);
+  }, [jump, view, error, advancedOpen]);
 
   const follow = useCallback((e: React.MouseEvent<HTMLAnchorElement>, id: string) => {
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
-    window.history.pushState(window.history.state, "", `/settings#${id}`);
+    // 今の URL と同じなら、同じ履歴を積まない（ナビと同じ決まり）
+    const url = `/settings#${id}`;
+    if (window.location.pathname + window.location.hash !== url) window.history.pushState(window.history.state, "", url);
     setJump(id);
   }, []);
 
@@ -159,7 +168,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <Card withBorder padding="md" component="section" aria-label={title} id={id} style={{ scrollMarginTop: 72 }}>
+    <Card withBorder padding="md" component="section" aria-label={title} id={id} tabIndex={id ? -1 : undefined} style={{ scrollMarginTop: 72 }}>
       <Stack>
         <Title order={4}>{title}</Title>
         {hint && (

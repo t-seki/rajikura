@@ -208,6 +208,42 @@ describe("SettingsPage", () => {
     expect((spy.mock.contexts.at(-1) as HTMLElement).id).toBe("advanced");
   });
 
+  it("/settings#password で開くと、設定を読み込んで上の区切りが出た後に進む", async () => {
+    mockApi(base);
+    window.history.replaceState(null, "", "/settings#password");
+    const loadedAtCall: boolean[] = [];
+    const spy = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {
+      loadedAtCall.push(document.getElementById("library") !== null);
+    });
+    renderPage();
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(loadedAtCall).toEqual([true]);
+    expect(spy.mock.contexts.at(-1)).toBe(screen.getByRole("region", { name: "Web UI のパスワード" }));
+  });
+
+  it("目次のリンクで進むと、フォーカスがその区切りへ移る", async () => {
+    mockApi(base);
+    vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+    renderPage();
+    const nav = await screen.findByRole("navigation", { name: "設定の区切り" });
+    await screen.findByRole("region", { name: "バックアップ" });
+    within(nav).getByRole("link", { name: "バックアップ" }).focus();
+    await userEvent.keyboard("{Enter}");
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("region", { name: "バックアップ" })));
+  });
+
+  it("同じ目次のリンクをもう一度押しても、同じ履歴を積まない", async () => {
+    mockApi(base);
+    vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+    renderPage();
+    const nav = await screen.findByRole("navigation", { name: "設定の区切り" });
+    await screen.findByRole("region", { name: "バックアップ" });
+    const push = vi.spyOn(window.history, "pushState");
+    await userEvent.click(within(nav).getByRole("link", { name: "バックアップ" }));
+    await userEvent.click(within(nav).getByRole("link", { name: "バックアップ" }));
+    expect(push).toHaveBeenCalledTimes(1);
+  });
+
   it("知らない名前のハッシュでは、何もしない", async () => {
     mockApi(base);
     window.history.replaceState(null, "", "/settings#unknown");
