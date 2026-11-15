@@ -60,27 +60,19 @@ const lineups: Record<string, Slot[]> = {
   ],
 };
 
-// 録音の状態を付ける番組（Show の name と同じ）。タイトルが同じ放送回に付く。
-const showByTitle: Record<string, string> = {
-  朝のどんぐりカフェ: "朝のどんぐりカフェ",
-  月曜の小さな図書館: "月曜の小さな図書館",
-  夕やけトラベラーズ: "夕やけトラベラーズ",
-  ハーバーサウンズ: "ハーバーサウンズ",
-  星降る深夜ラジオ: "星降る深夜ラジオ",
-  波打ちぎわの昭和歌謡: "波打ちぎわの昭和歌謡",
-  つむぎ夜の読み物: "つむぎ夜の読み物",
-};
-
 /**
  * 放送日 day（YYYY-MM-DD）の、3 局の番組表。
  * ダミーのジョブ（jobs）がある放送回（局と開始・終了が、ジョブの stations と同じ）は、本物（internal/server/guide.go の view）と同じ決め方で、
  * showName・jobId・state・skipBy・skippable をそのジョブから付ける。
  * done→done、expired→missed、skipped→skip_planned（settled なら skipped。skipBy は byPerson なら person、でなければ title）、
  * それ以外→planned（skippable は、試行が 0 回の waiting のときだけ true）。
- * ジョブが無い放送回は、今（MOCK_NOW）より前に終わっていれば録音済み、後なら録音予定（jobId は付けない）。
+ * ジョブが無い放送回は、有効な番組の毎週の予約（weekly の局・放送日の曜日・開始時刻）に当たるときだけ、その番組の放送回にする
+ * （本物の internal/server/guide.go と同じ。当たらなければ予約の無い放送回 none）。
+ * 当たったものは、今（MOCK_NOW）より前に終わっていれば録音済み、後なら録音予定（jobId は付けない）。
  */
 export function guideOf(day: string): GuideStation[] {
   const base = new Date(`${day}T05:00:00+09:00`).getTime();
+  const weekday = new Date(`${day}T00:00:00Z`).getUTCDay();
   return stations.map((st) => {
     let cursor = 0;
     const airings: GuideAiring[] = lineups[st.id].map((slot, i) => {
@@ -88,7 +80,7 @@ export function guideOf(day: string): GuideStation[] {
       const end = new Date(base + (cursor + slot.minutes) * 60_000);
       cursor += slot.minutes;
       const job = jobs.find((j) => j.stations.some((s) => s.stationId === st.id && Date.parse(s.start) === start.getTime() && Date.parse(s.end) === end.getTime()));
-      const showName = job ? job.showName : showByTitle[slot.title];
+      const showName = job ? job.showName : showOfWeekly(st.id, weekday, hhmmJst(start));
       let state: GuideAiring["state"] = showName ? (end.getTime() <= nowMs ? "done" : "planned") : "none";
       let jobFields: Pick<GuideAiring, "jobId" | "skipBy" | "skippable"> = {};
       if (job) {
@@ -129,6 +121,12 @@ export function guideOf(day: string): GuideStation[] {
     return { id: st.id, name: st.name, airings };
   });
 }
+
+const hhmmJst = (d: Date) => new Date(d.getTime() + 9 * 3600_000).toISOString().slice(11, 16);
+
+/** 有効な番組の毎週の予約が、局・放送日の曜日（0=日）・開始時刻（JST の HH:MM）に当たる番組の名前。 */
+const showOfWeekly = (stationId: string, weekday: number, hhmm: string) =>
+  shows.find((s) => s.enabled && s.weekly.some((w) => w.station === stationId && w.weekday === weekday && w.start === hhmm))?.name;
 
 // 放送日 day（YYYY-MM-DD）の放送日の時刻 hhmm（HH:MM。24:00 以降も書ける）の時刻。番組表の並び（lineups）の時刻と合わせて書く。
 const jst = (day: string, hhmm: string) => {
