@@ -102,28 +102,36 @@ export function SettingsPage({ onChanged, onTestSent }: { onChanged: (view: Sett
     setJump(null);
   }, [jump, view, error, advancedOpen, idpLoaded]);
 
-  const wide = useMediaQuery(WIDE_QUERY) ?? false;
+  const wide = useMediaQuery(WIDE_QUERY, false, { getInitialValueInEffect: false });
   // 今いる区切り。画面の上の方（ヘッダーの下）に見えている区切り。目次のリンクを押したときは、押した区切り。
   const [active, setActive] = useState<string | null>(null);
   // 目次を押して進んだ区切り。ページの一番下では最後の区切りが上まで来ないので、一番下にいる間は、この区切りを今いる区切りにする。
   const pinned = useRef<string | null>(null);
+  const update = useCallback(() => {
+    const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
+    if (pinned.current !== null && atBottom) return;
+    pinned.current = null;
+    let current: string | null = null;
+    let first: string | null = null;
+    for (const t of tocItems) {
+      const r = document.getElementById(t.id)?.getBoundingClientRect();
+      // 無い区切りと、畳まれて大きさの無い区切りは数えない
+      if (!r || (r.width === 0 && r.height === 0)) continue;
+      if (first === null) first = t.id;
+      if (r.top <= ACTIVE_LINE) current = t.id;
+    }
+    // 上の方にまだ区切りの頭が来ていないときは、見えている先頭の区切り
+    const next = current ?? first;
+    setActive((a) => (next === null ? a : next));
+  }, []);
   useEffect(() => {
-    const update = () => {
-      const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
-      if (pinned.current !== null && atBottom) return;
-      pinned.current = null;
-      let current: string | null = null;
-      for (const t of tocItems) {
-        const r = document.getElementById(t.id)?.getBoundingClientRect();
-        // 無い区切りと、畳まれて大きさの無い区切りは数えない
-        if (!r || (r.width === 0 && r.height === 0)) continue;
-        if (r.top <= ACTIVE_LINE) current = t.id;
-      }
-      setActive((a) => (current === null ? a : current));
-    };
     window.addEventListener("scroll", update, { passive: true });
     return () => window.removeEventListener("scroll", update);
-  }, []);
+  }, [update]);
+  // 開いたときと、区切りが出そろったときにも決める
+  useEffect(() => {
+    update();
+  }, [update, view, idpLoaded, advancedOpen]);
 
   const follow = useCallback((e: React.MouseEvent<HTMLAnchorElement>, id: string) => {
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -171,22 +179,23 @@ export function SettingsPage({ onChanged, onTestSent }: { onChanged: (view: Sett
       <PasswordSection />
     </>
   );
-  if (wide) {
-    return (
-      <Stack>
-        <Title order={2}>設定</Title>
-        <Flex gap="xl" align="stretch" wrap="nowrap">
-          <Stack style={{ flex: 1, minWidth: 0 }}>{body}</Stack>
-          <Box style={{ width: 200, flexShrink: 0 }}>{toc}</Box>
-        </Flex>
-      </Stack>
-    );
-  }
+  // 広い・狭いで木の形を変えない（区切りのフォームを作り直さない）。key 付きの並べ替えだけで、目次の位置を替える。
+  const tocBox = (
+    <Box key="toc" style={wide ? { width: 200, flexShrink: 0 } : undefined}>
+      {toc}
+    </Box>
+  );
+  const bodyBox = (
+    <Stack key="body" style={{ flex: 1, minWidth: 0 }}>
+      {body}
+    </Stack>
+  );
   return (
     <Stack>
       <Title order={2}>設定</Title>
-      {toc}
-      {body}
+      <Flex direction={wide ? "row" : "column"} gap={wide ? "xl" : "md"} align="stretch" wrap="nowrap">
+        {wide ? [bodyBox, tocBox] : [tocBox, bodyBox]}
+      </Flex>
     </Stack>
   );
 }
