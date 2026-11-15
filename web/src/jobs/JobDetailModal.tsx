@@ -1,7 +1,7 @@
 import { Alert, Button, Divider, Group, Loader, Modal, Progress, Select, Stack, Text } from "@mantine/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { broadcastRange, dayLabel } from "../guide/format";
-import { listShows } from "../shows/api";
+import { listShows, listStations } from "../shows/api";
 import { notifySuccess } from "../ui/toast";
 import { formatDateTime, formatDuration, progressPercent, progressText, stageLabel } from "./format";
 import {
@@ -116,6 +116,17 @@ export function JobDetailModal({ id, onClose, onChanged }: Props) {
   // 「保存先を移す」の移し先に選べる番組の名前（今ある番組。保存先を移せるジョブを開いたときに 1 度だけ読む）と、選んだ番組。
   const [showNames, setShowNames] = useState<string[] | null>(null);
   const [moveTo, setMoveTo] = useState<string | null>(null);
+  // 放送回に出す局の名前。引けなければ（失敗、一覧に無い局）局 ID を出す。
+  const [stationNames, setStationNames] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let live = true;
+    listStations()
+      .then((list) => live && setStationNames(Object.fromEntries(list.map((s) => [s.id, s.name]))))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
 
   const load = useCallback(async (jobId: number) => {
     try {
@@ -305,7 +316,7 @@ export function JobDetailModal({ id, onClose, onChanged }: Props) {
                   {a.missing && "（欠落）"}
                 </Text>
                 <Text size="xs" c="dimmed">
-                  {a.stationId} ・ {broadcastRange(a)}
+                  {stationNames[a.stationId] ?? a.stationId} ・ {broadcastRange(a)}
                 </Text>
               </Stack>
             ))}

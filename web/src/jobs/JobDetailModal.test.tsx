@@ -88,6 +88,42 @@ describe("JobDetailModal のチャプターの書き込みの履歴", () => {
   });
 });
 
+describe("JobDetailModal の放送回の局", () => {
+  function mockWithStations(stations: () => Response | Promise<Response>) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const key = `${init?.method ?? "GET"} ${url}`;
+        if (key === "GET /api/jobs/1") return new Response(JSON.stringify(job), { status: 200 });
+        if (key === "GET /api/stations") return stations();
+        throw new Error(`想定外の呼び出し: ${key}`);
+      }),
+    );
+  }
+
+  it("局の名前が分かれば、ID ではなく名前を出す", async () => {
+    mockWithStations(() => new Response(JSON.stringify([{ id: "TBS", name: "TBSラジオ" }]), { status: 200 }));
+    renderModal();
+    const row = (await screen.findAllByTestId("airing"))[0];
+    await within(row).findByText(/^TBSラジオ ・ /);
+    expect(within(row).queryByText(/^TBS ・ /)).toBeNull();
+  });
+
+  it("局の一覧に無い局は ID を出す", async () => {
+    mockWithStations(() => new Response(JSON.stringify([{ id: "QRR", name: "文化放送" }]), { status: 200 }));
+    renderModal();
+    const row = (await screen.findAllByTestId("airing"))[0];
+    expect(within(row).getByText(/^TBS ・ /)).toBeInTheDocument();
+  });
+
+  it("局の一覧を取れなければ ID を出す", async () => {
+    mockWithStations(() => new Response("{}", { status: 500 }));
+    renderModal();
+    const row = (await screen.findAllByTestId("airing"))[0];
+    expect(within(row).getByText(/^TBS ・ /)).toBeInTheDocument();
+  });
+});
+
 describe("JobDetailModal の「保存先を移す」", () => {
   const movable: JobDetail = { ...job, showName: "古い名前", outputPath: "/lib/TBS/古い名前/古い名前 2026-10-11.m4a", movable: true };
 
