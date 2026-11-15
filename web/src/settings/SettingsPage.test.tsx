@@ -306,6 +306,20 @@ describe("SettingsPage", () => {
     expect((spy.mock.contexts.at(-1) as HTMLElement).id).toBe("advanced");
   });
 
+  it("設定の画面を出している間だけ、ブラウザのスクロールの復元を止める", async () => {
+    mockApi(base);
+    window.history.scrollRestoration = "auto";
+    const { unmount } = render(
+      <MantineProvider>
+        <SettingsPage onChanged={vi.fn()} />
+      </MantineProvider>,
+    );
+    await screen.findByRole("region", { name: "バックアップ" });
+    expect(window.history.scrollRestoration).toBe("manual");
+    unmount();
+    expect(window.history.scrollRestoration).toBe("auto");
+  });
+
   it("開いたままハッシュが知らない名前・なしに変わっても、何もしない", async () => {
     mockApi(base);
     const spy = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});

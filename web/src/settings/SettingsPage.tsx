@@ -54,9 +54,14 @@ export function SettingsPage({ onChanged, onTestSent }: { onChanged: (view: Sett
     };
     window.addEventListener("hashchange", onHash);
     window.addEventListener("popstate", onHash);
+    // 戻る・進むで区切りへ進んだ後に、ブラウザが履歴に覚えたスクロールの位置（目次の履歴は進む前の位置で積む）へ戻さないよう、
+    // この画面を出している間だけスクロールの復元を止める。
+    const restoration = window.history.scrollRestoration;
+    window.history.scrollRestoration = "manual";
     return () => {
       window.removeEventListener("hashchange", onHash);
       window.removeEventListener("popstate", onHash);
+      window.history.scrollRestoration = restoration;
     };
   }, []);
   const [advancedOpen, setAdvancedOpen] = useState(false);
