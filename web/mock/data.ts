@@ -134,7 +134,8 @@ const jst = (day: string, hhmm: string) => {
   return new Date(new Date(`${day}T00:00:00+09:00`).getTime() + (h * 60 + m) * 60_000).toISOString();
 };
 
-// 番組（shows）の weekly と next_airing、ジョブ（jobs）の stations は、番組表の並び（lineups）の放送回と同じ局・開始時刻・長さにする。
+// 番組（shows）の weekly、ジョブ（jobs）の stations は、番組表の並び（lineups）の放送回と同じ局・開始時刻・長さにする。
+// next_airing は、本物（internal/store/shows.go の NextAirings）と同じく、その番組の録音予定（waiting）のジョブの放送回のうち、開始が今（MOCK_NOW）より後のいちばん早い開始。そうしたジョブが無い番組には付けない。
 export const shows: Show[] = [
   {
     name: "朝のどんぐりカフェ",
@@ -142,7 +143,6 @@ export const shows: Show[] = [
     split: "none",
     check_title: true,
     weekly: [{ station: "HOSHIZORA", weekday: 1, start: "05:00" }, { station: "HOSHIZORA", weekday: 3, start: "05:00" }],
-    next_airing: jst("2026-04-20", "05:00"),
   },
   {
     name: "月曜の小さな図書館",
@@ -150,7 +150,6 @@ export const shows: Show[] = [
     split: "none",
     check_title: true,
     weekly: [{ station: "HOSHIZORA", weekday: 1, start: "09:00" }],
-    next_airing: jst("2026-04-20", "09:00"),
   },
   {
     name: "夕やけトラベラーズ",
@@ -174,7 +173,6 @@ export const shows: Show[] = [
     split: "none",
     check_title: true,
     weekly: [{ station: "MINATO", weekday: 3, start: "08:00" }],
-    next_airing: jst("2026-04-22", "08:00"),
   },
   {
     name: "波打ちぎわの昭和歌謡",
@@ -182,7 +180,6 @@ export const shows: Show[] = [
     split: "separate",
     check_title: false,
     weekly: [{ station: "MINATO", weekday: 4, start: "14:00" }],
-    next_airing: jst("2026-04-16", "14:00"),
   },
   {
     name: "つむぎ夜の読み物",
@@ -190,7 +187,6 @@ export const shows: Show[] = [
     split: "none",
     check_title: true,
     weekly: [{ station: "TSUMUGI", weekday: 2, start: "19:00" }, { station: "TSUMUGI", weekday: 5, start: "19:00" }],
-    next_airing: jst("2026-04-17", "19:00"),
   },
   {
     name: "ゆうびん屋さんのたより",
