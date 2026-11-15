@@ -1,7 +1,7 @@
 import { Alert, Button, Divider, Group, Loader, Modal, Progress, Select, Stack, Text } from "@mantine/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { broadcastRange, dayLabel } from "../guide/format";
-import { listShows, listStations } from "../shows/api";
+import { listShows } from "../shows/api";
 import { notifySuccess } from "../ui/toast";
 import { formatDateTime, formatDuration, progressPercent, progressText, stageLabel } from "./format";
 import {
@@ -107,26 +107,17 @@ interface Props {
   onClose: () => void;
   /** 再試行・録らない・録る・録り直す・チャプターを入れ直す・保存先を移すをしたとき、一覧を読み直すために呼ぶ。 */
   onChanged: () => void;
+  /** 局 ID ごとの局の名前（ジョブの画面が読んだ局の一覧）。放送回に出す。引けない局（一覧を読めない、一覧に無い）は局 ID を出す。 */
+  stationNames?: Record<string, string>;
 }
 
-export function JobDetailModal({ id, onClose, onChanged }: Props) {
+export function JobDetailModal({ id, onClose, onChanged, stationNames = {} }: Props) {
   const [job, setJob] = useState<JobDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // 「保存先を移す」の移し先に選べる番組の名前（今ある番組。保存先を移せるジョブを開いたときに 1 度だけ読む）と、選んだ番組。
   const [showNames, setShowNames] = useState<string[] | null>(null);
   const [moveTo, setMoveTo] = useState<string | null>(null);
-  // 放送回に出す局の名前。引けなければ（失敗、一覧に無い局）局 ID を出す。
-  const [stationNames, setStationNames] = useState<Record<string, string>>({});
-  useEffect(() => {
-    let live = true;
-    listStations()
-      .then((list) => live && setStationNames(Object.fromEntries(list.map((s) => [s.id, s.name]))))
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, []);
 
   const load = useCallback(async (jobId: number) => {
     try {

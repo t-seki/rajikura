@@ -242,7 +242,7 @@ export function JobsPage({
             </Group>
           </Card>
         ))}
-      <JobDetailModal id={selected} onClose={() => setSelected(null)} onChanged={reload} />
+      <JobDetailModal id={selected} onClose={() => setSelected(null)} onChanged={reload} stationNames={stationNames} />
     </Stack>
   );
 }
