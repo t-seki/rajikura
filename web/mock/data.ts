@@ -355,13 +355,14 @@ export const jobs: JobSummary[] = [
   },
 ];
 
-// durationSeconds は本物と同じく、録れた音声の長さ（失敗した試行は 0）。
 // 番組の next_airing。本物（internal/store/shows.go の NextAirings）は、その番組の録音予定（waiting）のジョブの放送回のうち、開始が今（MOCK_NOW）より後のいちばん早い開始にする。
 // 本物のサーバーは、今日から 7 日先までの予約に当たる放送回に全部ジョブを作る。ダミーのジョブは画面を見せるための一部しか無いので、それを補う:
 // 今（MOCK_NOW）の放送日から 7 日先までの放送日の、有効な毎週の予約に当たる放送回のうち、開始が今より後で、
 // ジョブがあればそのジョブが waiting のもの、ジョブが無ければ（本物では録音予定のジョブがあるはずなので）録音予定とみなすもののいちばん早い開始。無ければ付けない。
 const nextAiringOf = (name: string): string | undefined => {
-  const today = new Date(`${MOCK_NOW.slice(0, 10)}T00:00:00Z`).getTime();
+  // 今の放送日（JST の 05:00 で日を切る。本物の domain.BroadcastDayOf と同じ）
+  const broadcastDay = new Date(nowMs + (9 - 5) * 3_600_000).toISOString().slice(0, 10);
+  const today = new Date(`${broadcastDay}T00:00:00Z`).getTime();
   let best: string | undefined;
   for (let d = 0; d <= 7; d++) {
     const day = new Date(today + d * 86_400_000).toISOString().slice(0, 10);
@@ -382,6 +383,7 @@ export const shows: Show[] = showDefs.map((s) => {
   return next ? { ...s, next_airing: next } : s;
 });
 
+// durationSeconds は本物と同じく、録れた音声の長さ（失敗した試行は 0）。
 const attempt = (startedAt: string, endedAt: string, failure?: { stage: string; error: string }, recordedSeconds = 0): JobAttempt => ({
   startedAt,
   endedAt,
