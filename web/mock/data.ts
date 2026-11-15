@@ -2,7 +2,7 @@
 // 局・番組名・出演者・説明・画像のすべてを作り話にする。radiko の実際の番組表は使わない（ADR 0028）。
 // 型だけを src から読む（import type は消えるので、このファイルは src の実行コードに依存しない）。
 import type { GuideAiring, GuideStation } from "../src/guide/api.ts";
-import type { JobDetail, JobSummary } from "../src/jobs/jobsApi.ts";
+import type { JobAttempt, JobDetail, JobSummary } from "../src/jobs/jobsApi.ts";
 import type { Keyword, KeywordAiring } from "../src/keywords/keywordsApi.ts";
 import type { Show, Station } from "../src/shows/api.ts";
 import type { ApiToken } from "../src/tokens/tokensApi.ts";
@@ -311,6 +311,40 @@ export const jobs: JobSummary[] = [
   },
 ];
 
+const attempt = (startedAt: string, endedAt: string, failure?: { stage: string; error: string }): JobAttempt => ({
+  startedAt,
+  endedAt,
+  failedStage: failure?.stage ?? "",
+  error: failure?.error ?? "",
+  durationSeconds: endedAt ? (new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 1000 : 0,
+});
+
+const failureOf = (id: number) => {
+  const j = jobs.find((x) => x.id === id);
+  if (!j) throw new Error(`ダミーのジョブ ${id} が無い`);
+  return { stage: j.lastFailedStage, error: j.lastError };
+};
+
+/** ジョブ id ごとの試行の履歴（古い順）。一覧の attempts の回数と同じ件数にし、失敗したジョブの最後の試行は lastFailedStage・lastError と同じにする。 */
+const attemptLogs: Record<number, JobAttempt[]> = {
+  108: [attempt(jst("2026-04-15", "07:00"), jst("2026-04-15", "07:20"))],
+  // 録音中の試行は、まだ終わっていないので endedAt が空。
+  107: [attempt(at(-47), "")],
+  106: [
+    attempt(jst("2026-04-14", "22:00"), jst("2026-04-14", "22:04"), { stage: "fetch", error: "音声の取得に失敗した（ダミーのエラー）" }),
+    attempt(jst("2026-04-14", "23:00"), jst("2026-04-14", "23:05"), failureOf(106)),
+  ],
+  105: [attempt(jst("2026-04-09", "17:00"), jst("2026-04-09", "17:20"))],
+  104: [attempt(jst("2026-04-13", "11:00"), jst("2026-04-13", "11:20"))],
+  103: [
+    attempt(jst("2026-04-10", "22:00"), jst("2026-04-10", "22:05"), { stage: "fetch", error: "音声の取得に失敗した（ダミーのエラー）" }),
+    attempt(jst("2026-04-10", "23:00"), jst("2026-04-10", "23:05"), { stage: "fetch", error: "音声の取得に失敗した（ダミーのエラー）" }),
+    attempt(jst("2026-04-11", "01:00"), jst("2026-04-11", "01:05"), { stage: "fetch", error: "音声の取得に失敗した（ダミーのエラー）" }),
+    attempt(jst("2026-04-11", "07:00"), jst("2026-04-11", "07:05"), { stage: "fetch", error: "音声の取得に失敗した（ダミーのエラー）" }),
+    attempt(jst("2026-04-12", "03:00"), jst("2026-04-12", "03:10"), failureOf(103)),
+  ],
+};
+
 export const jobDetail = (j: JobSummary): JobDetail => ({
   ...j,
   airings: j.stations.map((s) => ({
@@ -322,7 +356,7 @@ export const jobDetail = (j: JobSummary): JobDetail => ({
     description: "",
     missing: false,
   })),
-  attemptLog: [],
+  attemptLog: attemptLogs[j.id] ?? [],
   durationSeconds: j.stations.reduce((n, s) => n + (new Date(s.end).getTime() - new Date(s.start).getTime()) / 1000, 0),
 });
 
