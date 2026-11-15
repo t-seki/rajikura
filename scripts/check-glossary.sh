@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# GLOSSARY.md の各項目の `_Avoid_:` の語が、docs/（docs/adr/ を除く）と README.md、
+# GLOSSARY.md の各項目の `_Avoid_:` の語が、docs/（docs/adr/ を除く）と README.md、案内のサイトの HTML（site/*.html）、
 # および GLOSSARY.md の定義文に出てこないかを検査する。出たらファイルと行を出して失敗する。
 #
 # - GLOSSARY.md の定義文は、用語の行（`**用語**:`）の次の行から `_Avoid_:` の行・空行・見出しの前まで。
@@ -19,9 +19,9 @@
 #     語を書かない `<!-- glossary-ok -->` と、その行で当たらない語を書いた印（古い印・書き間違い）はエラー。
 #
 # 使い方: scripts/check-glossary.sh [検査するファイル...]   （repo のどこから呼んでもよい）
-#   ファイルを渡すと docs/ と README.md の代わりにそのファイルを検査する（GLOSSARY.md の定義文は常に検査する）。環境変数 GLOSSARY_FILE で用語集を、GLOSSARY_ALLOW_FILE で
+#   ファイルを渡すと docs/・README.md・site/*.html の代わりにそのファイルを検査する（GLOSSARY.md の定義文は常に検査する）。環境変数 GLOSSARY_FILE で用語集を、GLOSSARY_ALLOW_FILE で
 #   許す言い回しのファイルを差し替えられる（scripts/check-glossary_test.sh 用。既定は GLOSSARY.md、
-#   scripts/glossary-allow.txt、docs/ と README.md）。
+#   scripts/glossary-allow.txt、docs/ と README.md と site/*.html）。
 #   引数と環境変数の相対パスは、呼んだ場所ではなく repo root 基準で解決する。
 set -euo pipefail
 
@@ -35,7 +35,7 @@ if [ "$#" -gt 0 ]; then
   files=("$@")
 else
   while IFS= read -r f; do files+=("$f"); done < <(
-    { ls README.md 2>/dev/null || true; find docs -name '*.md' -not -path 'docs/adr/*'; } | LC_ALL=C sort
+    { ls README.md site/*.html 2>/dev/null || true; find docs -name '*.md' -not -path 'docs/adr/*'; } | LC_ALL=C sort
   )
 fi
 

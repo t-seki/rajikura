@@ -1,0 +1,46 @@
+# 案内のサイト（site/）を GitHub Pages に出す。main への push で、site/・docs/images/・web/public/favicon.svg が変わったときだけ。
+# 組み立ては scripts/build-site.sh（CI の glossary の job も同じスクリプトで組み立てて検査する）。
+# Pages の有効化は owner が repo の設定（Settings > Pages > Source を GitHub Actions）で行う。
+# 有効でないときは configure-pages の step が「Pages が有効でない」という誤りで落ちる（enablement: true は付けない）。
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "docs/images/**"
+      - "web/public/favicon.svg"
+      - "scripts/build-site.sh"
+      - ".github/workflows/pages.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Pages が有効であること（無効なら、設定でソースを GitHub Actions にする）
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - name: 組み立てる
+        run: scripts/build-site.sh _site
+      - name: 組み立てた中身を調べる
+        run: scripts/check-site.sh _site
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
