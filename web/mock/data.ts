@@ -293,7 +293,8 @@ export const jobs: JobSummary[] = [
     showName: "つむぎ夜の読み物",
     day: "2026-04-10",
     part: 1,
-    finishedAt: jst("2026-04-12", "03:10"),
+    // 試行のある expired は、最後の試行の終わり（attemptLogs の 103 の最後）
+    finishedAt: jst("2026-04-11", "08:20"),
     state: "expired",
     attempts: 5,
     lastFailedStage: "fetch",
