@@ -306,18 +306,19 @@ describe("SettingsPage", () => {
     expect((spy.mock.contexts.at(-1) as HTMLElement).id).toBe("advanced");
   });
 
-  it("設定の画面を出している間だけ、ブラウザのスクロールの復元を止める", async () => {
+  it("戻る・進むで区切りへ進むのは、popstate の後のタスクまで待ってから（ブラウザがスクロールの位置を戻した後に進むため）", async () => {
     mockApi(base);
-    window.history.scrollRestoration = "auto";
-    const { unmount } = render(
-      <MantineProvider>
-        <SettingsPage onChanged={vi.fn()} />
-      </MantineProvider>,
-    );
+    const spy = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+    renderPage();
     await screen.findByRole("region", { name: "バックアップ" });
-    expect(window.history.scrollRestoration).toBe("manual");
-    unmount();
-    expect(window.history.scrollRestoration).toBe("auto");
+    window.history.replaceState(null, "", "/settings#backup");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    // popstate と同じタスクの中（microtask まで）では、まだ進まない
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(spy).not.toHaveBeenCalled();
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(spy.mock.contexts.at(-1)).toBe(screen.getByRole("region", { name: "バックアップ" }));
   });
 
   it("開いたままハッシュが知らない名前・なしに変わっても、何もしない", async () => {

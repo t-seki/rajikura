@@ -46,22 +46,23 @@ export function SettingsPage({ onChanged, onTestSent }: { onChanged: (view: Sett
   const lastHash = useRef<string | null>(jump);
   // 開いたままハッシュが変わったとき（アドレス欄の書き換え・戻る・進む）も、目次を押したときと同じ道で進む。知らない名前・ハッシュなしは何もしない。
   useEffect(() => {
+    let pending: number | undefined;
     const onHash = () => {
       const id = hashId();
       if (id === lastHash.current) return;
       lastHash.current = id;
-      if (id !== null) setJump(id);
+      if (id === null) return;
+      // 戻る・進むでは、ブラウザが popstate の後に、履歴に覚えたスクロールの位置（目次の履歴は進む前の位置で積む）へ戻す。
+      // その後で進むよう、次のタスクまで待つ（すぐ進むと、戻された位置で上書きされる）。
+      window.clearTimeout(pending);
+      pending = window.setTimeout(() => setJump(id), 0);
     };
     window.addEventListener("hashchange", onHash);
     window.addEventListener("popstate", onHash);
-    // 戻る・進むで区切りへ進んだ後に、ブラウザが履歴に覚えたスクロールの位置（目次の履歴は進む前の位置で積む）へ戻さないよう、
-    // この画面を出している間だけスクロールの復元を止める。
-    const restoration = window.history.scrollRestoration;
-    window.history.scrollRestoration = "manual";
     return () => {
       window.removeEventListener("hashchange", onHash);
       window.removeEventListener("popstate", onHash);
-      window.history.scrollRestoration = restoration;
+      window.clearTimeout(pending);
     };
   }, []);
   const [advancedOpen, setAdvancedOpen] = useState(false);
