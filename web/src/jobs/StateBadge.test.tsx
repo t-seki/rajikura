@@ -14,7 +14,8 @@ describe("StateBadge", () => {
   ] as const)("%s の全文を、「…」で切らず折り返して出す", (state, text) => {
     wrap(<StateBadge job={{ state, settled: true }} />);
     const label = screen.getByText(text);
-    expect(label).not.toHaveStyle({ whiteSpace: "nowrap" });
+    expect(label).toHaveStyle({ whiteSpace: "normal", textOverflow: "clip" });
+      expect(label).not.toHaveStyle({ whiteSpace: "nowrap" });
     expect(label).not.toHaveStyle({ textOverflow: "ellipsis" });
   });
 
@@ -26,6 +27,7 @@ describe("StateBadge", () => {
       </>,
     );
     for (const t of ["◎ライブ録音", "チャプターなし"]) {
+      expect(screen.getByText(t)).toHaveStyle({ whiteSpace: "normal", textOverflow: "clip" });
       expect(screen.getByText(t)).not.toHaveStyle({ whiteSpace: "nowrap" });
       expect(screen.getByText(t)).not.toHaveStyle({ textOverflow: "ellipsis" });
     }

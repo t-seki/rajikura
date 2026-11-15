@@ -639,6 +639,7 @@ describe("JobsPage の状態のバッジ", () => {
     expect(rows).toHaveLength(2);
     for (const [i, t] of ["録音予定（失敗・再試行待ち）", "録音できなかった（期限切れ）"].entries()) {
       const label = within(rows[i]).getByText(t);
+      expect(label).toHaveStyle({ whiteSpace: "normal", textOverflow: "clip" });
       expect(label).not.toHaveStyle({ whiteSpace: "nowrap" });
       expect(label).not.toHaveStyle({ textOverflow: "ellipsis" });
     }
