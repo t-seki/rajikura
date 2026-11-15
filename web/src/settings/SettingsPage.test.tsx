@@ -192,6 +192,55 @@ describe("SettingsPage", () => {
     expect(within(nav).getByRole("link", { name: "保存先" })).not.toHaveAttribute("aria-current");
   });
 
+  // ページの一番下まで進めた状態にする（画面の高さは jsdom の 768）
+  function scrollTo(y: number, pageHeight: number) {
+    vi.stubGlobal("scrollY", y);
+    vi.spyOn(Element.prototype, "scrollHeight", "get").mockReturnValue(pageHeight);
+  }
+
+  it("手で一番下まで進めると、頭が上まで来ない最後の区切りが今いる区切りになり、少し戻ると位置で決め直す", async () => {
+    mockApi(base);
+    renderPage();
+    const nav = await screen.findByRole("navigation", { name: "設定の区切り" });
+    await screen.findByRole("region", { name: "バックアップ" });
+    const current = () => within(nav).getAllByRole("link").filter((l) => l.getAttribute("aria-current") === "location").map((l) => l.textContent);
+    // 一番下: 詳しい設定の頭だけが上の線を越え、IdP とパスワードの頭は下にある
+    placeSections({ library: -2000, membership: -1700, notify: -1300, jellyfin: -900, backup: -500, advanced: 60, idp: 300, password: 480 });
+    scrollTo(1300, 1300 + 768);
+    scrollNow();
+    await waitFor(() => expect(current()).toEqual(["Web UI のパスワード"]));
+    // 少し戻る（一番下ではない）
+    scrollTo(1000, 1300 + 768);
+    scrollNow();
+    await waitFor(() => expect(current()).toEqual(["詳しい設定"]));
+  });
+
+  it("URL のハッシュで区切りへ進んだときも、進んだ区切りが今いる区切りになり、一番下にいる間はそのまま", async () => {
+    mockApi(base);
+    vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+    renderPage();
+    const nav = await screen.findByRole("navigation", { name: "設定の区切り" });
+    await screen.findByRole("region", { name: "バックアップ" });
+    window.history.replaceState(null, "", "/settings#idp");
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    await waitFor(() => expect(within(nav).getByRole("link", { name: "IdP のログイン" })).toHaveAttribute("aria-current", "location"));
+    // 進んだ先は一番下（IdP の頭は上の線まで来ない）。一番下にいる間は、進んだ区切りのまま
+    placeSections({ backup: -500, advanced: 60, idp: 300, password: 480 });
+    scrollTo(1300, 1300 + 768);
+    scrollNow();
+    expect(within(nav).getByRole("link", { name: "IdP のログイン" })).toHaveAttribute("aria-current", "location");
+  });
+
+  it("画面の幅が変わると、今いる区切りを決め直す", async () => {
+    mockApi(base);
+    renderPage();
+    const nav = await screen.findByRole("navigation", { name: "設定の区切り" });
+    await screen.findByRole("region", { name: "バックアップ" });
+    placeSections({ library: -500, membership: -100, notify: 90, jellyfin: 500 });
+    act(() => void fireEvent(window, new Event("resize")));
+    await waitFor(() => expect(within(nav).getByRole("link", { name: "通知" })).toHaveAttribute("aria-current", "location"));
+  });
+
   it("目次のリンクを押すと、押した区切りのリンクが今いる区切りになる", async () => {
     mockApi(base);
     vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
