@@ -1,6 +1,6 @@
 import { MantineProvider } from "@mantine/core";
 import { Notifications, notifications } from "@mantine/notifications";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SettingsBanners } from "./SettingsBanners";
@@ -162,6 +162,64 @@ describe("SettingsPage", () => {
     );
     const first = await screen.findByRole("region", { name: "保存先" });
     expect(nav.compareDocumentPosition(first) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  // 区切りの頭の位置（画面の上からの px）を差し替える。tops に無い区切りは、画面の下の方にある。
+  function placeSections(tops: Record<string, number>) {
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      const top = tops[this.id] ?? 5000;
+      return { top, bottom: top + 300, left: 0, right: 800, width: 800, height: 300, x: 0, y: top, toJSON() {} } as DOMRect;
+    });
+  }
+  const scrollNow = () => act(() => void fireEvent.scroll(window));
+
+  it("画面を進めると、今いる区切りの目次のリンクが移る", async () => {
+    mockApi(base);
+    renderPage();
+    const nav = await screen.findByRole("navigation", { name: "設定の区切り" });
+    await screen.findByRole("region", { name: "バックアップ" });
+    const current = () =>
+      within(nav)
+        .getAllByRole("link")
+        .filter((l) => l.getAttribute("aria-current") === "location")
+        .map((l) => l.textContent);
+    placeSections({ library: 80, membership: 400, notify: 800 });
+    scrollNow();
+    await waitFor(() => expect(current()).toEqual(["保存先"]));
+    placeSections({ library: -500, membership: -100, notify: 90, jellyfin: 500 });
+    scrollNow();
+    await waitFor(() => expect(current()).toEqual(["通知"]));
+    expect(within(nav).getByRole("link", { name: "保存先" })).not.toHaveAttribute("aria-current");
+  });
+
+  it("目次のリンクを押すと、押した区切りのリンクが今いる区切りになる", async () => {
+    mockApi(base);
+    vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+    renderPage();
+    const nav = await screen.findByRole("navigation", { name: "設定の区切り" });
+    await screen.findByRole("region", { name: "バックアップ" });
+    await userEvent.click(within(nav).getByRole("link", { name: "バックアップ" }));
+    expect(within(nav).getByRole("link", { name: "バックアップ" })).toHaveAttribute("aria-current", "location");
+    expect(within(nav).getByRole("link", { name: "保存先" })).not.toHaveAttribute("aria-current");
+  });
+
+  it("広い画面（1200px 以上）では、目次が本文の右の列に出る", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+      dispatchEvent: () => false,
+    }));
+    mockApi(base);
+    renderPage();
+    const nav = await screen.findByRole("navigation", { name: "設定の区切り" });
+    const last = await screen.findByRole("region", { name: "Web UI のパスワード" });
+    expect(nav.compareDocumentPosition(last) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    expect(nav.style.position).toBe("sticky");
   });
 
   it("目次のリンクを押すと、URL が /settings#<区切り> になり、その区切りへ進む", async () => {

@@ -1,4 +1,5 @@
-import { Alert, Anchor, Button, Card, Collapse, Group, NumberInput, PasswordInput, Select, Stack, Switch, Text, TextInput, Textarea, Title } from "@mantine/core";
+import { Alert, Anchor, Box, Button, Card, Collapse, Flex, Group, NumberInput, PasswordInput, Select, Stack, Switch, Text, TextInput, Textarea, Title } from "@mantine/core";
+import { useMediaQuery } from "@mantine/hooks";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { notifySuccess } from "../ui/toast";
 import { BackupApiError, downloadBackup } from "./backupApi";
@@ -20,6 +21,11 @@ const tocItems = [
   { id: "idp", title: "IdP のログイン" },
   { id: "password", title: "Web UI のパスワード" },
 ];
+
+// 目次を本文の右の列に出す幅（Mantine の lg、1200px 以上）。
+const WIDE_QUERY = "(min-width: 75em)";
+// 画面の上からこの px より上に区切りの頭が来たら、その区切りを「今いる区切り」とする（ヘッダーの高さ 56 の下）。
+const ACTIVE_LINE = 120;
 
 // URL のハッシュが目次の区切りの名前ならその名前、そうでなければ null。
 function hashId(): string | null {
@@ -96,6 +102,29 @@ export function SettingsPage({ onChanged, onTestSent }: { onChanged: (view: Sett
     setJump(null);
   }, [jump, view, error, advancedOpen, idpLoaded]);
 
+  const wide = useMediaQuery(WIDE_QUERY) ?? false;
+  // 今いる区切り。画面の上の方（ヘッダーの下）に見えている区切り。目次のリンクを押したときは、押した区切り。
+  const [active, setActive] = useState<string | null>(null);
+  // 目次を押して進んだ区切り。ページの一番下では最後の区切りが上まで来ないので、一番下にいる間は、この区切りを今いる区切りにする。
+  const pinned = useRef<string | null>(null);
+  useEffect(() => {
+    const update = () => {
+      const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
+      if (pinned.current !== null && atBottom) return;
+      pinned.current = null;
+      let current: string | null = null;
+      for (const t of tocItems) {
+        const r = document.getElementById(t.id)?.getBoundingClientRect();
+        // 無い区切りと、畳まれて大きさの無い区切りは数えない
+        if (!r || (r.width === 0 && r.height === 0)) continue;
+        if (r.top <= ACTIVE_LINE) current = t.id;
+      }
+      setActive((a) => (current === null ? a : current));
+    };
+    window.addEventListener("scroll", update, { passive: true });
+    return () => window.removeEventListener("scroll", update);
+  }, []);
+
   const follow = useCallback((e: React.MouseEvent<HTMLAnchorElement>, id: string) => {
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
@@ -103,6 +132,8 @@ export function SettingsPage({ onChanged, onTestSent }: { onChanged: (view: Sett
     const url = `/settings#${id}`;
     if (window.location.pathname + window.location.hash !== url) window.history.pushState(window.history.state, "", url);
     lastHash.current = id;
+    pinned.current = id;
+    setActive(id);
     setJump(id);
   }, []);
 
@@ -116,18 +147,10 @@ export function SettingsPage({ onChanged, onTestSent }: { onChanged: (view: Sett
 
   // 設定を読めない間（読み込み中・失敗）も、パスワードの変更は設定とは別の API なので、最後の区切りは出す。
   // 読み込みが終わってもフォームが作り直されないよう、最後の区切りは同じ位置に置く。
-  return (
-    <Stack>
-      <Title order={2}>設定</Title>
-      <nav aria-label="設定の区切り">
-        <Group gap="md">
-          {tocItems.map((t) => (
-            <Anchor key={t.id} href={`/settings#${t.id}`} size="sm" c="dimmed" onClick={(e) => follow(e, t.id)}>
-              {t.title}
-            </Anchor>
-          ))}
-        </Group>
-      </nav>
+  // 広い画面（lg 以上）では、目次を本文の右の列に置く（列は本文と同じ高さに伸び、中の目次が sticky で留まる）。狭い画面では、見出しの下に 1 行で置く。
+  const toc = <TableOfContents wide={wide} active={active} follow={follow} />;
+  const body = (
+    <>
       {view ? (
         <>
           <LibrarySection view={view} onChanged={changed} />
@@ -146,7 +169,59 @@ export function SettingsPage({ onChanged, onTestSent }: { onChanged: (view: Sett
       )}
       <IdpSection Section={Section} onLoaded={markIdpLoaded} />
       <PasswordSection />
+    </>
+  );
+  if (wide) {
+    return (
+      <Stack>
+        <Title order={2}>設定</Title>
+        <Flex gap="xl" align="stretch" wrap="nowrap">
+          <Stack style={{ flex: 1, minWidth: 0 }}>{body}</Stack>
+          <Box style={{ width: 200, flexShrink: 0 }}>{toc}</Box>
+        </Flex>
+      </Stack>
+    );
+  }
+  return (
+    <Stack>
+      <Title order={2}>設定</Title>
+      {toc}
+      {body}
     </Stack>
+  );
+}
+
+// 目次。今いる区切りのリンクは、主色・太字・左の線で目立たせる（aria-current="location"）。ほかは小さく淡い色。
+function TableOfContents({
+  wide,
+  active,
+  follow,
+}: {
+  wide: boolean;
+  active: string | null;
+  follow: (e: React.MouseEvent<HTMLAnchorElement>, id: string) => void;
+}) {
+  const links = tocItems.map((t) => {
+    const current = t.id === active;
+    return (
+      <Anchor
+        key={t.id}
+        href={`/settings#${t.id}`}
+        size="sm"
+        c={current ? "var(--mantine-primary-color-filled)" : "dimmed"}
+        fw={current ? 600 : undefined}
+        aria-current={current ? "location" : undefined}
+        style={{ borderLeft: `2px solid ${current ? "var(--mantine-primary-color-filled)" : "transparent"}`, paddingLeft: 8 }}
+        onClick={(e) => follow(e, t.id)}
+      >
+        {t.title}
+      </Anchor>
+    );
+  });
+  return (
+    <nav aria-label="設定の区切り" style={wide ? { position: "sticky", top: 72 } : undefined}>
+      {wide ? <Stack gap="xs">{links}</Stack> : <Group gap="md">{links}</Group>}
+    </nav>
   );
 }
 
