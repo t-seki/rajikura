@@ -331,12 +331,14 @@ const failureOf = (id: number) => {
 const fetchFailed = { stage: "fetch", error: "音声の取得に失敗した（ダミーのエラー）" };
 
 /**
- * ジョブ id ごとの試行の履歴（古い順）。本物のサーバーと同じく、終わった試行だけを入れる（録音中の試行は、終わるまで履歴に出ない）。
- * 終わった試行の数は一覧の attempts と同じにし、失敗したジョブの最後の試行は lastFailedStage・lastError と同じにする。
+ * ジョブ id ごとの試行の履歴（古い順）。件数は一覧の attempts と同じにし、失敗したジョブの最後の試行は lastFailedStage・lastError と同じにする。
  * 時刻は本物の決まりに合わせる。最初の試行は放送の終わりのおよそ 5 分後、再試行は前の試行の始まりから 15 分 → 1 時間 → 3 時間 → 以降 6 時間。
+ * 済んだジョブの最後の試行は、finishedAt に終わる。
  */
 const attemptLogs: Record<number, JobAttempt[]> = {
-  108: [attempt(jst("2026-04-15", "07:05"), jst("2026-04-15", "07:25"), undefined, 2 * 3600)],
+  108: [attempt(jst("2026-04-15", "07:05"), jst("2026-04-15", "07:20"), undefined, 2 * 3600)],
+  // 録音中の試行は、まだ終わっていないので endedAt が空（始まりは、取れた音声の長さ 2820 秒＝47 分の前）。
+  107: [attempt(at(-47), "")],
   106: [
     attempt(jst("2026-04-14", "22:05"), jst("2026-04-14", "22:09"), fetchFailed),
     attempt(jst("2026-04-14", "22:20"), jst("2026-04-14", "22:24"), fetchFailed),
@@ -344,8 +346,8 @@ const attemptLogs: Record<number, JobAttempt[]> = {
     attempt(jst("2026-04-15", "02:20"), jst("2026-04-15", "02:24"), fetchFailed),
     attempt(jst("2026-04-15", "08:20"), jst("2026-04-15", "08:25"), failureOf(106)),
   ],
-  105: [attempt(jst("2026-04-09", "17:05"), jst("2026-04-09", "17:25"), undefined, 3 * 3600)],
-  104: [attempt(jst("2026-04-13", "11:05"), jst("2026-04-13", "11:25"), undefined, 2 * 3600)],
+  105: [attempt(jst("2026-04-09", "17:05"), jst("2026-04-09", "17:20"), undefined, 3 * 3600)],
+  104: [attempt(jst("2026-04-13", "11:05"), jst("2026-04-13", "11:20"), undefined, 2 * 3600)],
   103: [
     attempt(jst("2026-04-10", "22:05"), jst("2026-04-10", "22:09"), fetchFailed),
     attempt(jst("2026-04-10", "22:20"), jst("2026-04-10", "22:24"), fetchFailed),
