@@ -67,8 +67,9 @@ const lineups: Record<string, Slot[]> = {
  * done→done、expired→missed、skipped→skip_planned（settled なら skipped。skipBy は byPerson なら person、でなければ title）、
  * それ以外→planned（skippable は、試行が 0 回の waiting のときだけ true）。
  * ジョブが無い放送回は、有効な番組の毎週の予約（weekly の局・放送日の曜日・開始時刻）に当たるときだけ、その番組の放送回にする
- * （本物の internal/server/guide.go と同じ。当たらなければ予約の無い放送回 none）。
- * 当たったものは、今（MOCK_NOW）より前に終わっていれば録音済み、後なら録音予定（jobId は付けない）。
+ * （当たらなければ予約の無い放送回 none）。本物の internal/server/guide.go と同じと言えるのは、この毎週の予約の当て方と、ジョブのある放送回の決め方だけ。
+ * 当たったものの状態は、ダミーだけの簡略化: 今（MOCK_NOW）より前に終わっていれば録音済み（過去の放送日のジョブの無い放送回も録音済みにする）、後なら録音予定（jobId は付けない）。
+ * 本物はこの状態の決め方をしない。
  */
 export function guideOf(day: string): GuideStation[] {
   const base = new Date(`${day}T05:00:00+09:00`).getTime();
