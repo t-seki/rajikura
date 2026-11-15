@@ -22,6 +22,9 @@ describe("StateBadge", () => {
     expect(root).toBeInstanceOf(HTMLElement);
     // jsdom の computed の height は指定が無くても auto になるので、styles で付けた inline の指定を見る。
     expect((root as HTMLElement).style.height).toBe("auto");
+    // 角の半径は 1 行の高さの半分に固定する。既定の 62.5rem だと、複数行で角が字に食い込む。
+    expect((root as HTMLElement).style.borderRadius).toBe("calc(var(--badge-height) / 2)");
+    expect((root as HTMLElement).style.borderRadius).not.toContain("62.5rem");
   });
 
   it("ライブ録音とチャプターの印も、折り返す", () => {

@@ -97,6 +97,15 @@ describe("JobsPage", () => {
     expect(await screen.findByRole("heading", { level: 2, name: "ジョブ" })).toBeInTheDocument();
   });
 
+  it("カードの右の列は、短い状態の名前が 1 行に入る幅（88px 以上）を持ち、縮まない", async () => {
+    mockApi({ "GET /api/jobs": () => ({ status: 200, body: { jobs: [base] } }) });
+    renderPage();
+    const side = (await screen.findAllByTestId("job-side"))[0];
+    expect(side.style.minWidth).toBe("88px");
+    expect(side.style.flexShrink).toBe("0");
+    expect(within(side).getByText("録音予定（失敗・再試行待ち）")).toBeInTheDocument();
+  });
+
   it("一覧に番組・放送日・状態・試行回数を出し、パートも出す", async () => {
     mockApi({
       "GET /api/jobs": () => ({ status: 200, body: { jobs: [base, { ...base, id: 2, showName: "番組B", part: 2, state: "done", retryable: false }] } }),
