@@ -1,5 +1,6 @@
 import { Badge } from "@mantine/core";
 import type { JobChapters } from "./jobsApi";
+import { wrapBadgeStyles } from "../ui/badgeStyles";
 
 /**
  * 一覧で、チャプターを待っているジョブ（waiting）と入らなかったジョブ（not_added）に出す印（ADR 0027）。
@@ -8,14 +9,14 @@ import type { JobChapters } from "./jobsApi";
 export function ChaptersBadge({ chapters }: { chapters: JobChapters | undefined }) {
   if (chapters === "waiting") {
     return (
-      <Badge color="cyan" variant="light">
+      <Badge styles={wrapBadgeStyles} color="cyan" variant="light">
         チャプター待ち
       </Badge>
     );
   }
   if (chapters === "not_added") {
     return (
-      <Badge color="pink" variant="light">
+      <Badge styles={wrapBadgeStyles} color="pink" variant="light">
         チャプターなし
       </Badge>
     );

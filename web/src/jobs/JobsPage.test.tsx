@@ -624,6 +624,27 @@ describe("JobsPage", () => {
   });
 });
 
+describe("JobsPage の状態のバッジ", () => {
+  it("PC の表で、長い状態の名前も全文を出し、「…」で切らない", async () => {
+    setWide(true);
+    mockApi({
+      "GET /api/stations": stations,
+      "GET /api/jobs": () => ({
+        status: 200,
+        body: { jobs: [{ ...base, id: 1, state: "retrying" }, { ...base, id: 2, state: "expired" }] },
+      }),
+    });
+    renderPage();
+    const rows = await screen.findAllByTestId("job");
+    expect(rows).toHaveLength(2);
+    for (const [i, t] of ["録音予定（失敗・再試行待ち）", "録音できなかった（期限切れ）"].entries()) {
+      const label = within(rows[i]).getByText(t);
+      expect(label).not.toHaveStyle({ whiteSpace: "nowrap" });
+      expect(label).not.toHaveStyle({ textOverflow: "ellipsis" });
+    }
+  });
+});
+
 describe("JobsPage のライブ録音", () => {
   const liveSentence = "ライブ録音のジョブ（タイムフリーの対象外の放送回を含むので、放送中に録る。放送の時刻に rajikura が動いている必要がある）。";
   const jobs = () => ({

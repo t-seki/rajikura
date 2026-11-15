@@ -1,4 +1,5 @@
 import { Badge } from "@mantine/core";
+import { wrapBadgeStyles } from "../ui/badgeStyles";
 
 /**
  * ライブ録音のジョブ（API の live）の印。番組表の「◎ライブで録る」と ◎ で対応を取り、色は状態のバッジ（StateBadge）と紛れないものにする。
@@ -6,7 +7,7 @@ import { Badge } from "@mantine/core";
  */
 export function LiveBadge() {
   return (
-    <Badge color="violet" variant="light">
+    <Badge styles={wrapBadgeStyles} color="violet" variant="light">
       ◎ライブ録音
     </Badge>
   );
