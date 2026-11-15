@@ -97,6 +97,16 @@ describe("JobsPage", () => {
     expect(await screen.findByRole("heading", { level: 2, name: "ジョブ" })).toBeInTheDocument();
   });
 
+  it("カードの右の列は、6 字の状態の名前が 1 行に入る幅を持つ", async () => {
+    mockApi({ "GET /api/jobs": () => ({ status: 200, body: { jobs: [base] } }) });
+    renderPage();
+    const side = (await screen.findAllByTestId("job-side"))[0];
+    // Badge の既定（md: 字 11px、左右の padding 10px、枠 1px）で「録らない予定」の 1 行は約 89.5px 要る。余裕を見て 96px。
+    expect(side.style.minWidth).toMatch(/px$/);
+    expect(parseFloat(side.style.minWidth)).toBeGreaterThanOrEqual(96);
+    expect(within(side).getByText("録音予定（失敗・再試行待ち）")).toBeInTheDocument();
+  });
+
   it("一覧に番組・放送日・状態・試行回数を出し、パートも出す", async () => {
     mockApi({
       "GET /api/jobs": () => ({ status: 200, body: { jobs: [base, { ...base, id: 2, showName: "番組B", part: 2, state: "done", retryable: false }] } }),
