@@ -14,6 +14,9 @@ good_html() {
   cat <<'H'
 <!DOCTYPE html>
 <html lang="ja"><head>
+<meta property="og:title" content="題">
+<meta property="og:description" content="説明">
+<meta property="og:image" content="https://t-seki.github.io/rajikura/images/jobs.png">
 <link rel="icon" href="favicon.svg">
 <link rel="stylesheet" href="style.css">
 </head><body>
@@ -71,6 +74,13 @@ expect fail "外の <script src=\"https://...\">" "$(build ext '<script src="htt
 expect fail "外の <script src='//...'>（改行をまたぐ）" "$(build ext2 "<script${nl}src='//example.com/x.js'></script>")" "外の URL の <script src>"
 expect fail "アクセス解析のタグ" "$(build ga '<script>gtag(1)</script>')" "アクセス解析"
 d=$(build cssext); echo '@import url("https://example.com/x.css");' > "$d/style.css"; expect fail "CSS が外の URL を読み込む" "$d" "外の URL を読み込んでいる"
+d=$(build ogtitle "" '/og:title/d'); expect fail "og:title が無い" "$d" "og:title"
+d=$(build ogdesc "" '/og:description/d'); expect fail "og:description が無い" "$d" "og:description"
+d=$(build ogimg "" '/og:image/d'); expect fail "og:image が無い" "$d" "og:image"
+d=$(build ogempty "" 's|(og:title" content=")[^"]*|\1|'); expect fail "og:title の content が空" "$d" "og:title"
+d=$(build ogrel "" 's|https://t-seki.github.io/rajikura/images/jobs.png|images/jobs.png|'); expect fail "og:image が相対パス" "$d" "og:image"
+d=$(build ognoimg "" 's|images/jobs.png" *>|images/none.png">|; /og:image/s|jobs.png|none.png|'); expect fail "og:image の指す画像が組み立てた中に無い" "$d" "none.png"
+d=$(build ogsq "" 's|<meta property="og:image" content="([^"]*)">|<meta\n  content=\x27\1\x27\n  property=og:image>|'); expect pass "og:image が改行をまたぎ、一重引用符・引用符無しでも拾う" "$d"
 expect fail "index.html が無い" "$tmp/empty" "index.html が無い"
 
 echo "通った: $passed 件、失敗: $failed 件"
