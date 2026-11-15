@@ -97,6 +97,18 @@ describe("JobsPage", () => {
     expect(await screen.findByRole("heading", { level: 2, name: "ジョブ" })).toBeInTheDocument();
   });
 
+  it("カードの右の列は、「チャプターなし」の 7 字が 1 行に入る幅を持つ", async () => {
+    mockApi({
+      "GET /api/jobs": () => ({ status: 200, body: { jobs: [{ ...base, chapters: "not_added" }] } }),
+    });
+    renderPage();
+    const side = (await screen.findAllByTestId("job-side"))[0];
+    // 字 11px×7 + padding 20px + 枠 2px ≈ 99px に字の間の余裕を足して 100px 以上。
+    expect(side.style.minWidth).toMatch(/px$/);
+    expect(parseFloat(side.style.minWidth)).toBeGreaterThanOrEqual(100);
+    expect(within(side).getByText("チャプターなし")).toBeInTheDocument();
+  });
+
   it("カードの右の列は、6 字の状態の名前が 1 行に入る幅を持つ", async () => {
     mockApi({ "GET /api/jobs": () => ({ status: 200, body: { jobs: [base] } }) });
     renderPage();

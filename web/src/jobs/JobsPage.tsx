@@ -230,7 +230,7 @@ export function JobsPage({
                   </Text>
                 )}
               </Stack>
-              <Stack gap="xs" align="flex-end" data-testid="job-side" style={{ minWidth: 96 }}>
+              <Stack gap="xs" align="flex-end" data-testid="job-side" style={{ minWidth: 108 }}>
                 <StateBadge job={j} />
                 {j.live && <LiveBadge />}
                 <ChaptersBadge chapters={j.chapters} />
