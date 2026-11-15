@@ -1,43 +1,92 @@
-:root {
-  color-scheme: light dark;
-  --accent: #228be6;
-  --bg: #fff;
-  --fg: #212529;
-  --muted: #495057;
-  --surface: #f8f9fa;
-  --border: #dee2e6;
+:root{
+  --bg:#FFFFFF; --soft:#EEF1F5; --ink:#141414; --sub:#4D5560; --line:#D5DAE1; --frame:#141414;
+  --blue:#0050B3; --onblue:#FFFFFF; --shadow:0 30px 80px rgba(20,30,60,.18);
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --accent: #74c0fc;
-    --bg: #1a1b1e;
-    --fg: #c1c2c5;
-    --muted: #909296;
-    --surface: #25262b;
-    --border: #373a40;
-  }
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#0A2540; --soft:#103358; --ink:#E8F1FB; --sub:#A9C3DE; --line:#3F6186; --frame:#CFE3F7;
+    --blue:#8CC8FF; --onblue:#0A2540; --shadow:none; }
 }
-* { box-sizing: border-box; }
-body { font-family: system-ui, "Hiragino Sans", "Yu Gothic", sans-serif; line-height: 1.8; max-width: 60rem; margin: 0 auto; padding: 2rem 1rem; background: var(--bg); color: var(--fg); overflow-wrap: anywhere; }
-a { color: var(--accent); }
-header h1 { margin-bottom: 0.25rem; font-size: 2.2rem; }
-.lead { font-size: 1.15rem; margin-top: 0; color: var(--muted); }
-h2 { margin-top: 3rem; border-bottom: 1px solid var(--border); padding-bottom: 0.25rem; }
-h3 { margin: 0 0 0.5rem; }
-p { margin: 0; }
-code { background: var(--surface); padding: 0.1em 0.35em; border-radius: 4px; }
-.hero-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.25rem; margin-top: 1.5rem; }
-.hero-card { background: var(--surface); border: 1px solid var(--border); border-top: 4px solid var(--accent); border-radius: 8px; padding: 1.5rem; }
-.hero-card h3 { font-size: 1.25rem; }
-.card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 1rem; margin-top: 1.25rem; }
-.card { border: 1px solid var(--border); border-radius: 8px; padding: 1rem; font-size: 0.95rem; }
-.card h3 { font-size: 1rem; }
-figure { margin: 1.5rem 0; }
-figure img { display: block; max-width: 100%; height: auto; border: 1px solid var(--border); border-radius: 8px; }
-figcaption { font-size: 0.9rem; color: var(--muted); margin-top: 0.5rem; }
-footer { margin-top: 3rem; font-size: 0.9rem; color: var(--muted); }
-@media (max-width: 40rem) {
-  .hero-grid { grid-template-columns: 1fr; }
-  header h1 { font-size: 1.8rem; }
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"BIZ UDPGothic",sans-serif;font-size:16px;line-height:1.85;overflow-x:hidden}
+a{color:var(--blue);text-underline-offset:3px}
+a:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+.wrap{max-width:1200px;margin:0 auto;padding:0 32px}
+
+.bar{display:flex;justify-content:space-between;align-items:center;padding:24px 0}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:19px;color:var(--ink);text-decoration:none}
+.brand img{width:32px;height:32px}
+.bar .gh{color:var(--sub);font-size:15px}
+
+.hero{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:48px;align-items:center;padding:56px 0 88px}
+.hero h1{font-size:clamp(28px,3.15vw,45px);line-height:1.4;font-weight:700;margin:0 0 22px}
+.hero h1 span{display:block;white-space:nowrap}
+.lead{font-size:18px;color:var(--sub);margin:0 0 34px}
+.btns{display:flex;flex-wrap:wrap;gap:10px}
+.btn{display:inline-block;padding:13px 26px;border-radius:8px;background:var(--blue);color:var(--onblue);font-weight:700;text-decoration:none;border:2px solid var(--blue)}
+.btn.ghost{background:transparent;color:var(--blue)}
+
+/* 図 1: 画面の端まで出す、番号つきの画面 */
+.anno{margin:0 calc(-1 * max(32px, (100vw - 1200px) / 2 + 32px)) 0 0}
+.pic{position:relative;border:2px solid var(--frame);border-right:0;border-radius:12px 0 0 0;overflow:hidden;box-shadow:var(--shadow)}
+.pic img{display:block;width:100%;height:auto;background:#fff}
+/* 番号の丸（.pin）の位置: index.html の各 .pin の style の left・top（%）は、
+   番組表の画像 docs/images/guide.png（1440x900）に対する割合で決めている。
+   画像を撮り直して番組表の見た目が変わったら、index.html の 4 つの .pin の left・top を、
+   新しい画像の注釈の指す所に合わせ直すこと。 */
+.pin{position:absolute;width:32px;height:32px;margin:-16px 0 0 -16px;border-radius:50%;background:#0050B3;color:#fff;font-weight:700;text-align:center;border:3px solid #fff;box-shadow:0 0 0 2px #0050B3;font-size:16px;line-height:26px}
+.key{list-style:none;margin:0;display:grid;grid-template-columns:repeat(2,auto);justify-content:start;gap:0 40px;border-left:2px solid var(--frame);border-bottom:2px solid var(--frame);padding:12px 18px;border-radius:0 0 0 12px}
+.key li{display:flex;align-items:center;gap:8px;font-weight:700;font-size:14.5px;line-height:1.5;padding:3px 0}
+.key b{flex:none;width:24px;height:24px;line-height:24px;font-size:13.5px;border-radius:50%;text-align:center;background:var(--blue);color:var(--onblue)}
+figure{margin:0}
+figcaption{font-size:14px;color:var(--sub);margin-top:10px}
+figcaption strong{color:var(--ink)}
+
+.three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:48px;padding-block:80px;border-top:1px solid var(--line)}
+.three h2{font-size:24px;line-height:1.5;margin:0 0 12px}
+.three p{margin:0;color:var(--sub)}
+
+.five{background:var(--soft);padding:76px 0}
+.five dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:32px 64px;margin:0}
+.five dt{font-weight:700;font-size:17.5px}
+.five dd{margin:4px 0 0;color:var(--sub);font-size:15px}
+
+.screens{padding-block:92px 48px}
+.screens h2,.side h2,.install h2{font-size:30px;line-height:1.3;margin:0 0 10px}
+.note{color:var(--sub);font-size:15px;margin:0 0 30px}
+.pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}
+.pair img{width:100%;height:auto;display:block;border-radius:10px;border:1px solid var(--line);background:#fff}
+
+.side{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:64px;padding-block:64px 92px}
+.side ul{list-style:none;margin:18px 0 0;padding:0;border-top:2px solid var(--frame)}
+.side li{padding:13px 0;border-bottom:1px solid var(--line)}
+code{font-family:Consolas,monospace;font-size:.92em;background:var(--soft);padding:1px 6px;border-radius:4px}
+
+.install{border-top:1px solid var(--line);padding-block:80px;display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:48px}
+.install ul{list-style:none;margin:0;padding:0;border-top:2px solid var(--frame)}
+.install li{display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding:20px 0;border-bottom:1px solid var(--line)}
+.install li a{font-weight:700;font-size:19px}
+.install li span{color:var(--sub);font-size:15px;text-align:right}
+footer{padding:30px 0 56px;color:var(--sub);font-size:14px}
+.three h2{text-wrap:balance}
+.lead span{display:inline-block}
+.three p,.five dd,.side li,.note,figcaption{text-wrap:pretty}
+
+@media (max-width:820px){
+  .wrap{padding:0 20px}
+  .hero,.three,.five dl,.pair,.side,.install{grid-template-columns:minmax(0,1fr)}
+  .hero{padding:26px 0 60px;gap:34px}
+  .hero h1{font-size:29px}
+  .lead{font-size:17px}
+  .anno{margin-right:-20px}
+  .pin{width:20px;height:20px;margin:-10px 0 0 -10px;border-width:2px;box-shadow:0 0 0 1px #0050B3;font-size:11px;line-height:16px}
+  .key{grid-template-columns:minmax(0,1fr);padding:10px 14px}
+  figcaption{padding-right:20px}
+  .three{gap:32px;padding-block:56px}
+  .five{padding:56px 0}
+  .screens{padding-block-start:64px}
+  .side{gap:48px;padding-block:48px 64px}
+  .install{padding-block:56px;gap:20px}
+  .install li{flex-direction:column;gap:2px}
+  .install li span{text-align:left}
 }
-.logo { vertical-align: middle; }

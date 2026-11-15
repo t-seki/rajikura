@@ -1,104 +1,93 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>rajikura - radiko の番組を毎週自動で録る</title>
-  <meta name="description" content="radiko の番組を毎週自動で録って、ライブラリに保存する道具。">
-  <link rel="icon" type="image/svg+xml" href="favicon.svg">
-  <link rel="stylesheet" href="style.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rajikura - ラジオ番組を毎週録音して、ライブラリにまとめる</title>
+<meta name="description" content="聴きたいラジオ番組を毎週予約して録り、自分のライブラリにまとめる道具です。">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header>
-    <h1><img class="logo" src="favicon.svg" alt="" width="40" height="40"> rajikura</h1>
-    <p class="lead">radiko の番組を毎週自動で録って、ライブラリに保存する。</p>
-  </header>
-  <main>
-    <section id="features">
-      <h2>rajikura でできること</h2>
-      <div class="hero-grid">
-        <article class="hero-card">
-          <h3>番組を予約すれば、毎週勝手に録る</h3>
-          <p>番組表から番組を予約すると、放送のたびに自動で録音して、ライブラリに保存する。</p>
-        </article>
-        <article class="hero-card">
-          <h3>PC をつけっぱなしにしなくてよい</h3>
-          <p>rajikura を起動したときに、録音期限の内側なら、録り逃した放送を取り直す。Windows のサービスとしてインストールしていれば、PC の起動と一緒に立ち上がる。毎週の予約なら、放送の前の 7 日のうちに一度は起動していることが条件である。</p>
-        </article>
-        <article class="hero-card">
-          <h3>タイムフリーの対象外も録れる</h3>
-          <p>タイムフリーの対象外の放送は、放送中にライブで録る。放送の時刻に rajikura が動いている必要があり、録り逃したら後から取り直せない。</p>
-        </article>
+<header class="wrap">
+  <div class="bar"><a class="brand" href="#"><img src="favicon.svg" alt="" width="32" height="32">rajikura</a><a class="gh" href="https://github.com/t-seki/rajikura">GitHub</a></div>
+  <div class="hero">
+    <div>
+      <h1><span>聴きたいラジオ番組を、</span><span>自分のライブラリに。</span></h1>
+      <p class="lead"><span>番組表から予約したラジオ番組を毎週録音して、</span><span>自分のライブラリにまとめます。</span></p>
+      <div class="btns"><a class="btn" href="#install">入れ方を見る</a><a class="btn ghost" href="#requirements">動かせる条件を確かめる</a></div>
+    </div>
+    <figure class="anno">
+      <div class="pic">
+        <img src="images/guide.png" alt="番組表の画面。放送局ごとの番組表から、録りたい番組を選べます" width="1440" height="900">
+        <span class="pin" style="left:54%;top:18.4%" aria-hidden="true">1</span>
+        <span class="pin" style="left:39%;top:24.2%" aria-hidden="true">2</span>
+        <span class="pin" style="left:51.5%;top:35%" aria-hidden="true">3</span>
+        <span class="pin" style="left:26%;top:41%" aria-hidden="true">4</span>
       </div>
-      <div class="card-grid">
-        <article class="card">
-          <h3>分割番組を 1 つのファイルに</h3>
-          <p>分割して放送される番組は、パートをつないで 1 つのファイルにできる。</p>
-        </article>
-        <article class="card">
-          <h3>チャプター・カバー画像・タグ</h3>
-          <p>録ったファイルに、チャプター・カバー画像・タグが入る。チャプターはタイムフリーから録ったときだけで、チャプターに飛べるかはプレイヤーによる。</p>
-        </article>
-        <article class="card">
-          <h3>Jellyfin・kikidame で聴ける</h3>
-          <p>Jellyfin や、Android アプリの kikidame で聴ける。</p>
-        </article>
-        <article class="card">
-          <h3>Windows・Linux・コンテナ</h3>
-          <p>Windows（x64）と Linux（x64・arm64）で動き、コンテナ（x64）でも動かせる。<a href="#install">入れ方へ</a></p>
-        </article>
-        <article class="card">
-          <h3>無料・広告無し</h3>
-          <p>無料で、広告も無い。MIT ライセンスの OSS である。</p>
-        </article>
-      </div>
-    </section>
-    <section id="screenshots">
-      <h2>画面</h2>
-      <p>画像のデータはすべて架空のダミーである。</p>
-      <figure>
-        <img src="images/guide.png" alt="番組表の画面。放送局ごとの番組表から、録りたい番組を選べる" loading="lazy">
-        <figcaption>番組表</figcaption>
-      </figure>
-      <figure>
-        <img src="images/jobs.png" alt="ジョブの画面。録音の仕事が、状態のバッジ付きのカードで並ぶ" loading="lazy">
-        <figcaption>ジョブ</figcaption>
-      </figure>
-      <figure>
-        <img src="images/shows.png" alt="番組の画面。予約している番組の一覧" loading="lazy">
-        <figcaption>番組</figcaption>
-      </figure>
-    </section>
-    <section id="requirements">
-      <h2>動かせる条件</h2>
-      <ul>
-        <li>日本の、自分の radiko のエリアの回線から使う。</li>
-        <li>radiko の会員種別は、非会員・エリアフリー・タイムフリー30・ダブルプランの 4 つ。非会員でなければ、radiko のアカウントのメールアドレスとパスワードが要る。</li>
-        <li>radiko のログインは、ダブルプランのアカウントで動くことを確かめている。ほかの会員種別（タイムフリー30 単体など）では確かめていない。</li>
-        <li><code>serve</code> は LAN や VPN の内側で使う。インターネットに出さない。</li>
-      </ul>
-    </section>
-    <section id="scope">
-      <h2>利用範囲</h2>
-      <ul>
-        <li>個人の私的利用に限る。録音した音声データを共有・再配布しない。</li>
-        <li>radiko・NHK とは関係のない、非公式の道具である。</li>
-        <li>使う人は radiko の利用規約を自分で読み、自分の責任で使う。</li>
-        <li>エリアを偽装しない。エリアの外の局は、エリアフリー会員の正規の radiko のログインでだけ録る。</li>
-        <li>radiko の仕様が変わると録れなくなることがあり、直す時期は約束しない。</li>
-      </ul>
-    </section>
-    <section id="install">
-      <h2>入れ方</h2>
-      <ul>
-        <li><a href="https://github.com/t-seki/rajikura/blob/main/docs/getting-started.md">はじめに</a>: 入れ方の選び方と、初めて入れるときの手順。</li>
-        <li><a href="https://github.com/t-seki/rajikura/blob/main/docs/windows.md">Windows のサービスとして入れる</a>: Windows で常に動かす入れ方。</li>
-        <li><a href="https://github.com/t-seki/rajikura/releases/latest">GitHub Release の最新</a>: 実行ファイルの入手先。</li>
-      </ul>
-    </section>
-  </main>
-  <footer>
-    <p><a href="https://github.com/t-seki/rajikura">GitHub のリポジトリ</a> · MIT ライセンス</p>
-  </footer>
+      <ol class="key">
+        <li><b>1</b>番組名・出演者・説明で探します</li>
+        <li><b>2</b>放送日を切り替えます</li>
+        <li><b>3</b>放送局ごとの番組表</li>
+        <li><b>4</b>録りたい番組を選びます</li>
+      </ol>
+      <figcaption><strong>図 1　番組表</strong>　画像のデータはすべて架空のダミーです。</figcaption>
+    </figure>
+  </div>
+</header>
+
+<main>
+  <section class="three wrap" id="features" aria-label="rajikura でできること">
+    <article><h2>番組を予約すれば、毎週勝手に録ります</h2><p>番組表から番組を予約すると、放送のたびに自動で録音して、ライブラリに保存します。</p></article>
+    <article><h2>PC をつけっぱなしにしなくて大丈夫</h2><p>rajikura を起動したときに、録音期限の内側なら、録り逃した放送を取り直します。Windows のサービスとしてインストールしていれば、PC の起動と一緒に立ち上がります。毎週の予約なら、放送の前の 7 日のうちに一度は起動していることが条件です。</p></article>
+    <article><h2>あとから聴けない放送も、ライブで録れます</h2><p>タイムフリーの対象外の放送は、放送中にライブで録ります。放送の時刻に rajikura が動いている必要があり、録り逃したら後から取り直せません。</p></article>
+  </section>
+
+  <section class="five" aria-label="ほかにできること"><div class="wrap"><dl>
+    <div><dt>分割番組を 1 つのファイルに</dt><dd>分割して放送される番組は、パートをつないで 1 つのファイルにできます。</dd></div>
+    <div><dt>チャプター・カバー画像・タグ</dt><dd>録ったファイルに、チャプター・カバー画像・タグが入ります。チャプターはタイムフリーから録ったときだけで、チャプターに飛べるかはプレイヤーによります。</dd></div>
+    <div><dt>Jellyfin・kikidame で聴けます</dt><dd>Jellyfin や、Android アプリの kikidame で聴けます。</dd></div>
+    <div><dt>Windows・Linux・コンテナ</dt><dd>Windows（x64）と Linux（x64・arm64）で動き、コンテナ（x64）でも動かせます。<a href="#install">入れ方へ</a></dd></div>
+    <div><dt>無料・広告無し</dt><dd>無料で、広告もありません。MIT ライセンスの OSS です。</dd></div>
+  </dl></div></section>
+
+  <section class="screens wrap" id="screenshots">
+    <h2>画面</h2>
+    <p class="note">画像のデータはすべて架空のダミーです。番組表は図 1 を見てください。</p>
+    <div class="pair">
+      <figure><img src="images/jobs.png" alt="ジョブの画面。録音の仕事が、状態のバッジ付きのカードで並びます" width="1440" height="900"><figcaption><strong>図 2　ジョブ</strong></figcaption></figure>
+      <figure><img src="images/shows.png" alt="番組の画面。予約している番組の一覧" width="1440" height="900"><figcaption><strong>図 3　番組</strong></figcaption></figure>
+    </div>
+  </section>
+
+  <div class="side wrap">
+    <section id="requirements"><h2>動かせる条件</h2><ul>
+<li>日本の、自分の radiko のエリアの回線から使います。</li>
+<li>radiko の会員種別は、非会員・エリアフリー・タイムフリー30・ダブルプランの 4 つです。非会員でなければ、radiko のアカウントのメールアドレスとパスワードが要ります。</li>
+<li>radiko のログインは、ダブルプランのアカウントで動くことを確かめています。ほかの会員種別（タイムフリー30 単体など）では確かめていません。</li>
+<li><code>serve</code> は LAN や VPN の内側で使ってください。インターネットに出さないでください。</li>
+    </ul></section>
+    <section id="scope"><h2>利用範囲</h2><ul>
+<li>個人の私的利用に限ってください。録音した音声データを共有・再配布しないでください。</li>
+<li>radiko・NHK とは関係のない、非公式の道具です。</li>
+<li>radiko の利用規約を自分で読み、自分の責任で使ってください。</li>
+<li>エリアを偽装しないでください。エリアの外の局は、エリアフリー会員の正規の radiko のログインでだけ録ってください。</li>
+<li>radiko の仕様が変わると録れなくなることがあり、直す時期は約束しません。</li>
+    </ul></section>
+  </div>
+
+  <section class="install wrap" id="install">
+    <h2>入れ方</h2>
+    <ul>
+<li><a href="https://github.com/t-seki/rajikura/blob/main/docs/getting-started.md">はじめに</a><span>入れ方の選び方と、初めて入れるときの手順。</span></li>
+<li><a href="https://github.com/t-seki/rajikura/blob/main/docs/windows.md">Windows のサービスとして入れる</a><span>Windows で常に動かす入れ方。</span></li>
+<li><a href="https://github.com/t-seki/rajikura/releases/latest">GitHub Release の最新</a><span>実行ファイルの入手先。</span></li>
+    </ul>
+  </section>
+</main>
+<footer class="wrap"><a href="https://github.com/t-seki/rajikura">GitHub のリポジトリ</a>（MIT ライセンス）<br>記載の会社名・サービス名は、各社の商標または登録商標です。</footer>
 </body>
 </html>
