@@ -222,12 +222,14 @@ export function KeywordsPage({
                   <Button size="xs" variant="default" onClick={() => setShown(shown === k.id ? null : k.id)} aria-label={`${k.words} の足した放送回`}>
                     足した放送回
                   </Button>
-                  <Button size="xs" variant="default" onClick={() => setEditing(k)} aria-label={`${k.words} を編集`}>
-                    編集
-                  </Button>
-                  <Button size="xs" variant="subtle" color="red" onClick={() => setDeleting(k)} aria-label={`${k.words} を消す`}>
-                    削除
-                  </Button>
+                  <Group gap="xl" wrap="nowrap">
+                    <Button size="xs" variant="default" onClick={() => setEditing(k)} aria-label={`${k.words} を編集`}>
+                      編集
+                    </Button>
+                    <Button size="xs" variant="outline" color="red" onClick={() => setDeleting(k)} aria-label={`${k.words} を消す`}>
+                      削除
+                    </Button>
+                  </Group>
                 </Group>
               </Group>
               {shown === k.id && <AddedAirings keyword={k} onOpenShow={onOpenShow} />}
