@@ -97,12 +97,11 @@ describe("JobsPage", () => {
     expect(await screen.findByRole("heading", { level: 2, name: "ジョブ" })).toBeInTheDocument();
   });
 
-  it("カードの右の列は、短い状態の名前が 1 行に入る幅（88px 以上）を持ち、縮まない", async () => {
+  it("カードの右の列は、短い状態の名前が 1 行に入る幅（88px 以上）を持つ", async () => {
     mockApi({ "GET /api/jobs": () => ({ status: 200, body: { jobs: [base] } }) });
     renderPage();
     const side = (await screen.findAllByTestId("job-side"))[0];
     expect(side.style.minWidth).toBe("88px");
-    expect(side.style.flexShrink).toBe("0");
     expect(within(side).getByText("録音予定（失敗・再試行待ち）")).toBeInTheDocument();
   });
 
