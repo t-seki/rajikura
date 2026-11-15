@@ -279,6 +279,79 @@ describe("SettingsPage", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
+  it("開いたままハッシュが変わる（hashchange）と、その区切りへ進み、フォーカスも移る", async () => {
+    mockApi(base);
+    const spy = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+    renderPage();
+    await screen.findByRole("region", { name: "バックアップ" });
+    spy.mockClear();
+    window.history.replaceState(null, "", "/settings#backup");
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    const region = screen.getByRole("region", { name: "バックアップ" });
+    expect(spy.mock.contexts.at(-1)).toBe(region);
+    expect(document.activeElement).toBe(region);
+  });
+
+  it("戻る・進む（popstate）で /settings#advanced へ移ると、畳みが開いて中身へ進む", async () => {
+    mockApi(base);
+    const spy = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+    renderPage();
+    await screen.findByRole("region", { name: "バックアップ" });
+    expect(screen.getByRole("button", { name: "詳しい設定" })).toHaveAttribute("aria-expanded", "false");
+    window.history.replaceState(null, "", "/settings#advanced");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "詳しい設定" })).toHaveAttribute("aria-expanded", "true"));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect((spy.mock.contexts.at(-1) as HTMLElement).id).toBe("advanced");
+  });
+
+  it("戻る・進むで区切りへ進むのは、popstate の後のタスクまで待ってから（ブラウザがスクロールの位置を戻した後に進むため）", async () => {
+    mockApi(base);
+    const spy = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+    renderPage();
+    await screen.findByRole("region", { name: "バックアップ" });
+    window.history.replaceState(null, "", "/settings#backup");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    // popstate と同じタスクの中（microtask まで）では、まだ進まない
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(spy).not.toHaveBeenCalled();
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(spy.mock.contexts.at(-1)).toBe(screen.getByRole("region", { name: "バックアップ" }));
+  });
+
+  it("開いたままハッシュが知らない名前・なしに変わっても、何もしない", async () => {
+    mockApi(base);
+    const spy = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+    renderPage();
+    await screen.findByRole("region", { name: "バックアップ" });
+    window.history.replaceState(null, "", "/settings#unknown");
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    window.history.replaceState(null, "", "/settings");
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    await new Promise((r) => setTimeout(r, 400));
+    expect(spy).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "詳しい設定" })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("目次のリンクを押したときに進む処理は 1 回だけ走る（後から hashchange・popstate が来ても）", async () => {
+    mockApi(base);
+    const spy = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+    renderPage();
+    const nav = await screen.findByRole("navigation", { name: "設定の区切り" });
+    await screen.findByRole("region", { name: "バックアップ" });
+    spy.mockClear();
+    await userEvent.click(within(nav).getByRole("link", { name: "バックアップ" }));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
   it("会員種別を非会員でないものにすると、ログイン情報の欄を出し、会員種別とログイン情報を送る", async () => {
     const calls = mockApi(base);
     renderPage();
