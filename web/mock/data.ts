@@ -60,27 +60,20 @@ const lineups: Record<string, Slot[]> = {
   ],
 };
 
-// 録音の状態を付ける番組（Show の name と同じ）。タイトルが同じ放送回に付く。
-const showByTitle: Record<string, string> = {
-  朝のどんぐりカフェ: "朝のどんぐりカフェ",
-  月曜の小さな図書館: "月曜の小さな図書館",
-  夕やけトラベラーズ: "夕やけトラベラーズ",
-  ハーバーサウンズ: "ハーバーサウンズ",
-  星降る深夜ラジオ: "星降る深夜ラジオ",
-  波打ちぎわの昭和歌謡: "波打ちぎわの昭和歌謡",
-  つむぎ夜の読み物: "つむぎ夜の読み物",
-};
-
 /**
  * 放送日 day（YYYY-MM-DD）の、3 局の番組表。
  * ダミーのジョブ（jobs）がある放送回（局と開始・終了が、ジョブの stations と同じ）は、本物（internal/server/guide.go の view）と同じ決め方で、
  * showName・jobId・state・skipBy・skippable をそのジョブから付ける。
  * done→done、expired→missed、skipped→skip_planned（settled なら skipped。skipBy は byPerson なら person、でなければ title）、
  * それ以外→planned（skippable は、試行が 0 回の waiting のときだけ true）。
- * ジョブが無い放送回は、今（MOCK_NOW）より前に終わっていれば録音済み、後なら録音予定（jobId は付けない）。
+ * ジョブが無い放送回は、有効な番組の毎週の予約（weekly の局・放送日の曜日・開始時刻）に当たるときだけ、その番組の放送回にする
+ * （当たらなければ予約の無い放送回 none）。本物の internal/server/guide.go と同じと言えるのは、この毎週の予約の当て方と、ジョブのある放送回の決め方だけ。
+ * 当たったものの状態は、ダミーだけの簡略化: 今（MOCK_NOW）より前に終わっていれば録音済み（過去の放送日のジョブの無い放送回も録音済みにする）、後なら録音予定（jobId は付けない）。
+ * 本物はこの状態の決め方をしない。
  */
 export function guideOf(day: string): GuideStation[] {
   const base = new Date(`${day}T05:00:00+09:00`).getTime();
+  const weekday = new Date(`${day}T00:00:00Z`).getUTCDay();
   return stations.map((st) => {
     let cursor = 0;
     const airings: GuideAiring[] = lineups[st.id].map((slot, i) => {
@@ -88,7 +81,7 @@ export function guideOf(day: string): GuideStation[] {
       const end = new Date(base + (cursor + slot.minutes) * 60_000);
       cursor += slot.minutes;
       const job = jobs.find((j) => j.stations.some((s) => s.stationId === st.id && Date.parse(s.start) === start.getTime() && Date.parse(s.end) === end.getTime()));
-      const showName = job ? job.showName : showByTitle[slot.title];
+      const showName = job ? job.showName : showOfWeekly(st.id, weekday, hhmmJst(start));
       let state: GuideAiring["state"] = showName ? (end.getTime() <= nowMs ? "done" : "planned") : "none";
       let jobFields: Pick<GuideAiring, "jobId" | "skipBy" | "skippable"> = {};
       if (job) {
@@ -130,21 +123,27 @@ export function guideOf(day: string): GuideStation[] {
   });
 }
 
+const hhmmJst = (d: Date) => new Date(d.getTime() + 9 * 3600_000).toISOString().slice(11, 16);
+
+/** 有効な番組の毎週の予約が、局・放送日の曜日（0=日）・開始時刻（JST の HH:MM）に当たる番組の名前。 */
+const showOfWeekly = (stationId: string, weekday: number, hhmm: string) =>
+  showDefs.find((s) => s.enabled && s.weekly.some((w) => w.station === stationId && w.weekday === weekday && w.start === hhmm))?.name;
+
 // 放送日 day（YYYY-MM-DD）の放送日の時刻 hhmm（HH:MM。24:00 以降も書ける）の時刻。番組表の並び（lineups）の時刻と合わせて書く。
 const jst = (day: string, hhmm: string) => {
   const [h, m] = hhmm.split(":").map(Number);
   return new Date(new Date(`${day}T00:00:00+09:00`).getTime() + (h * 60 + m) * 60_000).toISOString();
 };
 
-// 番組（shows）の weekly と next_airing、ジョブ（jobs）の stations は、番組表の並び（lineups）の放送回と同じ局・開始時刻・長さにする。
-export const shows: Show[] = [
+// 番組（shows）の weekly、ジョブ（jobs）の stations は、番組表の並び（lineups）の放送回と同じ局・開始時刻・長さにする。
+// next_airing（jobs の後で付ける。nextAiringOf）の決め方は、その直前のコメントに書く。
+const showDefs: Show[] = [
   {
     name: "朝のどんぐりカフェ",
     enabled: true,
     split: "none",
     check_title: true,
     weekly: [{ station: "HOSHIZORA", weekday: 1, start: "05:00" }, { station: "HOSHIZORA", weekday: 3, start: "05:00" }],
-    next_airing: jst("2026-04-20", "05:00"),
   },
   {
     name: "月曜の小さな図書館",
@@ -152,7 +151,6 @@ export const shows: Show[] = [
     split: "none",
     check_title: true,
     weekly: [{ station: "HOSHIZORA", weekday: 1, start: "09:00" }],
-    next_airing: jst("2026-04-20", "09:00"),
   },
   {
     name: "夕やけトラベラーズ",
@@ -160,7 +158,6 @@ export const shows: Show[] = [
     split: "join",
     check_title: true,
     weekly: [{ station: "HOSHIZORA", weekday: 3, start: "16:00" }, { station: "HOSHIZORA", weekday: 6, start: "16:00" }],
-    next_airing: jst("2026-04-15", "16:00"),
   },
   {
     name: "星降る深夜ラジオ",
@@ -168,7 +165,6 @@ export const shows: Show[] = [
     split: "none",
     check_title: true,
     weekly: [{ station: "HOSHIZORA", weekday: 3, start: "21:00" }],
-    next_airing: jst("2026-04-15", "21:00"),
   },
   {
     name: "ハーバーサウンズ",
@@ -176,7 +172,6 @@ export const shows: Show[] = [
     split: "none",
     check_title: true,
     weekly: [{ station: "MINATO", weekday: 3, start: "08:00" }],
-    next_airing: jst("2026-04-22", "08:00"),
   },
   {
     name: "波打ちぎわの昭和歌謡",
@@ -184,7 +179,6 @@ export const shows: Show[] = [
     split: "separate",
     check_title: false,
     weekly: [{ station: "MINATO", weekday: 4, start: "14:00" }],
-    next_airing: jst("2026-04-16", "14:00"),
   },
   {
     name: "つむぎ夜の読み物",
@@ -192,7 +186,6 @@ export const shows: Show[] = [
     split: "none",
     check_title: true,
     weekly: [{ station: "TSUMUGI", weekday: 2, start: "19:00" }, { station: "TSUMUGI", weekday: 5, start: "19:00" }],
-    next_airing: jst("2026-04-17", "19:00"),
   },
   {
     name: "ゆうびん屋さんのたより",
@@ -361,6 +354,34 @@ export const jobs: JobSummary[] = [
     stations: [slotOf("MINATO", "2026-04-16", "14:00", 180)],
   },
 ];
+
+// 番組の next_airing。本物（internal/store/shows.go の NextAirings）は、その番組の録音予定（waiting）のジョブの放送回のうち、開始が今（MOCK_NOW）より後のいちばん早い開始にする。
+// 本物のサーバーは、今日から 7 日先までの予約に当たる放送回に全部ジョブを作る。ダミーのジョブは画面を見せるための一部しか無いので、それを補う:
+// 今（MOCK_NOW）の放送日から 7 日先までの放送日の、有効な毎週の予約に当たる放送回のうち、開始が今より後で、
+// ジョブがあればそのジョブが waiting のもの、ジョブが無ければ（本物では録音予定のジョブがあるはずなので）録音予定とみなすもののいちばん早い開始。無ければ付けない。
+const nextAiringOf = (name: string): string | undefined => {
+  // 今の放送日（JST の 05:00 で日を切る。本物の domain.BroadcastDayOf と同じ）
+  const broadcastDay = new Date(nowMs + (9 - 5) * 3_600_000).toISOString().slice(0, 10);
+  const today = new Date(`${broadcastDay}T00:00:00Z`).getTime();
+  let best: string | undefined;
+  for (let d = 0; d <= 7; d++) {
+    const day = new Date(today + d * 86_400_000).toISOString().slice(0, 10);
+    for (const st of guideOf(day)) {
+      for (const a of st.airings) {
+        if (a.showName !== name || Date.parse(a.start) <= nowMs) continue;
+        const job = a.jobId === undefined ? undefined : jobs.find((j) => j.id === a.jobId);
+        if (job && job.state !== "waiting") continue;
+        if (best === undefined || Date.parse(a.start) < Date.parse(best)) best = a.start;
+      }
+    }
+  }
+  return best;
+};
+
+export const shows: Show[] = showDefs.map((s) => {
+  const next = s.enabled ? nextAiringOf(s.name) : undefined;
+  return next ? { ...s, next_airing: next } : s;
+});
 
 // durationSeconds は本物と同じく、録れた音声の長さ（失敗した試行は 0）。
 const attempt = (startedAt: string, endedAt: string, failure?: { stage: string; error: string }, recordedSeconds = 0): JobAttempt => ({
