@@ -19,3 +19,6 @@
 
 # フロントエンドの依存
 /web/node_modules/
+
+# 案内のサイトの組み立て先（scripts/build-site.sh）
+/_site/

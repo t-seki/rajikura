@@ -1,0 +1,6 @@
+:root { color-scheme: light dark; }
+body { font-family: system-ui, "Hiragino Sans", "Yu Gothic", sans-serif; line-height: 1.8; max-width: 42rem; margin: 0 auto; padding: 1.5rem 1rem; }
+header h1 { margin-bottom: 0.25rem; }
+.lead { font-size: 1.15rem; margin-top: 0; }
+h2 { margin-top: 2rem; border-bottom: 1px solid #8884; padding-bottom: 0.25rem; }
+footer { margin-top: 3rem; font-size: 0.9rem; opacity: 0.8; }

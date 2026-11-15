@@ -7,7 +7,7 @@
 # Windows は ffmpeg を入れない。runner に有ればテストが走り、無ければ skip を許す（失敗にしない）。skip されたテストは一覧にして出すだけ。
 # トリガは PR（pull_request）と main への push に絞る。全ブランチの push も拾うと、PR のブランチに push するたびに同じ変更で 2 回走るため。同じ ref の古い実行は concurrency で捨てる。
 # web の job で、フロントエンド（web/）の型チェック・テスト・ビルドを Linux で回す。
-# 別の job で、docs と README.md と GLOSSARY.md の定義文が GLOSSARY.md の _Avoid_ に当たらないことと、その検査の例文テスト（scripts/check-glossary_test.sh）を Linux で流す。同じ job で、docs と README.md がバッククォートで名指しするコードのパス（internal/・cmd/）と `型.メソッド` が実在することと、その例文テスト（scripts/check-code-refs_test.sh）も流す。同じ job で、Go のソースのコメントが名指しする .go のファイルが実在することと、その例文テスト（scripts/check-go-comment-refs_test.sh）も流す。同じ job で、置き換え済み（索引で Obsoleted by）の ADR を指す参照がコードのコメントと docs に残っていないことと、その例文テスト（scripts/check-adr-refs_test.sh）も流す。同じ job で、docs/development.md の「足したら直す列挙」の印（直す場所に置く項の名前）が列挙の項と合うことと、その例文テスト（scripts/check-fix-markers_test.sh）も流す。同じ job で、使う人向けの docs に rajikura の API のパス（/api/…）・API の欄の名前・検証の記録の言い回しが書かれていないことと、その例文テスト（scripts/check-user-docs_test.sh）も流す。同じ job で、docs の頭の目次が本文の ## の見出しと順・数・アンカー・表示で合うことと、その例文テスト（scripts/check-toc_test.sh）も流す。
+# 別の job で、docs と README.md と案内のサイトの HTML（site/*.html）と GLOSSARY.md の定義文が GLOSSARY.md の _Avoid_ に当たらないことと、その検査の例文テスト（scripts/check-glossary_test.sh）を Linux で流す。同じ job で、docs と README.md がバッククォートで名指しするコードのパス（internal/・cmd/）と `型.メソッド` が実在することと、その例文テスト（scripts/check-code-refs_test.sh）も流す。同じ job で、Go のソースのコメントが名指しする .go のファイルが実在することと、その例文テスト（scripts/check-go-comment-refs_test.sh）も流す。同じ job で、置き換え済み（索引で Obsoleted by）の ADR を指す参照がコードのコメントと docs に残っていないことと、その例文テスト（scripts/check-adr-refs_test.sh）も流す。同じ job で、docs/development.md の「足したら直す列挙」の印（直す場所に置く項の名前）が列挙の項と合うことと、その例文テスト（scripts/check-fix-markers_test.sh）も流す。同じ job で、使う人向けの docs に rajikura の API のパス（/api/…）・API の欄の名前・検証の記録の言い回しが書かれていないことと、その例文テスト（scripts/check-user-docs_test.sh）も流す。同じ job で、docs の頭の目次が本文の ## の見出しと順・数・アンカー・表示で合うことと、その例文テスト（scripts/check-toc_test.sh）も流す。同じ job で、案内のサイトを組み立て（scripts/build-site.sh。Pages の workflow と同じスクリプト）、組み立てた中身が指す画像・CSS・アイコンの有無・入れ方のリンクの向き・外のスクリプトの無さを調べることと、その例文テスト（scripts/check-site_test.sh）も流す。
 name: CI
 
 on:
@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   # docs と README.md の検査を Linux で流す。
-  # - 用語: docs・README.md・GLOSSARY.md の定義文が GLOSSARY.md の _Avoid_ の語を使っていないか（scripts/check-glossary.sh。許す言い回しは scripts/glossary-allow.txt、
+  # - 用語: docs・README.md・案内のサイトの HTML（site/*.html）・GLOSSARY.md の定義文が GLOSSARY.md の _Avoid_ の語を使っていないか（scripts/check-glossary.sh。許す言い回しは scripts/glossary-allow.txt、
   #   行末の <!-- glossary-ok: 語 --> は書いた語だけを外す）と、その例文テスト（scripts/check-glossary_test.sh）。
   # - 名指し: バッククォートで名指しするコードのパスと 型.メソッド が実在するか（scripts/check-code-refs.sh。
   #   行末の <!-- code-ref-ok: 名指し --> は書いた名指しだけを外す）と、その例文テスト（scripts/check-code-refs_test.sh）。
@@ -36,6 +36,7 @@ jobs:
   #   1 つ以上あるか（scripts/check-fix-markers.sh。docs/adr/ と列挙の節の中は数えない）と、その例文テスト（scripts/check-fix-markers_test.sh）。
   # - 使う人向けの docs の実装の仕様と検証の記録: README.md と使う人向けの docs に rajikura の API のパス（/api/…）・docs/api.md が挙げる API の欄の名前（小文字 1 語の欄はスクリプトの一覧の名前をバッククォートで書いた箇所だけ）・
   #   検証の記録の言い回しが無いか（scripts/check-user-docs.sh。免除の印は無い。外の URL の中の /api/ と欄の名前は当てない。対象の一覧は docs/development.md の「docs の書き方」と揃える）と、その例文テスト（scripts/check-user-docs_test.sh）。
+  # - 案内のサイト: scripts/build-site.sh で組み立てた中身を scripts/check-site.sh で調べる（指す画像・CSS・アイコン、入れ方のリンクの向き、外のスクリプトとアクセス解析の無さ）と、その例文テスト（scripts/check-site_test.sh）。
   # - 目次: docs/*.md の頭の目次が、本文の ## の見出しと順・数・アンカー・表示で合うか（scripts/check-toc.sh。目次を持たない docs と ### 以下の入れ子の項は見ない）と、その例文テスト（scripts/check-toc_test.sh）。
   glossary:
     runs-on: ubuntu-latest
@@ -71,6 +72,12 @@ jobs:
         run: scripts/check-toc.sh
       - name: 目次の検査の例文テスト
         run: scripts/check-toc_test.sh
+      - name: 案内のサイトを組み立てて、中身を調べる（Pages の workflow と同じ組み立て）
+        run: |
+          scripts/build-site.sh _site
+          scripts/check-site.sh _site
+      - name: 案内のサイトの検査の例文テスト
+        run: scripts/check-site_test.sh
 
   go:
     strategy:
