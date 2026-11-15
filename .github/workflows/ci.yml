@@ -36,7 +36,7 @@ jobs:
   #   1 つ以上あるか（scripts/check-fix-markers.sh。docs/adr/ と列挙の節の中は数えない）と、その例文テスト（scripts/check-fix-markers_test.sh）。
   # - 使う人向けの docs の実装の仕様と検証の記録: README.md と使う人向けの docs に rajikura の API のパス（/api/…）・docs/api.md が挙げる API の欄の名前（小文字 1 語の欄はスクリプトの一覧の名前をバッククォートで書いた箇所だけ）・
   #   検証の記録の言い回しが無いか（scripts/check-user-docs.sh。免除の印は無い。外の URL の中の /api/ と欄の名前は当てない。対象の一覧は docs/development.md の「docs の書き方」と揃える）と、その例文テスト（scripts/check-user-docs_test.sh）。
-  # - 案内のサイト: scripts/build-site.sh で組み立てた中身を scripts/check-site.sh で調べる（指す画像・CSS・アイコン、入れ方のリンクの向き、外のスクリプトとアクセス解析の無さ）と、その例文テスト（scripts/check-site_test.sh）。
+  # - 案内のサイト: scripts/build-site.sh で組み立てた中身を scripts/check-site.sh で調べる（指す画像・CSS・アイコン、入れ方のリンクの向き、外のスクリプトとアクセス解析の無さ、OGP の meta とその画像が組み立てた中に有ること）と、その例文テスト（scripts/check-site_test.sh）。
   # - 目次: docs/*.md の頭の目次が、本文の ## の見出しと順・数・アンカー・表示で合うか（scripts/check-toc.sh。目次を持たない docs と ### 以下の入れ子の項は見ない）と、その例文テスト（scripts/check-toc_test.sh）。
   glossary:
     runs-on: ubuntu-latest
