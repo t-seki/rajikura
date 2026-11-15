@@ -21,6 +21,12 @@ const tocItems = [
   { id: "password", title: "Web UI のパスワード" },
 ];
 
+// URL のハッシュが目次の区切りの名前ならその名前、そうでなければ null。
+function hashId(): string | null {
+  const id = window.location.hash.replace(/^#/, "");
+  return tocItems.some((t) => t.id === id) ? id : null;
+}
+
 // 設定の画面。区切りは「保存先」「radiko の会員種別」「通知」「Jellyfin との連携」「バックアップ」「詳しい設定」「IdP のログイン」「Web UI のパスワード」。「IdP のログイン」は IdpSection（設定の API ではなく IdP の専用の口を使い、区切りの中で保存する）。「Web UI のパスワード」は ChangePasswordForm をそのまま出し、「保存」は付けない（フォームのボタンで送る）。ほかの区切りは区切りごとに保存し、
 // 保存したらすぐに効く（番組表のキャッシュの大きさだけは、serve の再起動まで効かない）。「radiko の会員種別」は会員種別と、
 // 非会員でないときの radiko のログインに使うログイン情報（メールアドレスとパスワード）を保存する。「バックアップ」は自動のバックアップの取る先と残す数を保存し、最後に自動で取れた日時を出す。DB の写しをダウンロードもさせる。
@@ -35,10 +41,24 @@ export function SettingsPage({ onChanged, onTestSent }: { onChanged: (view: Sett
   }, []);
 
   // 目次・URL のハッシュで指された区切り。読み込みが終わって区切りが出てから進む。知らない名前は何もしない。
-  const [jump, setJump] = useState<string | null>(() => {
-    const id = window.location.hash.replace(/^#/, "");
-    return tocItems.some((t) => t.id === id) ? id : null;
-  });
+  const [jump, setJump] = useState<string | null>(() => hashId());
+  // 最後に進んだ（または開いたときに指されていた）ハッシュの区切り。目次を押した後に同じハッシュの hashchange・popstate が来ても、2 回進まないため。
+  const lastHash = useRef<string | null>(jump);
+  // 開いたままハッシュが変わったとき（アドレス欄の書き換え・戻る・進む）も、目次を押したときと同じ道で進む。知らない名前・ハッシュなしは何もしない。
+  useEffect(() => {
+    const onHash = () => {
+      const id = hashId();
+      if (id === lastHash.current) return;
+      lastHash.current = id;
+      if (id !== null) setJump(id);
+    };
+    window.addEventListener("hashchange", onHash);
+    window.addEventListener("popstate", onHash);
+    return () => {
+      window.removeEventListener("hashchange", onHash);
+      window.removeEventListener("popstate", onHash);
+    };
+  }, []);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [idpLoaded, setIdpLoaded] = useState(false);
   const markIdpLoaded = useCallback(() => setIdpLoaded(true), []);
@@ -76,6 +96,7 @@ export function SettingsPage({ onChanged, onTestSent }: { onChanged: (view: Sett
     // 今の URL と同じなら、同じ履歴を積まない（ナビと同じ決まり）
     const url = `/settings#${id}`;
     if (window.location.pathname + window.location.hash !== url) window.history.pushState(window.history.state, "", url);
+    lastHash.current = id;
     setJump(id);
   }, []);
 
