@@ -49,6 +49,14 @@ describe("SortableTh", () => {
     expect(th("列B")).toHaveTextContent("↕");
   });
 
+  it("見出しの最後の文字と印が、折り返さない 1 つのかたまりに入る", () => {
+    renderHarness();
+    const tails = screen.getAllByTestId("sort-tail");
+    expect(tails).toHaveLength(2);
+    expect(tails[0]).toHaveStyle({ whiteSpace: "nowrap" });
+    expect(tails[0]).toHaveTextContent("A↕");
+  });
+
   it("別の列を押すと、その列の昇順から始める", async () => {
     renderHarness();
     await userEvent.click(screen.getByRole("button", { name: "列A" }));
