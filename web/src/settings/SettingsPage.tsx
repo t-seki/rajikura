@@ -1,4 +1,5 @@
-import { Alert, Anchor, Button, Card, Collapse, Group, NumberInput, PasswordInput, Select, Stack, Switch, Text, TextInput, Textarea, Title } from "@mantine/core";
+import { Alert, Anchor, Box, Button, Card, Collapse, Flex, Group, NumberInput, PasswordInput, Select, Stack, Switch, Text, TextInput, Textarea, Title } from "@mantine/core";
+import { useMediaQuery } from "@mantine/hooks";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { notifySuccess } from "../ui/toast";
 import { BackupApiError, downloadBackup } from "./backupApi";
@@ -21,6 +22,11 @@ const tocItems = [
   { id: "password", title: "Web UI のパスワード" },
 ];
 
+// 目次を本文の右の列に出す幅（Mantine の lg、1200px 以上）。
+const WIDE_QUERY = "(min-width: 75em)";
+// 画面の上からこの px より上に区切りの頭が来たら、その区切りを「今いる区切り」とする（ヘッダーの高さ 56 の下）。
+const ACTIVE_LINE = 120;
+
 // URL のハッシュが目次の区切りの名前ならその名前、そうでなければ null。
 function hashId(): string | null {
   const id = window.location.hash.replace(/^#/, "");
@@ -40,6 +46,10 @@ export function SettingsPage({ onChanged, onTestSent }: { onChanged: (view: Sett
     fetchSettings().then(setView, (e) => setError(e instanceof Error ? e.message : "設定を読めなかった"));
   }, []);
 
+  // 今いる区切り。画面の上の方（ヘッダーの下）に見えている区切り。区切りへ進んだとき（目次のリンク・URL のハッシュ・戻る・進む）は、進んだ区切り。
+  const [active, setActive] = useState<string | null>(null);
+  // 最後に進んだ区切り。ページの一番下では下の方の区切りが上まで来ないので、一番下にいる間は、この区切りを今いる区切りにする。
+  const pinned = useRef<string | null>(null);
   // 目次・URL のハッシュで指された区切り。読み込みが終わって区切りが出てから進む。知らない名前は何もしない。
   const [jump, setJump] = useState<string | null>(() => hashId());
   // 最後に進んだ（または開いたときに指されていた）ハッシュの区切り。目次を押した後に同じハッシュの hashchange・popstate が来ても、2 回進まないため。
@@ -77,8 +87,9 @@ export function SettingsPage({ onChanged, onTestSent }: { onChanged: (view: Sett
     if (!view && !error) return;
     // 画面の上の目次と最後の 2 つの区切りは、設定を読めなくても出る
     if (!view && jump !== "idp" && jump !== "password") return;
-    // 「Web UI のパスワード」は IdP の区切りのすぐ下なので、IdP の中身が出るまで待つ
-    if (jump === "password" && !idpLoaded) return;
+    // 「Web UI のパスワード」は IdP の区切りのすぐ下なので、IdP の中身が出るまで待つ。
+    // 「IdP のログイン」も待つ（中身の無い背の低い区切りのまま一番下で進むと、中身が出てページが伸びたときに、今いる区切りが外れるため）
+    if ((jump === "idp" || jump === "password") && !idpLoaded) return;
     if (jump === "advanced" && !advancedOpen) {
       setAdvancedOpen(true);
       return;
@@ -90,11 +101,50 @@ export function SettingsPage({ onChanged, onTestSent }: { onChanged: (view: Sett
       el?.focus({ preventScroll: true });
     };
     window.clearTimeout(again.current);
+    // どの道で進んでも（目次のリンク・URL のハッシュ・戻る・進む）、進んだ区切りを今いる区切りにする
+    pinned.current = jump;
+    setActive(jump);
     go();
     // 畳みが開く動きの後にも、もう一度進む
     if (jump === "advanced") again.current = window.setTimeout(go, 300);
     setJump(null);
   }, [jump, view, error, advancedOpen, idpLoaded]);
+
+  const wide = useMediaQuery(WIDE_QUERY, false, { getInitialValueInEffect: false });
+  const update = useCallback(() => {
+    // 一番下まで進めたか（スクロールしていない＝ページが画面に収まるときは数えない）
+    const atBottom = window.scrollY > 0 && window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
+    if (pinned.current !== null && atBottom) return;
+    pinned.current = null;
+    let current: string | null = null;
+    let first: string | null = null;
+    let last: string | null = null;
+    for (const t of tocItems) {
+      const r = document.getElementById(t.id)?.getBoundingClientRect();
+      // 無い区切りと、畳まれて大きさの無い区切りは数えない
+      if (!r || (r.width === 0 && r.height === 0)) continue;
+      if (first === null) first = t.id;
+      last = t.id;
+      if (r.top <= ACTIVE_LINE) current = t.id;
+    }
+    // 一番下まで来たら、頭が上まで来ない下の方の区切りも選べるよう、最後の区切りにする。
+    // 上の方にまだ区切りの頭が来ていないときは、見えている先頭の区切り。
+    const next = atBottom && last !== null ? last : (current ?? first);
+    setActive((a) => (next === null ? a : next));
+  }, []);
+  useEffect(() => {
+    window.addEventListener("scroll", update, { passive: true });
+    // 幅が変わると目次の置き場所と区切りの位置が変わるので、決め直す
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, [update]);
+  // 開いたときと、区切りが出そろったときにも決める
+  useEffect(() => {
+    update();
+  }, [update, view, idpLoaded, advancedOpen, wide]);
 
   const follow = useCallback((e: React.MouseEvent<HTMLAnchorElement>, id: string) => {
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -116,18 +166,10 @@ export function SettingsPage({ onChanged, onTestSent }: { onChanged: (view: Sett
 
   // 設定を読めない間（読み込み中・失敗）も、パスワードの変更は設定とは別の API なので、最後の区切りは出す。
   // 読み込みが終わってもフォームが作り直されないよう、最後の区切りは同じ位置に置く。
-  return (
-    <Stack>
-      <Title order={2}>設定</Title>
-      <nav aria-label="設定の区切り">
-        <Group gap="md">
-          {tocItems.map((t) => (
-            <Anchor key={t.id} href={`/settings#${t.id}`} size="sm" c="dimmed" onClick={(e) => follow(e, t.id)}>
-              {t.title}
-            </Anchor>
-          ))}
-        </Group>
-      </nav>
+  // 広い画面（lg 以上）では、目次を本文の右の列に置く（列は本文と同じ高さに伸び、中の目次が sticky で留まる）。狭い画面では、見出しの下に 1 行で置く。
+  const toc = <TableOfContents wide={wide} active={active} follow={follow} />;
+  const body = (
+    <>
       {view ? (
         <>
           <LibrarySection view={view} onChanged={changed} />
@@ -146,7 +188,60 @@ export function SettingsPage({ onChanged, onTestSent }: { onChanged: (view: Sett
       )}
       <IdpSection Section={Section} onLoaded={markIdpLoaded} />
       <PasswordSection />
+    </>
+  );
+  // 広い・狭いで木の形を変えない（区切りのフォームを作り直さない）。key 付きの並べ替えだけで、目次の位置を替える。
+  const tocBox = (
+    <Box key="toc" style={wide ? { width: 200, flexShrink: 0 } : undefined}>
+      {toc}
+    </Box>
+  );
+  const bodyBox = (
+    <Stack key="body" style={{ flex: 1, minWidth: 0 }}>
+      {body}
     </Stack>
+  );
+  return (
+    <Stack>
+      <Title order={2}>設定</Title>
+      <Flex direction={wide ? "row" : "column"} gap={wide ? "xl" : "md"} align="stretch" wrap="nowrap">
+        {wide ? [bodyBox, tocBox] : [tocBox, bodyBox]}
+      </Flex>
+    </Stack>
+  );
+}
+
+// 目次。今いる区切りのリンクは、主色・太字・左の線で目立たせる（aria-current="location"）。ほかは小さく淡い色。
+function TableOfContents({
+  wide,
+  active,
+  follow,
+}: {
+  wide: boolean;
+  active: string | null;
+  follow: (e: React.MouseEvent<HTMLAnchorElement>, id: string) => void;
+}) {
+  const links = tocItems.map((t) => {
+    const current = t.id === active;
+    return (
+      <Anchor
+        key={t.id}
+        href={`/settings#${t.id}`}
+        size="sm"
+        c={current ? "var(--mantine-primary-color-filled)" : "dimmed"}
+        fw={current ? 600 : undefined}
+        aria-current={current ? "location" : undefined}
+        style={{ borderLeft: `2px solid ${current ? "var(--mantine-primary-color-filled)" : "transparent"}`, paddingLeft: 8 }}
+        onClick={(e) => follow(e, t.id)}
+      >
+        {t.title}
+      </Anchor>
+    );
+  });
+  return (
+    <nav aria-label="設定の区切り" style={wide ? { position: "sticky", top: 72 } : undefined}>
+      {wide ? <Stack gap="xs">{links}</Stack> : <Group gap="md">{links}</Group>}
+    </nav>
   );
 }
 
