@@ -83,6 +83,24 @@ fi
 if tags 'script' | attr src | grep -qiE '^(https?:)?//'; then bad "外の URL の <script src> がある"; fi
 if grep -qiE 'google-analytics|googletagmanager|gtag\(|plausible|matomo|piwik|clarity\.ms|hotjar|adsbygoogle|doubleclick|analytics' <<<"$flat"; then bad "アクセス解析か広告のタグがある"; fi
 
+# 画像・埋め込み・動画・音声・style 属性からの外の URL
+is_ext() { grep -qiE '^[[:space:]]*(https?:)?//' <<<"$1"; }
+while IFS= read -r u; do
+  [ -n "$u" ] && is_ext "$u" && bad "外の URL を読み込む <img>・<source> の src: $u"
+done <<<"$(tags 'img|source' | attr src)"
+while IFS= read -r u; do
+  [ -n "$u" ] && is_ext "$u" && bad "外の URL を読み込む <img>・<source> の srcset: $u"
+done <<<"$(tags 'img|source' | attr srcset | tr ',' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]].*$//')"
+while IFS= read -r u; do
+  [ -n "$u" ] && is_ext "$u" && bad "外の URL を読み込む <iframe>・<video>・<audio> の src: $u"
+done <<<"$(tags 'iframe|video|audio' | attr src)"
+while IFS= read -r u; do
+  [ -n "$u" ] && is_ext "$u" && bad "外の URL を読み込む <video> の poster: $u"
+done <<<"$(tags 'video' | attr poster)"
+while IFS= read -r m; do
+  [ -n "$m" ] && bad "style 属性の url() が外の URL を読み込んでいる: $m"
+done < <(tags '[a-zA-Z][a-zA-Z0-9-]*' | attr style | grep -oiE "url\([[:space:]]*[\"']?(https?:)?//[^)\"' ]*" || true)
+
 # ブラウザが開いただけで外へつなぎに行く link
 gf_css='https://fonts.googleapis.com'
 gf_pre1='https://fonts.googleapis.com'
@@ -118,6 +136,9 @@ while IFS= read -r piece; do
   while IFS= read -r m; do
     [ -n "$m" ] && bad "<style> の中で外の URL を読み込んでいる（@import・url()）: $m"
   done < <(grep -oiE "@import[[:space:]]*(url\([[:space:]]*)?[\"']?(https?:)?//[^;)\"' ]*|url\([[:space:]]*[\"']?(https?:)?//[^)\"' ]*" <<<"$body" || true)
+  while IFS= read -r m; do
+    [ -n "$m" ] && bad "<style> の中で外の URL を文字列で書いている（image-set など）: $m"
+  done < <(grep -oiE "[\"'][[:space:]]*(https?:)?//[^\"']*" <<<"$body" || true)
 done <<<"$(split_close style)"
 while IFS= read -r piece; do
   [ -n "$piece" ] || continue
