@@ -4,6 +4,7 @@
 # - CSS（link rel=stylesheet）とアイコン（link rel=icon）の link が有る
 # - 入れ方のリンクが GitHub Release の最新（releases/latest）と docs/getting-started.md・docs/windows.md を指す
 # - 外の URL の <script src> が無い。アクセス解析のタグ・広告を読み込まない。CSS が外の URL を読み込まない
+# - OGP の meta（og:title・og:description・og:image）が有り、content が空でない。og:image は案内のサイトの URL（https://t-seki.github.io/rajikura/）から始まる絶対の URL で、その後ろのパスのファイルが組み立てた中に有る
 # タグは改行をまたいでもよく、属性の値は二重引用符・一重引用符・引用符無しのどれでも拾う。
 # 使い方: scripts/check-site.sh [組み立てた場所]   （既定は _site）
 set -uo pipefail
@@ -51,6 +52,28 @@ hrefs=$(tags 'a' | attr href)
 grep -qxF 'https://github.com/t-seki/rajikura/releases/latest' <<<"$hrefs" || bad "GitHub Release の最新（https://github.com/t-seki/rajikura/releases/latest）へのリンクが無い"
 grep -qE '^https://github\.com/t-seki/rajikura/blob/main/docs/getting-started\.md(#.*)?$' <<<"$hrefs" || bad "docs/getting-started.md へのリンクが無い"
 grep -qE '^https://github\.com/t-seki/rajikura/blob/main/docs/windows\.md(#.*)?$' <<<"$hrefs" || bad "docs/windows.md へのリンクが無い"
+
+# OGP（X などのカード）
+site_url='https://t-seki.github.io/rajikura/'
+metas=$(tags 'meta')
+og_content() { # og_content <property>: その meta の content を出す（無ければ何も出さない）
+  local m
+  m=$(grep -iE "[[:space:]]property[[:space:]]*=[[:space:]]*(\"$1\"|'$1'|$1([[:space:]>]|\$))" <<<"$metas" | head -n 1)
+  [ -n "$m" ] && attr content <<<"$m"
+}
+for prop in og:title og:description og:image; do
+  v=$(og_content "$prop")
+  if [ -z "${v//[[:space:]]/}" ]; then bad "OGP の meta（property=\"$prop\"）が無いか、content が空"; fi
+done
+img=$(og_content og:image)
+if [ -n "${img//[[:space:]]/}" ]; then
+  case "$img" in
+    "$site_url"?*)
+      p=${img#"$site_url"}; p=${p%%[?#]*}
+      [ -f "$dir/$p" ] || bad "og:image の指す画像が組み立てた中に無い: $img";;
+    *) bad "og:image が案内のサイトの URL（$site_url）から始まる絶対の URL でない: $img";;
+  esac
+fi
 
 # 外のスクリプト・アクセス解析
 if tags 'script' | attr src | grep -qiE '^(https?:)?//'; then bad "外の URL の <script src> がある"; fi
