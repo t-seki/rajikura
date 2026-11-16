@@ -815,8 +815,8 @@ func TestOtherTokenUserSameUser(t *testing.T) {
 }
 
 // TestPlaceExeWaitsForTransientHandle は、dst を別のプロセスが FILE_SHARE_DELETE なしで短い間開いている（書いた直後・起動した直後の
-// exe を調べるウイルス対策など）とき、名前を変えられず Access is denied になる道を起こす。placeExe は、開きっぱなしが閉じるまで
-// 待って置き換える（待たないと、まれに rename ... Access is denied で落ちた）。
+// exe を調べるウイルス対策など）とき、よける道（dst→aside）で名前を変えられない道を起こす。placeExe は、開きっぱなしが閉じるまで
+// 待って置き換える（待たないと、まれに rename ... Access is denied で落ちた）。待ったことは、かかった時間で確かめる。
 func TestPlaceExeWaitsForTransientHandle(t *testing.T) {
 	dst := filepath.Join(t.TempDir(), "rajikura-tray.exe")
 	if err := os.WriteFile(dst, []byte("old"), 0o755); err != nil {
@@ -834,9 +834,14 @@ func TestPlaceExeWaitsForTransientHandle(t *testing.T) {
 		close(released)
 	}()
 	defer func() { <-released }()
+	start := time.Now()
 	aside, err := placeExe([]byte("new"), dst)
 	if err != nil {
 		t.Fatalf("placeExe: %v", err)
+	}
+	// 開きっぱなしが閉じる（300ms）より前には置き換えられないので、待たずに通ったなら失敗の道を起こせていない。
+	if d := time.Since(start); d < 250*time.Millisecond {
+		t.Errorf("placeExe が %v で通った（開きっぱなしを待っていない）", d)
 	}
 	if b, _ := os.ReadFile(dst); string(b) != "new" {
 		t.Errorf("dst = %q", b)

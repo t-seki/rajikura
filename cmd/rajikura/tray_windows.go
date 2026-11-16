@@ -623,25 +623,16 @@ func placeExe(data []byte, dst string) (string, error) {
 	return aside, nil
 }
 
-// 原因（issue #136）: 失敗の文言は「rename <exe>.new <exe>: Access is denied.」で、tmp→dst の形をしている。
-// 1 つ目の Rename（tmp→dst）は、dst が動いている exe だと必ず落ちる（想定の道）ので、このエラーが表に出るのは、
-// 続く dst→aside（よける）か aside 後の tmp→dst が落ちたときで、そのうち落ちたのは dst→aside と決まる:
-// dst→aside が落ちると、placeExe はその rerr ではなく 1 つ目の err（dst が動いているための Access is denied）を返すので、
-// 文言は落ちた理由によらず必ずこの形になる。aside 後の tmp→dst は自分の err を返すが、dst はもう無く、
-// .new を別のプロセスが FILE_SHARE_DELETE なしで開いていたなら文言は共有違反（being used by another process）になり、
-// Access is denied にはならない。
-// 動いている exe 自体は名前を変えられる（実機で確かめた）ので、dst→aside が落ちたのは exe が動いているからではなく、
-// テストが写した直後に起動した（数 MB の）dst を、ウイルス対策（Defender のリアルタイム保護）が FILE_SHARE_DELETE なしで
-// 調べている間だったため、と読む（CI で 1 回だけ起き、同じ変更の前 3 回と main は通った。手元では 400 回流して再現せず、
-// これは読みの根拠。Go の cmd/go/internal/robustio も、同じ理由でこの 2 つのエラーを待って繰り返している）。
-// テストの起動・停止（startRunningExe・stopProcess）は、差し替えの前にプロセスの起動を待つだけで、dst を開いたままにしない。
-// よって原因は、テストの作りではなく、インストールの処理が一時的な開きっぱなしを待たないことにある。
-//
 // renameRetry は os.Rename を、Access is denied・共有違反のときだけ、renameRetryFor まで待って繰り返す。
 // 名前を変えられないのが「別のプロセスが FILE_SHARE_DELETE なしでファイルを開いている間」だけのときのための待ちで、
 // 開きっぱなしの相手は、書いた直後・起動した直後の exe を調べるウイルス対策（Defender のリアルタイム保護）などで、
 // 長くても数秒で閉じる。その間だけ待てば足りる。待っても開けなければ、最後のエラーを返す（永久に変えられない形は、ここで覆い隠さない）。
 // 動いている exe 自体は名前を変えられるので、よける道（dst→aside）は、通常は 1 回目で通り、待たない。
+// Go の cmd/go/internal/robustio も、同じ理由でこの 2 つのエラーを待って繰り返している。
+//
+// 待たなかったころ、写した直後に起動した exe を差し替えるテストが、まれに「rename <exe>.new <exe>: Access is denied.」で落ちた。
+// dst→aside が落ちると placeExe は 1 つ目の tmp→dst の err を返すので、この文言は dst→aside が落ちたときに出る。
+// 原因を読んだ経緯は issue #136。
 func renameRetry(from, to string) error {
 	deadline := time.Now().Add(renameRetryFor)
 	for {
