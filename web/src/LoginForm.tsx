@@ -2,11 +2,16 @@ import { Alert, Button, Card, Center, Divider, Group, Image, PasswordInput, Stac
 import { useEffect, useState } from "react";
 import { LoginLimitedError, fetchIdpLoginOption, login, setupPassword, type AuthState, type IdpLoginOption } from "./api";
 import { idpErrorMessage, takeQuery } from "./settings/idpApi";
+import { SourceLink } from "./SourceLink";
 
-/** ログインとパスワードを決める画面の枠（アイコンと rajikura の文字）。 */
+/**
+ * ログインとパスワードを決める画面の枠（アイコンと rajikura の文字）。
+ * 画面の右上に、ログインした後のヘッダーと同じソースへのリンクを出す（版の番号は出さない）。
+ */
 function AuthCard({ children, onSubmit }: { children: React.ReactNode; onSubmit: (e: React.FormEvent) => void }) {
   return (
     <Center mih="100dvh" p="md">
+      <SourceLink style={{ position: "fixed", top: 16, right: 16 }} />
       <Card withBorder padding="lg" w="100%" maw={400}>
         <form onSubmit={onSubmit}>
           <Stack>

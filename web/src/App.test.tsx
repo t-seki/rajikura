@@ -476,6 +476,26 @@ describe("App", () => {
     expect(screen.getByRole("link", { name: "ソース（GitHub のリポジトリ）" })).toHaveAttribute("href", "https://github.com/t-seki/rajikura");
   });
 
+  it("ログインの画面（401）の右上に、ソース（GitHub のリポジトリ）のリンクを出す", async () => {
+    mockApi({ "GET /api/me": () => ({ status: 401, body: { version: "v1.2.3" } }) });
+    renderApp();
+    await screen.findByLabelText(/パスワード/);
+    const link = screen.getByRole("link", { name: "ソース（GitHub のリポジトリ）" });
+    expect(link).toHaveAttribute("href", "https://github.com/t-seki/rajikura");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(link.querySelector("svg path")).not.toBeNull();
+  });
+
+  it("初期設定の画面（503 の setup）の右上に、ソース（GitHub のリポジトリ）のリンクを出す", async () => {
+    mockApi({ "GET /api/me": () => ({ status: 503, body: { setup: true, locked: false } }) });
+    renderApp();
+    await screen.findByLabelText(/セットアップコード/);
+    const link = screen.getByRole("link", { name: "ソース（GitHub のリポジトリ）" });
+    expect(link).toHaveAttribute("href", "https://github.com/t-seki/rajikura");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(link.querySelector("svg path")).not.toBeNull();
+  });
+
   it("未ログインの画面には版を出さない", async () => {
     mockApi({ "GET /api/me": () => ({ status: 401, body: { version: "v1.2.3" } }) });
     renderApp();
