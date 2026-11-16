@@ -77,6 +77,12 @@ footer{padding:30px 0 56px;color:var(--sub);font-size:14px}
 .lead span{display:inline-block}
 .three p,.five dd,.side li,.note,figcaption{text-wrap:pretty}
 
+/* 頭の一文の 1 つ目のかたまりが左の列（2 列のとき）や画面の幅の 1 行に入らない幅（1100px 以下）では、かたまりごとに折らず、語の切れ目で折る */
+@media (max-width:1100px){
+  .lead{text-wrap:balance;word-break:auto-phrase}
+  .lead span{display:inline}
+}
+
 @media (max-width:820px){
   .wrap{padding:0 20px}
   .hero,.three,.five dl,.pair,.side,.install{grid-template-columns:minmax(0,1fr)}
