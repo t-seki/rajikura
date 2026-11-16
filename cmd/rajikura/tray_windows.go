@@ -625,10 +625,15 @@ func placeExe(data []byte, dst string) (string, error) {
 
 // 原因（issue #136）: 失敗の文言は「rename <exe>.new <exe>: Access is denied.」で、tmp→dst の形をしている。
 // 1 つ目の Rename（tmp→dst）は、dst が動いている exe だと必ず落ちる（想定の道）ので、このエラーが表に出るのは、
-// 続く dst→aside（よける）か aside 後の tmp→dst が落ちたときで、placeExe は 1 つ目の err を返すため区別がつかない。
-// 動いている exe 自体は名前を変えられる（実機で確かめた）ので、落ちたのは exe が動いているからではなく、
-// 書いた直後の .new や、起動した直後の dst を、別のプロセスが FILE_SHARE_DELETE なしで一時的に開いていたため、と読む
-// （CI で 1 回だけ起き、同じ変更の前 3 回と main は通った。繰り返しの再現は未確認で、これは読みの根拠）。
+// 続く dst→aside（よける）か aside 後の tmp→dst が落ちたときで、そのうち落ちたのは dst→aside と決まる:
+// dst→aside が落ちると、placeExe はその rerr ではなく 1 つ目の err（dst が動いているための Access is denied）を返すので、
+// 文言は落ちた理由によらず必ずこの形になる。aside 後の tmp→dst は自分の err を返すが、dst はもう無く、
+// .new を別のプロセスが FILE_SHARE_DELETE なしで開いていたなら文言は共有違反（being used by another process）になり、
+// Access is denied にはならない。
+// 動いている exe 自体は名前を変えられる（実機で確かめた）ので、dst→aside が落ちたのは exe が動いているからではなく、
+// テストが写した直後に起動した（数 MB の）dst を、ウイルス対策（Defender のリアルタイム保護）が FILE_SHARE_DELETE なしで
+// 調べている間だったため、と読む（CI で 1 回だけ起き、同じ変更の前 3 回と main は通った。手元では 400 回流して再現せず、
+// これは読みの根拠。Go の cmd/go/internal/robustio も、同じ理由でこの 2 つのエラーを待って繰り返している）。
 // テストの起動・停止（startRunningExe・stopProcess）は、差し替えの前にプロセスの起動を待つだけで、dst を開いたままにしない。
 // よって原因は、テストの作りではなく、インストールの処理が一時的な開きっぱなしを待たないことにある。
 //
