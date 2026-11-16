@@ -607,11 +607,11 @@ func placeExe(data []byte, dst string) (string, error) {
 		return "", nil
 	}
 	aside := asideName(dst)
-	if rerr := os.Rename(dst, aside); rerr != nil {
+	if rerr := renameRetry(dst, aside); rerr != nil {
 		os.Remove(tmp)
 		return "", err
 	}
-	if err := os.Rename(tmp, dst); err != nil {
+	if err := renameRetry(tmp, dst); err != nil {
 		// 戻せなければ前の版も無くなるが、次の install で書き直せる。
 		_ = os.Rename(aside, dst)
 		os.Remove(tmp)
@@ -622,6 +622,26 @@ func placeExe(data []byte, dst string) (string, error) {
 	}
 	return aside, nil
 }
+
+// renameRetry は os.Rename を、Access is denied・共有違反のときだけ、renameRetryFor まで待って繰り返す。
+// 名前を変えられないのが「別のプロセスが FILE_SHARE_DELETE なしでファイルを開いている間」だけのときのための待ちで、
+// 開きっぱなしの相手は、書いた直後・起動した直後の exe を調べるウイルス対策（Defender のリアルタイム保護）などで、
+// 長くても数秒で閉じる。その間だけ待てば足りる。待っても開けなければ、最後のエラーを返す（永久に変えられない形は、ここで覆い隠さない）。
+// 動いている exe 自体は名前を変えられるので、よける道（dst→aside）は、通常は 1 回目で通り、待たない。
+func renameRetry(from, to string) error {
+	deadline := time.Now().Add(renameRetryFor)
+	for {
+		err := os.Rename(from, to)
+		if err == nil || !(errors.Is(err, windows.ERROR_ACCESS_DENIED) || errors.Is(err, windows.ERROR_SHARING_VIOLATION)) ||
+			time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// renameRetryFor は、renameRetry が待つ長さ。
+var renameRetryFor = 3 * time.Second
 
 // asideName は、動いている exe をよけるときの名前（<exe>.<時刻>.old）。removeStale が消す。
 func asideName(exe string) string {

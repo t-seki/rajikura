@@ -813,3 +813,35 @@ func TestOtherTokenUserSameUser(t *testing.T) {
 		t.Errorf("otherTokenUser(自分) = %q, %v", got, err)
 	}
 }
+
+// TestPlaceExeWaitsForTransientHandle は、dst を別のプロセスが FILE_SHARE_DELETE なしで短い間開いている（書いた直後・起動した直後の
+// exe を調べるウイルス対策など）とき、名前を変えられず Access is denied になる道を起こす。placeExe は、開きっぱなしが閉じるまで
+// 待って置き換える（待たないと、まれに rename ... Access is denied で落ちた）。
+func TestPlaceExeWaitsForTransientHandle(t *testing.T) {
+	dst := filepath.Join(t.TempDir(), "rajikura-tray.exe")
+	if err := os.WriteFile(dst, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := windows.UTF16PtrFromString(dst)
+	h, err := windows.CreateFile(p, windows.GENERIC_READ, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	released := make(chan struct{})
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		windows.CloseHandle(h)
+		close(released)
+	}()
+	defer func() { <-released }()
+	aside, err := placeExe([]byte("new"), dst)
+	if err != nil {
+		t.Fatalf("placeExe: %v", err)
+	}
+	if b, _ := os.ReadFile(dst); string(b) != "new" {
+		t.Errorf("dst = %q", b)
+	}
+	if aside != "" {
+		t.Errorf("よけた exe が残った: %q", aside)
+	}
+}
