@@ -577,6 +577,11 @@ func (in *installer) removeTrayExe(exe, command, why string) bool {
 		fmt.Fprintf(in.out, "トレイ %s を消せない（トレイを終了してから手で消してよい）: %v\n", exe, err)
 		return false
 	}
+	// 一時的に開かれていただけなら、よけた先はもう消せる。動いている exe は消せないので、下の道に進む。
+	if os.Remove(aside) == nil {
+		fmt.Fprintf(in.out, "トレイ %s を消した\n", exe)
+		return true
+	}
 	fmt.Fprintf(in.out, "トレイ %s が動いていたので消せず、名前を変えてよけた。%s、通知領域のトレイのメニューの「終了」で終える\n", exe, why)
 	in.deleteLater(aside, command)
 	return false

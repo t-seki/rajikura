@@ -872,7 +872,8 @@ func holdTransientHandle(t *testing.T, path string) (time.Time, func()) {
 }
 
 // TestRemoveTrayExeWaitsForTransientHandle は、トレイの exe を別のプロセスが FILE_SHARE_DELETE なしで短い間開いている間、
-// os.Remove が失敗してよける道に入り、その名前の変更も、閉じるまで待って通ることを確かめる。
+// os.Remove が失敗してよける道に入り、その名前の変更も、閉じるまで待って通ることと、閉じた後はよけた先も消して
+// 消せたとして返すことを確かめる。
 func TestRemoveTrayExeWaitsForTransientHandle(t *testing.T) {
 	exe := filepath.Join(t.TempDir(), "rajikura-tray.exe")
 	if err := os.WriteFile(exe, []byte("old"), 0o755); err != nil {
@@ -881,8 +882,8 @@ func TestRemoveTrayExeWaitsForTransientHandle(t *testing.T) {
 	in := &installer{out: io.Discard, deleteOnReboot: func(string) error { return nil }}
 	start, wait := holdTransientHandle(t, exe)
 	defer wait()
-	if in.removeTrayExe(exe, "tray", "テスト") {
-		t.Error("removeTrayExe = true（よけたはずなので false）")
+	if !in.removeTrayExe(exe, "tray", "テスト") {
+		t.Error("removeTrayExe = false（閉じた後によけた先を消せたはずなので true）")
 	}
 	if d := time.Since(start); d < 250*time.Millisecond {
 		t.Errorf("removeTrayExe が %v で通った（開きっぱなしを待っていない）", d)
@@ -891,8 +892,8 @@ func TestRemoveTrayExeWaitsForTransientHandle(t *testing.T) {
 		t.Errorf("exe が残っている: %v", err)
 	}
 	matches, _ := filepath.Glob(exe + ".*.old")
-	if len(matches) != 1 {
-		t.Errorf("よけた先 = %v, want 1 つ", matches)
+	if len(matches) != 0 {
+		t.Errorf("よけた先が残っている: %v", matches)
 	}
 }
 
