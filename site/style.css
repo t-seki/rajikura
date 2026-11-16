@@ -1,9 +1,9 @@
 :root{
-  --bg:#FFFFFF; --soft:#EEF1F5; --ink:#141414; --sub:#4D5560; --line:#D5DAE1; --frame:#141414;
+  --bg:#FFFFFF; --soft:#EEF1F5; --ink:#141414; --mark:#000000; --sub:#4D5560; --line:#D5DAE1; --frame:#141414;
   --blue:#0050B3; --onblue:#FFFFFF; --shadow:0 30px 80px rgba(20,30,60,.18);
 }
 @media (prefers-color-scheme: dark){
-  :root{ --bg:#0A2540; --soft:#103358; --ink:#E8F1FB; --sub:#A9C3DE; --line:#3F6186; --frame:#CFE3F7;
+  :root{ --bg:#0A2540; --soft:#103358; --ink:#E8F1FB; --mark:#FFFFFF; --sub:#A9C3DE; --line:#3F6186; --frame:#CFE3F7;
     --blue:#8CC8FF; --onblue:#0A2540; --shadow:none; }
 }
 *{box-sizing:border-box}
@@ -16,7 +16,12 @@ a:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
 .bar{display:flex;justify-content:space-between;align-items:center;padding:24px 0}
 .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:19px;color:var(--ink);text-decoration:none}
 .brand img{width:32px;height:32px}
-.bar .gh{color:var(--sub);font-size:15px}
+.bar .gh{display:inline-flex;color:var(--mark)}
+.bar .gh svg,.share svg{display:block}
+.share{display:flex;align-items:center;gap:18px;padding-block:0 40px;color:var(--sub);font-size:14px}
+.share a{display:inline-flex;color:var(--mark)}
+/* X と GitHub のマークは、各社の決まりに合わせて黒か白の 1 色で使い、ホバーでも色を変えない */
+.share a:hover,.bar .gh:hover{opacity:.7}
 
 .hero{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:48px;align-items:center;padding:56px 0 88px}
 .hero h1{font-size:clamp(28px,3.15vw,45px);line-height:1.4;font-weight:700;margin:0 0 22px}
