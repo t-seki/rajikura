@@ -110,7 +110,7 @@ done <<<"$(tags 'link')"
 
 # <style> の中と、src の無いインラインの <script> の中
 sep=$''
-split_close() { sed -E "s#</$1[[:space:]]*>#&${sep}#g" <<<"$flat" | tr "$sep" '
+split_close() { sed -E "s#</$1[[:space:]]*>#&${sep}#gI" <<<"$flat" | tr "$sep" '
 ' | grep -iE "<$1([[:space:]>])" || true; }
 while IFS= read -r piece; do
   [ -n "$piece" ] || continue

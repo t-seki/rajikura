@@ -104,6 +104,8 @@ expect fail "インラインの module の import \"https://...\"" "$(build imp1
 expect fail "インラインの module の import x from '...'" "$(build imp2 "<script type=\"module\">import x from 'https://example.com/m.js';</script>")" "インラインのスクリプトの中"
 expect fail "インラインの動的な import(...)" "$(build imp3 '<script>import("https://example.com/m.js")</script>')" "インラインのスクリプトの中"
 expect pass "インラインのスクリプトの相対の import" "$(build impok '<script type="module">import "./a.js";</script>')"
+expect fail "大文字の閉じタグの後ろに小文字の script が続く" "$(build impup "<SCRIPT type=\"module\">import \"https://example.com/m.js\";</SCRIPT><script>1</script>")" "インラインのスクリプトの中"
+expect fail "大文字の閉じタグの後ろに小文字の style が続く" "$(build styup "<STYLE>@import url(\"https://example.com/x.css\");</STYLE><style>p{}</style>")" "<style> の中"
 expect fail "index.html が無い" "$tmp/empty" "index.html が無い"
 
 echo "通った: $passed 件、失敗: $failed 件"
