@@ -24,7 +24,7 @@ radiko の放送を録音し、Jellyfin などのライブラリへ自動で保�
 - エリアを偽装しない。エリアの外の局は、エリアフリー会員の正規の radiko のログインでだけ録る（[会員種別と radiko のログイン](docs/settings.md#会員種別と-radiko-のログインmembership)）。
 - radiko の仕様が変わると録れなくなることがあり、直す時期は約束しない。
 
-公開の立場と理由は [ADR 0028](docs/adr/0028-publish-as-oss-under-radiko-terms.md)。ライセンスは AGPL-3.0（[LICENSE](LICENSE)）。これから出す版から当てていて、もう MIT で出した版は MIT のまま（理由は [ADR 0044](docs/adr/0044-relicense-to-agpl-3.0.md)）。
+公開の立場と理由は [ADR 0028](docs/adr/0028-publish-as-oss-under-radiko-terms.md)。ライセンスは AGPL-3.0（[LICENSE](LICENSE)）。この変更を main に入れた後のソースから当てていて、それより前に公開したソース（v0.45.0 までのリリースと、その後に main に入れた分）は MIT のまま（理由は [ADR 0044](docs/adr/0044-relicense-to-agpl-3.0.md)）。
 
 不具合は [Issues](https://github.com/t-seki/rajikura/issues)、要望と質問は [Discussions](https://github.com/t-seki/rajikura/discussions) で受ける。Pull Request は受けていない。書き方は [CONTRIBUTING.md](CONTRIBUTING.md)。
 

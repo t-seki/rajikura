@@ -47,4 +47,4 @@ rajikura の設計の決定と、その理由をまとめる。どの ADR も、
 | [0041](0041-first-password-by-setup-code-and-reset-clears-binding.md) | 初めてのパスワードはセットアップコードで決め、パスワードを戻すと紐づけも消す | 動かしている当人だけが最初のパスワードを決められるようにする。パスワードを戻すときに消すもの |
 | [0042](0042-idp-binding-shows-preferred-username.md) | Web UI のログインに汎用の OIDC を足し、紐づけた 1 人だけを通す。紐づけた相手は IdP の利用者名で見分ける | IdP のログイン、紐づけ、紐づけた相手の見分け方、IdP の設定と戻り先の URL |
 | [0043](0043-landing-site-on-github-pages-and-announce-by-hand.md) | 案内のサイトをこの repo の GitHub Pages に置き、X ではリリースのときに作者が手で告知するだけにする | 案内のサイトの置き場所、発信の範囲、看板に radiko の名前を使わないこと、共有のボタン |
-| [0044](0044-relicense-to-agpl-3.0.md) | ライセンスを MIT から AGPL-3.0 に変える | これから出す版のライセンス、SPDX の値、ネット越しのサービスへのソース公開の義務 |
+| [0044](0044-relicense-to-agpl-3.0.md) | ライセンスを MIT から AGPL-3.0 に変える | 変更より後のソースのライセンスと、MIT のまま残る範囲、SPDX の値、ネット越しのサービスへのソース公開の義務 |
