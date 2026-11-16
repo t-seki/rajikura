@@ -26,4 +26,4 @@ rajikura のソースを GitHub で公開した OSS（MIT）として配る。ra
 
 - radiko の仕様が変わると録れなくなることがあり、直す時期は約束しない（README に書く）。
 - 他人が issue とコメントを書ける。作業の指示として読むのは作者が書いたものだけにし、他人の issue は作者が立て直してから扱う（[CONTRIBUTING.md](../../CONTRIBUTING.md)）。
-- 案内のサイトを作るときも、ダウンロードは GitHub Release に向ける。
+- 案内のサイトを作るときも、ダウンロードは GitHub Release に向ける（置き場所と発信の範囲は [ADR 0043](0043-landing-site-on-github-pages-and-announce-by-hand.md)）。

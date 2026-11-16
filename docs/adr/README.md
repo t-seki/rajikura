@@ -46,3 +46,4 @@ rajikura の設計の決定と、その理由をまとめる。どの ADR も、
 | [0040](0040-idp-login-by-generic-oidc.md) | Web UI のログインに汎用の OIDC を足し、紐づけた 1 人だけを通す（Obsoleted by 0042） | IdP のログイン、紐づけ、IdP の設定と戻り先の URL |
 | [0041](0041-first-password-by-setup-code-and-reset-clears-binding.md) | 初めてのパスワードはセットアップコードで決め、パスワードを戻すと紐づけも消す | 動かしている当人だけが最初のパスワードを決められるようにする。パスワードを戻すときに消すもの |
 | [0042](0042-idp-binding-shows-preferred-username.md) | Web UI のログインに汎用の OIDC を足し、紐づけた 1 人だけを通す。紐づけた相手は IdP の利用者名で見分ける | IdP のログイン、紐づけ、紐づけた相手の見分け方、IdP の設定と戻り先の URL |
+| [0043](0043-landing-site-on-github-pages-and-announce-by-hand.md) | 案内のサイトをこの repo の GitHub Pages に置き、X ではリリースのときに作者が手で告知するだけにする | 案内のサイトの置き場所、発信の範囲、看板に radiko の名前を使わないこと、共有のボタン |
