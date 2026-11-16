@@ -16,7 +16,11 @@ try {
   await page.goto(pathToFileURL(join(here, "card.html")).href, { waitUntil: "networkidle" });
   await page.evaluate(() => document.fonts.load('700 60px "BIZ UDPGothic"', "聴きたいラジオ番組を"));
   await page.evaluate(() => document.fonts.ready);
-  if (!(await page.evaluate(() => document.fonts.check('700 60px "BIZ UDPGothic"')))) {
+  // fonts.check() は一致する FontFace が無いと true を返すので、読み込み済みの FontFace があるかを直接見る。
+  const loaded = await page.evaluate(() =>
+    [...document.fonts].some((f) => f.family.replace(/["']/g, "") === "BIZ UDPGothic" && f.status === "loaded"),
+  );
+  if (!loaded) {
     throw new Error("書体 BIZ UDPGothic が読み込めなかった");
   }
   await page.screenshot({ path: out });
