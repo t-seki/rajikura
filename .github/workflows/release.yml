@@ -133,7 +133,7 @@ jobs:
       - name: イメージに OCI のラベルがあることを確かめる
         run: |
           test "$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.source" }}' "$IMAGE:$VERSION")" = https://github.com/t-seki/rajikura
-          test "$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.licenses" }}' "$IMAGE:$VERSION")" = MIT
+          test "$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.licenses" }}' "$IMAGE:$VERSION")" = AGPL-3.0-only
       - name: イメージの中のバイナリと配布物の Linux x64 のバイナリが同じことを確かめる（sha256）
         run: |
           image_sum=$(docker run --rm --entrypoint sha256sum "$IMAGE:$VERSION" /usr/local/bin/rajikura | cut -d' ' -f1)

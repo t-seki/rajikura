@@ -66,7 +66,7 @@ COPY --from=build-windows /out/rajikura.exe /rajikura_${VERSION}_windows_amd64.e
 FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 # OCI のラベル。版のラベルは付けない（イメージのタグが版を表す）。licenses は rajikura 自身のライセンス（依存のものは rajikura licenses で出す）
 LABEL org.opencontainers.image.source="https://github.com/t-seki/rajikura" \
-      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
       org.opencontainers.image.description="radiko の放送を録音し、Jellyfin などのライブラリへ自動で保存するサービス。"
 # ffmpeg は入れない（m4a への格納の既定は builtin。ADR 0013）
 RUN addgroup -g 1000 rajikura \
