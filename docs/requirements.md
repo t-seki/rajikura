@@ -21,7 +21,7 @@ radiko の放送を、録れるまで再試行して録り、ライブラリへ�
 
 ## スコープ
 
-最優先は radiko タイムフリーによる、毎週の放送の録音。タイムフリーの対象外の放送回は、radiko のライブのストリームから放送中に録る（ライブ録音。[ADR 0022](adr/0022-live-recording-for-timefree-excluded-airings.md)）。らじる★らじる聴き逃しは作らない（HLS の AES-128 を解く複製は、私的複製の例外から外れるおそれがあるため。[ADR 0028](adr/0028-publish-as-oss-under-radiko-terms.md)）。録音は Go の自前実装で行う（[ADR 0001](adr/0001-native-go-fetcher-over-yt-dlp.md)）。radiko の規約の第 4 条を承知のうえで、ソースを公開した OSS（MIT）として、使う人が自分の環境で動かせる形で配る（[ADR 0028](adr/0028-publish-as-oss-under-radiko-terms.md)）。
+最優先は radiko タイムフリーによる、毎週の放送の録音。タイムフリーの対象外の放送回は、radiko のライブのストリームから放送中に録る（ライブ録音。[ADR 0022](adr/0022-live-recording-for-timefree-excluded-airings.md)）。らじる★らじる聴き逃しは作らない（HLS の AES-128 を解く複製は、私的複製の例外から外れるおそれがあるため。[ADR 0028](adr/0028-publish-as-oss-under-radiko-terms.md)）。録音は Go の自前実装で行う（[ADR 0001](adr/0001-native-go-fetcher-over-yt-dlp.md)）。radiko の規約の第 4 条を承知のうえで、ソースを公開した OSS（AGPL-3.0）として、使う人が自分の環境で動かせる形で配る（[ADR 0028](adr/0028-publish-as-oss-under-radiko-terms.md)）。
 
 **やること** <!-- 足したら直す: 録音の方式 -->
 
