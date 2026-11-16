@@ -827,6 +827,8 @@ func TestPlaceExeWaitsForTransientHandle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// start は閉じる側を動かす前に取る。閉じるのは必ず start から 300ms より後になる。
+	start := time.Now()
 	released := make(chan struct{})
 	go func() {
 		time.Sleep(300 * time.Millisecond)
@@ -834,7 +836,6 @@ func TestPlaceExeWaitsForTransientHandle(t *testing.T) {
 		close(released)
 	}()
 	defer func() { <-released }()
-	start := time.Now()
 	aside, err := placeExe([]byte("new"), dst)
 	if err != nil {
 		t.Fatalf("placeExe: %v", err)
