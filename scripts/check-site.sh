@@ -4,6 +4,10 @@
 # - CSS（link rel=stylesheet）とアイコン（link rel=icon）の link が有る
 # - 入れ方のリンクが GitHub Release の最新（releases/latest）と docs/getting-started.md・docs/windows.md を指す
 # - 外の URL の <script src> が無い。アクセス解析のタグ・広告を読み込まない。CSS が外の URL を読み込まない
+# - ページを開くとブラウザが外へつなぎに行く link（stylesheet・preconnect・dns-prefetch・preload・prefetch・modulepreload・icon・apple-touch-icon・manifest）が、
+#   外の URL を指さない。許すのは Google Fonts（https://fonts.googleapis.com の stylesheet と、そことhttps://fonts.gstatic.com への preconnect）だけ。
+#   canonical・alternate の link と <a href> は外の URL でもよい
+# - <style> の中に、外の @import・url() が無い（Google Fonts でも落とす）。src の無いインラインの <script> の中に、外の URL の import が無い
 # - OGP の meta（og:title・og:description・og:image）が有り、content が空でない。og:image は案内のサイトの URL（https://t-seki.github.io/rajikura/）から始まる絶対の URL で、その後ろのパスのファイルが組み立てた中に有る
 # タグは改行をまたいでもよく、属性の値は二重引用符・一重引用符・引用符無しのどれでも拾う。
 # 使い方: scripts/check-site.sh [組み立てた場所]   （既定は _site）
@@ -78,6 +82,53 @@ fi
 # 外のスクリプト・アクセス解析
 if tags 'script' | attr src | grep -qiE '^(https?:)?//'; then bad "外の URL の <script src> がある"; fi
 if grep -qiE 'google-analytics|googletagmanager|gtag\(|plausible|matomo|piwik|clarity\.ms|hotjar|adsbygoogle|doubleclick|analytics' <<<"$flat"; then bad "アクセス解析か広告のタグがある"; fi
+
+# ブラウザが開いただけで外へつなぎに行く link
+gf_css='https://fonts.googleapis.com'
+gf_pre1='https://fonts.googleapis.com'
+gf_pre2='https://fonts.gstatic.com'
+origin_is() { # origin_is <url> <origin>: URL がその origin（直後は / ? # か終わり）か
+  local u=${1,,} o=$2
+  case "$u" in "$o"|"$o"/*|"$o"\?*|"$o"\#*) return 0;; esac
+  return 1
+}
+while IFS= read -r tag; do
+  [ -n "$tag" ] || continue
+  href=$(attr href <<<"$tag" | head -n 1)
+  href=${href#"${href%%[![:space:]]*}"}
+  grep -qiE '^(https?:)?//' <<<"$href" || continue
+  for rel in $(attr rel <<<"$tag" | tr 'A-Z' 'a-z'); do
+    case "$rel" in
+      stylesheet) origin_is "$href" "$gf_css" && continue;;
+      preconnect) { origin_is "$href" "$gf_pre1" || origin_is "$href" "$gf_pre2"; } && continue;;
+      dns-prefetch|preload|prefetch|modulepreload|icon|apple-touch-icon|manifest) ;;
+      *) continue;;
+    esac
+    bad "外の URL を読み込む link（rel=$rel）がある: $href"
+  done
+done <<<"$(tags 'link')"
+
+# <style> の中と、src の無いインラインの <script> の中
+sep=$''
+split_close() { sed -E "s#</$1[[:space:]]*>#&${sep}#g" <<<"$flat" | tr "$sep" '
+' | grep -iE "<$1([[:space:]>])" || true; }
+while IFS= read -r piece; do
+  [ -n "$piece" ] || continue
+  body=$(sed -E 's/^.*<[sS][tT][yY][lL][eE]([[:space:]][^>]*)?>//' <<<"$piece")
+  while IFS= read -r m; do
+    [ -n "$m" ] && bad "<style> の中で外の URL を読み込んでいる（@import・url()）: $m"
+  done < <(grep -oiE "@import[[:space:]]*(url\([[:space:]]*)?[\"']?(https?:)?//[^;)\"' ]*|url\([[:space:]]*[\"']?(https?:)?//[^)\"' ]*" <<<"$body" || true)
+done <<<"$(split_close style)"
+while IFS= read -r piece; do
+  [ -n "$piece" ] || continue
+  stag=$(grep -oiE '<script([[:space:]][^>]*)?>' <<<"$piece" | tail -n 1)
+  [ -n "$stag" ] || continue
+  [ -z "$(attr src <<<"$stag")" ] || continue
+  body=${piece#*"$stag"}
+  while IFS= read -r m; do
+    [ -n "$m" ] && bad "インラインのスクリプトの中で外の URL を import している: $m"
+  done < <(grep -oiE "(import|from)[[:space:]]*\(?[[:space:]]*[\"'\`](https?:)?//[^\"'\`]*" <<<"$body" || true)
+done <<<"$(split_close script)"
 
 for css in "$dir"/*.css; do
   [ -e "$css" ] || continue
