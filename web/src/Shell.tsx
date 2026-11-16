@@ -3,6 +3,7 @@ import { useDisclosure } from "@mantine/hooks";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { navigate, usePathname, useSearch } from "wouter/use-browser-location";
+import { SourceLink } from "./SourceLink";
 import { ShowsPage } from "./shows/ShowsPage";
 import { KeywordsPage } from "./keywords/KeywordsPage";
 import { JobsPage } from "./jobs/JobsPage";
@@ -179,6 +180,7 @@ export function Shell({ onLogout, version }: { onLogout: () => Promise<void>; ve
               <Title order={3}>rajikura</Title>
             </Group>
           </Group>
+          <SourceLink />
         </Group>
       </AppShell.Header>
       <AppShell.Navbar p="xs" component="nav" aria-label="ナビゲーション">
