@@ -851,3 +851,73 @@ func TestPlaceExeWaitsForTransientHandle(t *testing.T) {
 		t.Errorf("よけた exe が残った: %q", aside)
 	}
 }
+
+// holdTransientHandle は、path を FILE_SHARE_DELETE なしで開き、300ms 後に閉じる。start は閉じる側を動かす前の時刻。
+// 戻した関数は、閉じ終わるのを待つ（defer で呼ぶ）。
+func holdTransientHandle(t *testing.T, path string) (time.Time, func()) {
+	t.Helper()
+	p, _ := windows.UTF16PtrFromString(path)
+	h, err := windows.CreateFile(p, windows.GENERIC_READ, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	released := make(chan struct{})
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		windows.CloseHandle(h)
+		close(released)
+	}()
+	return start, func() { <-released }
+}
+
+// TestRemoveTrayExeWaitsForTransientHandle は、トレイの exe を別のプロセスが FILE_SHARE_DELETE なしで短い間開いている間、
+// os.Remove が失敗してよける道に入り、その名前の変更も、閉じるまで待って通ることと、閉じた後はよけた先も消して
+// 消せたとして返すことを確かめる。
+func TestRemoveTrayExeWaitsForTransientHandle(t *testing.T) {
+	exe := filepath.Join(t.TempDir(), "rajikura-tray.exe")
+	if err := os.WriteFile(exe, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	in := &installer{out: io.Discard, deleteOnReboot: func(string) error { return nil }}
+	start, wait := holdTransientHandle(t, exe)
+	defer wait()
+	if !in.removeTrayExe(exe, "tray", "テスト") {
+		t.Error("removeTrayExe = false（閉じた後によけた先を消せたはずなので true）")
+	}
+	if d := time.Since(start); d < 250*time.Millisecond {
+		t.Errorf("removeTrayExe が %v で通った（開きっぱなしを待っていない）", d)
+	}
+	if _, err := os.Stat(exe); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("exe が残っている: %v", err)
+	}
+	matches, _ := filepath.Glob(exe + ".*.old")
+	if len(matches) != 0 {
+		t.Errorf("よけた先が残っている: %v", matches)
+	}
+}
+
+// TestCopyFileWaitsForTransientHandle は、dst を別のプロセスが FILE_SHARE_DELETE なしで短い間開いている間、
+// copyFile の置き換えが閉じるまで待って通ることを確かめる。
+func TestCopyFileWaitsForTransientHandle(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.exe")
+	dst := filepath.Join(dir, "dst.exe")
+	if err := os.WriteFile(src, []byte("new"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	start, wait := holdTransientHandle(t, dst)
+	defer wait()
+	if err := copyFile(src, dst); err != nil {
+		t.Fatalf("copyFile: %v", err)
+	}
+	if d := time.Since(start); d < 250*time.Millisecond {
+		t.Errorf("copyFile が %v で通った（開きっぱなしを待っていない）", d)
+	}
+	if b, _ := os.ReadFile(dst); string(b) != "new" {
+		t.Errorf("dst = %q", b)
+	}
+}

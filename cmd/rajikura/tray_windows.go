@@ -559,7 +559,7 @@ func (in *installer) uninstallTray() {
 }
 
 // removeTrayExe は、トレイの exe を消す。動いていて消せなければ、名前を変えてよけ、PC の次の再起動のときに消すよう頼み、
-// メニューの「終了」で終えることを出す（why はその前に添える理由）。消せたか、無かったかを返す（よけたときは false）。
+// メニューの「終了」で終えることを出す（why はその前に添える理由）。消せたか、無かったかを返す（よけた先も消せなかったときは false）。
 func (in *installer) removeTrayExe(exe, command, why string) bool {
 	removeStale(exe)
 	err := os.Remove(exe)
@@ -570,11 +570,17 @@ func (in *installer) removeTrayExe(exe, command, why string) bool {
 	case errors.Is(err, os.ErrNotExist):
 		return true
 	}
-	// 動いている exe は消せないが、名前は変えられる。
+	// 動いている exe は消せないが、名前は変えられる（よける道は 1 回目で通り、renameRetry は待たない）。
+	// 書いた直後・起動した直後で、別のプロセスが一時的に開いているだけなら、renameRetry が閉じるまで待つ。
 	aside := asideName(exe)
-	if rerr := os.Rename(exe, aside); rerr != nil {
+	if rerr := renameRetry(exe, aside); rerr != nil {
 		fmt.Fprintf(in.out, "トレイ %s を消せない（トレイを終了してから手で消してよい）: %v\n", exe, err)
 		return false
+	}
+	// 一時的に開かれていただけなら、よけた先はもう消せる。動いている exe は消せないので、下の道に進む。
+	if os.Remove(aside) == nil {
+		fmt.Fprintf(in.out, "トレイ %s を消した\n", exe)
+		return true
 	}
 	fmt.Fprintf(in.out, "トレイ %s が動いていたので消せず、名前を変えてよけた。%s、通知領域のトレイのメニューの「終了」で終える\n", exe, why)
 	in.deleteLater(aside, command)

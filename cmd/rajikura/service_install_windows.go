@@ -412,7 +412,9 @@ func copyFile(src, dst string) error {
 		os.Remove(tmp)
 		return err
 	}
-	if err := os.Rename(tmp, dst); err != nil {
+	// 別のプロセスが一時的に dst を開いている間は待つ。dst が動いている exe の道は想定の外（呼ぶ側が先にサービスを止める）なので、
+	// 待っても失敗の結果は変わらない。
+	if err := renameRetry(tmp, dst); err != nil {
 		os.Remove(tmp)
 		return err
 	}
