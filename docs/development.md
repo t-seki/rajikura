@@ -222,6 +222,7 @@ pnpm screenshots
   - `serve` の API を呼ばないサブコマンド（`version`・`licenses` と、Windows だけの `service`・`tray`）は、`-url`/`-token` の説明・`client_commands.go`・`internal/client/client.go` の列挙には入れない。`service` の操作（`install`・`uninstall`）を足す・やめるとき、`service` とトレイを入れる・消す振る舞いを変えるとき、`tray` の操作（`install`・`uninstall`）を足す・やめるときは、印 `足したら直す: service の操作` を repo 全体で grep する（`tray` の操作を並べる場所にも、この印を置く）。
 - 録音の方式（入手の経路、録る時刻、再試行の有無）を足す・変える・やめる: サービスが何をするかの 1 文を、印 `足したら直す: 録音の方式` の場所（repo 全体で grep する）で揃える。探す語: 「録音」「タイムフリー」「ライブ」「再試行」。過去の ADR は直さない。
 - ジョブの状態の移り方（どの失敗で retrying・expired にするか、起動時の回復、手動再試行を受け付ける条件、作業用フォルダを残すか消すか）を変える: 印 `足したら直す: ジョブの状態の移り方` を repo 全体で grep する。散文で機械では食い違いが見つからない。探す語: 「retrying」「expired」「再試行」「作業用フォルダ」。過去の ADR は直さない。
+- 機能を足す・変える・やめる: 案内のサイト（`site/index.html`）の売りの文と動かせる条件も見て直す（macOS への対応など。[ADR 0043](adr/0043-landing-site-on-github-pages-and-announce-by-hand.md)）。
 - 機能をやめる: やめた機能の名前（型名・関数名・docs の言葉）で repo 全体を grep し、コメントと docs に残った言及を直す。
 
 
