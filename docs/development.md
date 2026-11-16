@@ -103,7 +103,7 @@ pnpm screenshots
 - 画面に映るのは、`web/mock/data.ts` の架空のダミーのデータだけ（局・番組名・出演者・説明・画像のすべて）。radiko の実際の番組表は映さない（[ADR 0028](adr/0028-publish-as-oss-under-radiko-terms.md)）。
 - `pnpm screenshots`（`web/scripts/screenshots.mjs`）は、ダミーのデータで `/api` に答える Vite の開発サーバー（`vite --mode mock`。`web/mock/plugin.ts`）を立て、ヘッドレスのブラウザで撮る。`rajikura serve` にも radiko にもつながらない。ブラウザの時計は `web/mock/data.ts` の `MOCK_NOW` に固定するので、何度流しても同じ画像になる（ブラウザの描画の違いは除く）。
 - ブラウザは手元の Microsoft Edge（`playwright-core` の `channel: "msedge"`）。ブラウザは別に入れない。Chrome を使うなら環境変数 `SCREENSHOT_CHANNEL=chrome` を付ける。
-- 画面の画像（`docs/images/` の 3 枚）を撮り直したら、X などのリンクのカードの画像 `docs/images/card.png` も作り直す。カードは元の HTML `web/scripts/card.html`（1200x630）を `web/scripts/card.mjs` で撮る。画面の画像と `web/public/favicon.svg` を直接読むので、コピーは持たない。書体 BIZ UDPGothic を Google Fonts から読むので、ネットにつながる状態で流す。CI や Pages の中では撮らず、撮った PNG をコミットする。
+- 画面の画像（`docs/images/` の 3 枚）を撮り直したら、X などのリンクのカードの画像 `docs/images/card.png` も作り直す。カードは元の HTML `web/scripts/card.html`（1200x630）を `web/scripts/card.mjs` で撮る。画面の画像と `web/public/favicon.svg` を直接読むので、コピーは持たない。書体 BIZ UDPGothic を Google Fonts から読むので、ネットにつながる状態で流す。CI や Pages の中では撮らず、撮った PNG をコミットする。カードの表題欄にはライセンスの名前が出ているので、ライセンスが変わったときも、カードの画像を作り直す。
 
   ```bash
   cd web
