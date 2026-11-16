@@ -7,11 +7,13 @@ import { SourceLink } from "./SourceLink";
 /**
  * ログインとパスワードを決める画面の枠（アイコンと rajikura の文字）。
  * 画面の右上に、ログインした後のヘッダーと同じソースへのリンクを出す（版の番号は出さない）。
+ * リンクはページの右上に置いてページと一緒に流れ、上の余白（16 + 24 + 16px）でカードと重ならないようにする。
+ * fixed にすると、背の低い画面でカードの下に隠れたり、流したときにカードと重なったりする。
  */
 function AuthCard({ children, onSubmit }: { children: React.ReactNode; onSubmit: (e: React.FormEvent) => void }) {
   return (
-    <Center mih="100dvh" p="md">
-      <SourceLink style={{ position: "fixed", top: 16, right: 16 }} />
+    <Center mih="100dvh" p="md" pt={56}>
+      <SourceLink style={{ position: "absolute", top: 16, right: 16 }} />
       <Card withBorder padding="lg" w="100%" maw={400}>
         <form onSubmit={onSubmit}>
           <Stack>
