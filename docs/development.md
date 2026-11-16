@@ -103,6 +103,13 @@ pnpm screenshots
 - 画面に映るのは、`web/mock/data.ts` の架空のダミーのデータだけ（局・番組名・出演者・説明・画像のすべて）。radiko の実際の番組表は映さない（[ADR 0028](adr/0028-publish-as-oss-under-radiko-terms.md)）。
 - `pnpm screenshots`（`web/scripts/screenshots.mjs`）は、ダミーのデータで `/api` に答える Vite の開発サーバー（`vite --mode mock`。`web/mock/plugin.ts`）を立て、ヘッドレスのブラウザで撮る。`rajikura serve` にも radiko にもつながらない。ブラウザの時計は `web/mock/data.ts` の `MOCK_NOW` に固定するので、何度流しても同じ画像になる（ブラウザの描画の違いは除く）。
 - ブラウザは手元の Microsoft Edge（`playwright-core` の `channel: "msedge"`）。ブラウザは別に入れない。Chrome を使うなら環境変数 `SCREENSHOT_CHANNEL=chrome` を付ける。
+- 画面の画像（`docs/images/` の 3 枚）を撮り直したら、X などのリンクのカードの画像 `docs/images/card.png` も作り直す。カードは元の HTML `web/scripts/card.html`（1200x630）を `web/scripts/card.mjs` で撮る。画面の画像と `web/public/favicon.svg` を直接読むので、コピーは持たない。書体 BIZ UDPGothic を Google Fonts から読むので、ネットにつながる状態で流す。CI や Pages の中では撮らず、撮った PNG をコミットする。
+
+```bash
+cd web
+pnpm card
+```
+
 - ダミーの画面を自分で見るだけなら `pnpm dev:mock`（http://localhost:5173）。読み出しだけ答え、書き込みの API は 405 で断る（通知の画面が開くたびに呼ぶ `POST /api/notifications/read` だけは、何もせず成功で答える）。
 - ダミーのデータの口は `pnpm dev:mock` のときだけ効き、`pnpm build` の成果物（`serve` に埋め込む Web UI）には入らない（`web/vite.config.ts` が `--mode mock` のときだけプラグインを足し、プラグインは開発サーバーだけに効く）。
 - 画面の型（`GuideAiring`・`JobSummary`・`Show`・`Keyword`・`KeywordAiring`・`ApiToken` など）を変えたら、`pnpm typecheck` が `web/mock/` の型の食い違いで落ちるので、ダミーのデータを直す。
