@@ -623,6 +623,15 @@ func placeExe(data []byte, dst string) (string, error) {
 	return aside, nil
 }
 
+// 原因（issue #136）: 失敗の文言は「rename <exe>.new <exe>: Access is denied.」で、tmp→dst の形をしている。
+// 1 つ目の Rename（tmp→dst）は、dst が動いている exe だと必ず落ちる（想定の道）ので、このエラーが表に出るのは、
+// 続く dst→aside（よける）か aside 後の tmp→dst が落ちたときで、placeExe は 1 つ目の err を返すため区別がつかない。
+// 動いている exe 自体は名前を変えられる（実機で確かめた）ので、落ちたのは exe が動いているからではなく、
+// 書いた直後の .new や、起動した直後の dst を、別のプロセスが FILE_SHARE_DELETE なしで一時的に開いていたため、と読む
+// （CI で 1 回だけ起き、同じ変更の前 3 回と main は通った。繰り返しの再現は未確認で、これは読みの根拠）。
+// テストの起動・停止（startRunningExe・stopProcess）は、差し替えの前にプロセスの起動を待つだけで、dst を開いたままにしない。
+// よって原因は、テストの作りではなく、インストールの処理が一時的な開きっぱなしを待たないことにある。
+//
 // renameRetry は os.Rename を、Access is denied・共有違反のときだけ、renameRetryFor まで待って繰り返す。
 // 名前を変えられないのが「別のプロセスが FILE_SHARE_DELETE なしでファイルを開いている間」だけのときのための待ちで、
 // 開きっぱなしの相手は、書いた直後・起動した直後の exe を調べるウイルス対策（Defender のリアルタイム保護）などで、
