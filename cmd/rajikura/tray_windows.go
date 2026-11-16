@@ -559,7 +559,7 @@ func (in *installer) uninstallTray() {
 }
 
 // removeTrayExe は、トレイの exe を消す。動いていて消せなければ、名前を変えてよけ、PC の次の再起動のときに消すよう頼み、
-// メニューの「終了」で終えることを出す（why はその前に添える理由）。消せたか、無かったかを返す（よけたときは false）。
+// メニューの「終了」で終えることを出す（why はその前に添える理由）。消せたか、無かったかを返す（よけた先も消せなかったときは false）。
 func (in *installer) removeTrayExe(exe, command, why string) bool {
 	removeStale(exe)
 	err := os.Remove(exe)
