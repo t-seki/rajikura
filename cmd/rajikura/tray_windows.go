@@ -570,9 +570,10 @@ func (in *installer) removeTrayExe(exe, command, why string) bool {
 	case errors.Is(err, os.ErrNotExist):
 		return true
 	}
-	// 動いている exe は消せないが、名前は変えられる。
+	// 動いている exe は消せないが、名前は変えられる（よける道は 1 回目で通り、renameRetry は待たない）。
+	// 書いた直後・起動した直後で、別のプロセスが一時的に開いているだけなら、renameRetry が閉じるまで待つ。
 	aside := asideName(exe)
-	if rerr := os.Rename(exe, aside); rerr != nil {
+	if rerr := renameRetry(exe, aside); rerr != nil {
 		fmt.Fprintf(in.out, "トレイ %s を消せない（トレイを終了してから手で消してよい）: %v\n", exe, err)
 		return false
 	}
