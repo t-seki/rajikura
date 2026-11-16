@@ -1,4 +1,4 @@
-import { Alert, AppShell, Badge, Burger, Button, Group, Image, NavLink, Text, Title } from "@mantine/core";
+import { Alert, Anchor, AppShell, Badge, Burger, Button, Group, Image, NavLink, Text, Title } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
@@ -95,6 +95,9 @@ function useGo() {
 // 未読の数と帯の元（通知の /api/notifications/status と、設定の /api/settings）を読み直す間隔。
 const statusInterval = 60_000;
 
+// ヘッダーの右に出す、ソースのリポジトリ（AGPL-3.0 の第 13 条への案内。ADR 0044）。
+const sourceURL = "https://github.com/t-seki/rajikura";
+
 // version は /api/me の版。空ならナビに出さない。
 export function Shell({ onLogout, version }: { onLogout: () => Promise<void>; version: string }) {
   const [opened, { toggle, close }] = useDisclosure();
@@ -179,6 +182,10 @@ export function Shell({ onLogout, version }: { onLogout: () => Promise<void>; ve
               <Title order={3}>rajikura</Title>
             </Group>
           </Group>
+          {/* ソースへの案内（AGPL-3.0 の第 13 条。ADR 0044）。改造した版を提供するときは、自分のソースへ向ける */}
+          <Anchor href={sourceURL} target="_blank" rel="noreferrer" size="sm">
+            ソース（GitHub）
+          </Anchor>
         </Group>
       </AppShell.Header>
       <AppShell.Navbar p="xs" component="nav" aria-label="ナビゲーション">
