@@ -118,6 +118,10 @@ expect fail "<audio src> の外の URL" "$(build extaudio '<audio src="//example
 expect fail "style 属性の url() の外の URL" "$(build extstyleattr '<div style="background:url(https://example.com/a.png)"></div>')" "https://example.com/a.png"
 expect fail "<style> の image-set の文字列の外の URL" "$(build extimageset '<style>body{background-image:image-set("https://example.com/a.png" 1x)}</style>')" "https://example.com/a.png"
 expect fail "<style> の -webkit-image-set の文字列の外の URL" "$(build extwebkit "<style>body{background-image:-webkit-image-set('//example.com/a.png' 1x)}</style>")" "//example.com/a.png"
+expect fail "<style> の引用符無しの url() の外の URL" "$(build extcssurl '<style>body{background:url(https://example.com/a.png)}</style>')" "https://example.com/a.png"
+expect fail "大文字の HTTPS:// の <img src>" "$(build extupimg '<img src="HTTPS://example.com/a.png" alt="">')" "HTTPS://example.com/a.png"
+expect fail "大文字の URL( の style 属性" "$(build extupstyle '<div style="background:URL(HTTPS://example.com/a.png)"></div>')" "HTTPS://example.com/a.png"
+expect fail "大文字の IMAGE-SET の文字列" "$(build extupset '<style>body{background-image:IMAGE-SET("HTTPS://example.com/a.png" 1x)}</style>')" "HTTPS://example.com/a.png"
 expect pass "自分の相対パスの画像（img・srcset・poster・style 属性・image-set）" "$(build relimgs '<img src="images/jobs.png" srcset="images/jobs.png 2x" alt=""><video poster="images/jobs.png"></video><div style="background:url(images/jobs.png);left:0"></div><style>body{background-image:image-set("images/jobs.png" 1x)}</style>')"
 expect fail "index.html が無い" "$tmp/empty" "index.html が無い"
 

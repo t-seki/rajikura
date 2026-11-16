@@ -8,6 +8,8 @@
 #   外の URL を指さない。許すのは Google Fonts（https://fonts.googleapis.com の stylesheet と、そことhttps://fonts.gstatic.com への preconnect）だけ。
 #   canonical・alternate の link と <a href> は外の URL でもよい
 # - <style> の中に、外の @import・url() が無い（Google Fonts でも落とす）。src の無いインラインの <script> の中に、外の URL の import が無い
+# - <img>・<source> の src と srcset、<iframe>・<video>・<audio> の src、<video> の poster、どのタグでも style 属性の url()、<style> の中で url() でなく文字列で書いた外の URL（image-set など）が、
+#   外の URL（https://・http://・//。大文字小文字を問わない）を指さない
 # - OGP の meta（og:title・og:description・og:image）が有り、content が空でない。og:image は案内のサイトの URL（https://t-seki.github.io/rajikura/）から始まる絶対の URL で、その後ろのパスのファイルが組み立てた中に有る
 # タグは改行をまたいでもよく、属性の値は二重引用符・一重引用符・引用符無しのどれでも拾う。
 # 使い方: scripts/check-site.sh [組み立てた場所]   （既定は _site）
