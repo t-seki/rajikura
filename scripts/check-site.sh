@@ -8,6 +8,8 @@
 #   外の URL を指さない。許すのは Google Fonts（https://fonts.googleapis.com の stylesheet と、そことhttps://fonts.gstatic.com への preconnect）だけ。
 #   canonical・alternate の link と <a href> は外の URL でもよい
 # - <style> の中に、外の @import・url() が無い（Google Fonts でも落とす）。src の無いインラインの <script> の中に、外の URL の import が無い
+# - <img>・<source> の src と srcset、<iframe>・<video>・<audio> の src、<video> の poster、どのタグでも style 属性の url()、<style> の中で url() でなく文字列で書いた外の URL（image-set など）が、
+#   外の URL（https://・http://・//。大文字小文字を問わない）を指さない
 # - OGP の meta（og:title・og:description・og:image）が有り、content が空でない。og:image は案内のサイトの URL（https://t-seki.github.io/rajikura/）から始まる絶対の URL で、その後ろのパスのファイルが組み立てた中に有る
 # タグは改行をまたいでもよく、属性の値は二重引用符・一重引用符・引用符無しのどれでも拾う。
 # 使い方: scripts/check-site.sh [組み立てた場所]   （既定は _site）
@@ -83,6 +85,24 @@ fi
 if tags 'script' | attr src | grep -qiE '^(https?:)?//'; then bad "外の URL の <script src> がある"; fi
 if grep -qiE 'google-analytics|googletagmanager|gtag\(|plausible|matomo|piwik|clarity\.ms|hotjar|adsbygoogle|doubleclick|analytics' <<<"$flat"; then bad "アクセス解析か広告のタグがある"; fi
 
+# 画像・埋め込み・動画・音声・style 属性からの外の URL
+is_ext() { grep -qiE '^[[:space:]]*(https?:)?//' <<<"$1"; }
+while IFS= read -r u; do
+  [ -n "$u" ] && is_ext "$u" && bad "外の URL を読み込む <img>・<source> の src: $u"
+done <<<"$(tags 'img|source' | attr src)"
+while IFS= read -r u; do
+  [ -n "$u" ] && is_ext "$u" && bad "外の URL を読み込む <img>・<source> の srcset: $u"
+done <<<"$(tags 'img|source' | attr srcset | tr ',' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]].*$//')"
+while IFS= read -r u; do
+  [ -n "$u" ] && is_ext "$u" && bad "外の URL を読み込む <iframe>・<video>・<audio> の src: $u"
+done <<<"$(tags 'iframe|video|audio' | attr src)"
+while IFS= read -r u; do
+  [ -n "$u" ] && is_ext "$u" && bad "外の URL を読み込む <video> の poster: $u"
+done <<<"$(tags 'video' | attr poster)"
+while IFS= read -r m; do
+  [ -n "$m" ] && bad "style 属性の url() が外の URL を読み込んでいる: $m"
+done < <(tags '[a-zA-Z][a-zA-Z0-9-]*' | attr style | grep -oiE "url\([[:space:]]*[\"']?(https?:)?//[^)\"' ]*" || true)
+
 # ブラウザが開いただけで外へつなぎに行く link
 gf_css='https://fonts.googleapis.com'
 gf_pre1='https://fonts.googleapis.com'
@@ -118,6 +138,9 @@ while IFS= read -r piece; do
   while IFS= read -r m; do
     [ -n "$m" ] && bad "<style> の中で外の URL を読み込んでいる（@import・url()）: $m"
   done < <(grep -oiE "@import[[:space:]]*(url\([[:space:]]*)?[\"']?(https?:)?//[^;)\"' ]*|url\([[:space:]]*[\"']?(https?:)?//[^)\"' ]*" <<<"$body" || true)
+  while IFS= read -r m; do
+    [ -n "$m" ] && bad "<style> の中で外の URL を文字列で書いている（image-set など）: $m"
+  done < <(grep -oiE "[\"'][[:space:]]*(https?:)?//[^\"']*" <<<"$body" || true)
 done <<<"$(split_close style)"
 while IFS= read -r piece; do
   [ -n "$piece" ] || continue

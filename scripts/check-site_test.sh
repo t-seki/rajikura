@@ -106,6 +106,31 @@ expect fail "インラインの動的な import(...)" "$(build imp3 '<script>imp
 expect pass "インラインのスクリプトの相対の import" "$(build impok '<script type="module">import "./a.js";</script>')"
 expect fail "大文字の閉じタグの後ろに小文字の script が続く" "$(build impup "<SCRIPT type=\"module\">import \"https://example.com/m.js\";</SCRIPT><script>1</script>")" "インラインのスクリプトの中"
 expect fail "大文字の閉じタグの後ろに小文字の style が続く" "$(build styup "<STYLE>@import url(\"https://example.com/x.css\");</STYLE><style>p{}</style>")" "<style> の中"
+# 落ちたときの出力に含む文字列は、その検査の出す文ごと渡す（「指すファイルが有るか」の検査など、別の検査の文で当たらないように）
+m_src='外の URL を読み込む <img>・<source> の src: '
+m_srcset='外の URL を読み込む <img>・<source> の srcset: '
+m_embed='外の URL を読み込む <iframe>・<video>・<audio> の src: '
+m_poster='外の URL を読み込む <video> の poster: '
+m_attr='style 属性の url() が外の URL を読み込んでいる: '
+m_cssurl='<style> の中で外の URL を読み込んでいる（@import・url()）: '
+m_str='<style> の中で外の URL を文字列で書いている（image-set など）: '
+expect fail "<img src> の外の URL" "$(build extimg '<img src="https://example.com/a.png" alt="">')" "${m_src}https://example.com/a.png"
+expect fail "<img src> の外の URL（//・大文字）" "$(build extimg2 '<img src="//EXAMPLE.com/a.png" alt="">')" "${m_src}//EXAMPLE.com/a.png"
+expect fail "<img srcset> の外の URL" "$(build extsrcset '<img src="images/jobs.png" srcset="images/jobs.png 1x, //example.com/a.png 2x" alt="">')" "${m_srcset}//example.com/a.png"
+expect fail "<source srcset> の外の URL" "$(build extsrcset2 '<picture><source srcset="http://example.com/a.png 2x"></picture>')" "${m_srcset}http://example.com/a.png"
+expect fail "<source src> の外の URL" "$(build extsource '<video><source src="https://example.com/a.mp4"></video>')" "${m_src}https://example.com/a.mp4"
+expect fail "<iframe src> の外の URL" "$(build extiframe '<iframe src="https://example.com/f"></iframe>')" "${m_embed}https://example.com/f"
+expect fail "<video src> の外の URL" "$(build extvideo '<video src="https://example.com/v.mp4"></video>')" "${m_embed}https://example.com/v.mp4"
+expect fail "<video poster> の外の URL" "$(build extposter '<video poster="https://example.com/p.png"></video>')" "${m_poster}https://example.com/p.png"
+expect fail "<audio src> の外の URL" "$(build extaudio '<audio src="//example.com/a.mp3"></audio>')" "${m_embed}//example.com/a.mp3"
+expect fail "style 属性の url() の外の URL" "$(build extstyleattr '<div style="background:url(https://example.com/a.png)"></div>')" "${m_attr}url(https://example.com/a.png"
+expect fail "<style> の image-set の文字列の外の URL" "$(build extimageset '<style>body{background-image:image-set("https://example.com/a.png" 1x)}</style>')" "${m_str}\"https://example.com/a.png"
+expect fail "<style> の -webkit-image-set の文字列の外の URL" "$(build extwebkit "<style>body{background-image:-webkit-image-set('//example.com/a.png' 1x)}</style>")" "${m_str}'//example.com/a.png"
+expect fail "<style> の引用符無しの url() の外の URL" "$(build extcssurl '<style>body{background:url(https://example.com/a.png)}</style>')" "${m_cssurl}url(https://example.com/a.png"
+expect fail "大文字の HTTPS:// の <img src>" "$(build extupimg '<img src="HTTPS://example.com/a.png" alt="">')" "${m_src}HTTPS://example.com/a.png"
+expect fail "大文字の URL( の style 属性" "$(build extupstyle '<div style="background:URL(HTTPS://example.com/a.png)"></div>')" "${m_attr}URL(HTTPS://example.com/a.png"
+expect fail "大文字の IMAGE-SET の文字列" "$(build extupset '<style>body{background-image:IMAGE-SET("HTTPS://example.com/a.png" 1x)}</style>')" "${m_str}\"HTTPS://example.com/a.png"
+expect pass "自分の相対パスの画像（img・srcset・poster・style 属性・image-set）" "$(build relimgs '<img src="images/jobs.png" srcset="images/jobs.png 2x" alt=""><video poster="images/jobs.png"></video><div style="background:url(images/jobs.png);left:0"></div><style>body{background-image:image-set("images/jobs.png" 1x)}</style>')"
 expect fail "index.html が無い" "$tmp/empty" "index.html が無い"
 
 echo "通った: $passed 件、失敗: $failed 件"
