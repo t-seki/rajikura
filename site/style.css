@@ -82,7 +82,8 @@ footer{padding:30px 0 56px;color:var(--sub);font-size:14px}
   .hero,.three,.five dl,.pair,.side,.install{grid-template-columns:minmax(0,1fr)}
   .hero{padding:26px 0 60px;gap:34px}
   .hero h1{font-size:29px}
-  .lead{font-size:17px}
+  .lead{font-size:17px;text-wrap:balance;word-break:auto-phrase}
+  .lead span{display:inline}
   .anno{margin-right:-20px}
   .pin{width:20px;height:20px;margin:-10px 0 0 -10px;border-width:2px;box-shadow:0 0 0 1px #0050B3;font-size:11px;line-height:16px}
   .key{grid-template-columns:minmax(0,1fr);padding:10px 14px}
