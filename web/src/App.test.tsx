@@ -463,6 +463,19 @@ describe("App", () => {
     expect(await screen.findByLabelText("rajikura の版")).toHaveTextContent("v1.2.3");
   });
 
+  it("ログイン済みなら、どの画面でもヘッダーにソース（GitHub のリポジトリ）のリンクを出す", async () => {
+    window.history.replaceState(null, "", "/");
+    mockApi({ "GET /api/me": () => ({ status: 200, body: { authenticated: true, version: "v1.2.3" } }), ...showsRoutes });
+    renderApp();
+    const link = await screen.findByRole("link", { name: "ソース（GitHub のリポジトリ）" });
+    expect(link).toHaveAttribute("href", "https://github.com/t-seki/rajikura");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(link.querySelector("svg path")).not.toBeNull();
+    await userEvent.click(screen.getByRole("link", { name: "ジョブ" }));
+    expect(await screen.findByRole("heading", { name: "ジョブ" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "ソース（GitHub のリポジトリ）" })).toHaveAttribute("href", "https://github.com/t-seki/rajikura");
+  });
+
   it("未ログインの画面には版を出さない", async () => {
     mockApi({ "GET /api/me": () => ({ status: 401, body: { version: "v1.2.3" } }) });
     renderApp();
